@@ -1,0 +1,41 @@
+{
+  "planner": {
+    "model": "glm-5.2:cloud",
+    "provider": "ollama",
+    "role": "Generates spec and plan. Better at reasoning and architecture. Also serves as consultant when worker is stuck.",
+    "skills": [
+      "spec-driven-development",
+      "planning-and-task-breakdown",
+      "doubt-driven-development",
+      "source-driven-development"
+    ]
+  },
+  "worker": {
+    "model": "qwen2.5-coder:latest",
+    "provider": "ollama",
+    "role": "Executes issues, writes code, runs tests. The coder.",
+    "skills": [
+      "incremental-implementation",
+      "test-driven-development",
+      "context-engineering",
+      "source-driven-development",
+      "doubt-driven-development",
+      "frontend-ui-engineering",
+      "api-and-interface-design",
+      "debugging-and-error-recovery"
+    ]
+  },
+  "consultant": {
+    "model": "glm-5.2:cloud",
+    "provider": "ollama",
+    "role": "Resolves doubts when worker is stuck",
+    "skills": [
+      "doubt-driven-development",
+      "source-driven-development"
+    ]
+  },
+  "fallback": {
+    "method": "web-search",
+    "package": "npm:@ollama/pi-web-search"
+  }
+}

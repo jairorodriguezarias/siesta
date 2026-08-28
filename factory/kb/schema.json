@@ -1,0 +1,45 @@
+{
+  "node_types": {
+    "spec": {
+      "description": "Project specification",
+      "fields": ["summary", "detail", "project_name", "stack"]
+    },
+    "issue": {
+      "description": "A task to execute",
+      "fields": ["summary", "detail", "status", "acceptance_criteria"]
+    },
+    "decision": {
+      "description": "A technical decision made during development",
+      "fields": ["summary", "detail", "rationale", "alternatives"]
+    },
+    "blocker": {
+      "description": "Something that blocked progress and how it was resolved",
+      "fields": ["summary", "detail", "resolution", "resolved_by"]
+    },
+    "learning": {
+      "description": "A lesson learned during development",
+      "fields": ["summary", "detail", "applied_to"]
+    },
+    "consultation": {
+      "description": "A consultation between worker and consultant",
+      "fields": ["summary", "detail", "question", "answer", "model"]
+    },
+    "proxy_decision": {
+      "description": "A decision made by the human-proxy agent acting as human stand-in",
+      "fields": ["summary", "detail", "decision", "reasoning", "kb_evidence", "conditions"]
+    },
+    "intent": {
+      "description": "The original human intent captured during the interactive phase",
+      "fields": ["summary", "detail", "human_input", "refined_idea"]
+    }
+  },
+  "edge_types": {
+    "applied_to": "Decision/learning was applied to this issue/module",
+    "caused_by": "Blocker was caused by this decision/issue",
+    "resolved_by": "Blocker was resolved by this decision/consultation",
+    "depends_on": "Issue depends on another issue",
+    "parent_of": "Spec is parent of these issues",
+    "consulted_for": "Consultant was consulted for this issue",
+    "learned_from": "Learning was derived from this issue/blocker"
+  }
+}
