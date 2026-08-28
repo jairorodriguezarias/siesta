@@ -1,2 +1,21 @@
+# macOS
 .DS_Store
 */.DS_Store
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Project outputs (each project has its own git repo)
+factory/projects/
+
+# Pipeline checkpoints
+.pipeline-checkpoint
+
+# Logs
+*.log

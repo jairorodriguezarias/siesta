@@ -59,6 +59,12 @@ case "$CMD" in
     SUMMARY="$4"
     DETAIL="${5:-}"
     
+    # Ensure parent directory exists (fixes 'No such file or directory')
+    mkdir -p "$(dirname "$GRAPH_FILE")" 2>/dev/null
+    if [ ! -f "$GRAPH_FILE" ]; then
+      echo '{"nodes": [], "edges": []}' > "$GRAPH_FILE"
+    fi
+    
     # Generate unique ID
     NODE_ID="n$(date +%s)_$RANDOM"
     
@@ -93,6 +99,12 @@ case "$CMD" in
     FROM_ID="$3"
     TO_ID="$4"
     EDGE_TYPE="$5"
+
+    # Ensure parent directory and file exist
+    mkdir -p "$(dirname "$GRAPH_FILE")" 2>/dev/null
+    if [ ! -f "$GRAPH_FILE" ]; then
+      echo '{"nodes": [], "edges": []}' > "$GRAPH_FILE"
+    fi
 
     jq --arg from "$FROM_ID" \
        --arg to "$TO_ID" \

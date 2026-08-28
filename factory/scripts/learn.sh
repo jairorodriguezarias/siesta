@@ -11,6 +11,13 @@ set -e
 PROJECT_DIR="${1:-.}"
 PROJECT_NAME="${2:-unknown}"
 
+# Validate project directory
+if [ ! -d "$PROJECT_DIR" ]; then
+  echo "[$(date +%H:%M:%S)] learn.sh: Project directory does not exist: $PROJECT_DIR" >&2
+  echo "[$(date +%H:%M:%S)] Skipping project-level learning." >&2
+  exit 0
+fi
+
 FACTORY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SKILLS_DIR="$FACTORY_DIR/.agents/skills"
 FACTORY_SKILLS_DIR="$FACTORY_DIR/skills"
@@ -34,13 +41,17 @@ log_learn() { echo -e "${CYAN}[$(date +%H:%M:%S)] 🧠${NC} $1" >&2; }
 
 log "Phase 7: PROJECT-LEVEL LEARNING — Analyzing cross-issue patterns..."
 
-# ─── Read all per-issue learnings from this project ───
+># ─── Read all per-issue learnings from this project ───
 ISSUE_LEARNINGS=""
 for f in "$PROJECT_DIR"/learning_issue_*.txt; do
   if [ -f "$f" ]; then
     ISSUE_LEARNINGS="${ISSUE_LEARNINGS}$(cat "$f" | grep -A 30 "ISSUE_LEARNING")\n---\n"
   fi
 done
+# Handle case where no learning files exist (glob didn't match)
+if [ -z "$ISSUE_LEARNINGS" ]; then
+  ISSUE_LEARNINGS="No per-issue learning files found."
+fi
 
 # ─── Read global KB (includes per-issue learnings already logged) ───
 GLOBAL_SUMMARIES=$("$KB_SCRIPT" query "$GLOBAL_KB" --summary-only 2>/dev/null || echo "[]")

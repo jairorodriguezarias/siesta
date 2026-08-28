@@ -47,12 +47,14 @@ echo -e "${NC}"
 
 if [ -z "$1" ]; then
   echo -e "${YELLOW}Usage:${NC}"
-  echo "  ./factory/bin/siesta.sh \"<project idea>\""
+  echo "  ./factory/bin/siesta.sh \"<project idea>\" [--auto]"
   echo ""
   echo -e "${YELLOW}Examples:${NC}"
   echo "  ./factory/bin/siesta.sh \"Build a CLI pomodoro timer in Python\""
-  echo "  ./factory/bin/siesta.sh \"Create a REST API for a todo app with Node\""
-  echo "  ./factory/bin/siesta.sh \"Make a markdown to HTML converter CLI tool\""
+  echo "  ./factory/bin/siesta.sh --auto \"Build a CLI pomodoro timer in Python\""
+  echo ""
+  echo -e "${CYAN}--auto: Skip interview phase, use idea as intent directly.${NC}"
+  echo -e "${CYAN}Pass --auto when the idea is already detailed enough.${NC}"
   echo ""
   echo -e "${CYAN}💤 Go take a siesta. Come back to working code.${NC}"
   echo ""
@@ -62,8 +64,14 @@ fi
 echo -e "${BLUE}━━━ Starting Siesta 💤 ━━━${NC}"
 echo -e "${BLUE}Idea:${NC} $1"
 echo ""
-echo -e "${YELLOW}The agent will ask you questions first. Then you can leave.${NC}"
-echo ""
+
+if echo "$@" | grep -q -- "--auto"; then
+  echo -e "${CYAN}Auto mode: skipping interview. Using idea as intent directly.${NC}"
+  echo ""
+else
+  echo -e "${YELLOW}The agent will ask you questions first. Then you can leave.${NC}"
+  echo ""
+fi
 
 # Run the pipeline
-exec "$FACTORY_DIR/scripts/run-pipeline.sh" "$1"
+exec "$FACTORY_DIR/scripts/run-pipeline.sh" "$@"

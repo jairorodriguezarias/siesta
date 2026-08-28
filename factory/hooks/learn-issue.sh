@@ -10,6 +10,12 @@ set -e
 PROJECT_DIR="${1:-.}"
 ISSUE_NUM="${2:-0}"
 
+# Validate project directory
+if [ ! -d "$PROJECT_DIR" ]; then
+  echo "[$(date +%H:%M:%S)] learn-issue.sh: Project directory does not exist: $PROJECT_DIR" >&2
+  exit 0
+fi
+
 FACTORY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SKILLS_DIR="$FACTORY_DIR/.agents/skills"
 FACTORY_SKILLS_DIR="$FACTORY_DIR/skills"
@@ -74,7 +80,10 @@ if [ "$(echo "$BLOCKER_CHECK" | jq 'length' 2>/dev/null)" -gt 0 ]; then
 fi
 
 # Issue text
-ISSUE_TEXT=$(awk "/^## Issue #$ISSUE_NUM/{flag=1; next} /^## Issue #/{flag=0} flag" "$PROJECT_DIR/issues.md" 2>/dev/null | head -30)
+ISSUE_TEXT="$(awk "/^## Issue #$ISSUE_NUM/{flag=1; next} /^## Issue #/{flag=0} flag" "$PROJECT_DIR/issues.md" 2>/dev/null | head -30)"
+if [ -z "$ISSUE_TEXT" ]; then
+  ISSUE_TEXT="Issue #$ISSUE_NUM (text not found in issues.md)"
+fi
 
 # Global KB context
 GLOBAL_SUMMARIES=$("$KB_SCRIPT" query "$GLOBAL_KB" --summary-only 2>/dev/null || echo "[]")

@@ -15,6 +15,12 @@ OUTPUT_FILE="${3:-/dev/null}"
 KB_FILE="$PROJECT_DIR/kb/graph.json"
 KB_SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/scripts/kb-manager.sh"
 
+# Ensure kb directory exists (fixes 'No such file or directory' when called outside pipeline)
+mkdir -p "$(dirname "$KB_FILE")"
+if [ ! -f "$KB_FILE" ]; then
+  echo '{"nodes": [], "edges": []}' > "$KB_FILE"
+fi
+
 echo "[$(date +%H:%M:%S)] post-issue: Logging issue #$ISSUE_NUM to KB" >&2
 
 # Read the issue output (truncate to reasonable size for KB)
