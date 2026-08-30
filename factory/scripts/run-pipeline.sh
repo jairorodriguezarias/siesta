@@ -33,10 +33,8 @@ done
 
 FACTORY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECTS_DIR="$FACTORY_DIR/projects"
-SKILLS_DIR="$FACTORY_DIR/.agents/skills"
+SKILLS_DIR="$FACTORY_DIR/../.agents/skills"
 FACTORY_SKILLS_DIR="$FACTORY_DIR/skills"
-AGENTS_DIR="$FACTORY_DIR/.agents/agents"
-REFERENCES_DIR="$FACTORY_DIR/.agents/references"
 HOOKS_DIR="$FACTORY_DIR/hooks"
 KB_SCRIPT="$FACTORY_DIR/scripts/kb-manager.sh"
 CONFIG_FILE="$FACTORY_DIR/config/models.json"
