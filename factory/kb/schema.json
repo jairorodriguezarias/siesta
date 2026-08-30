@@ -31,6 +31,10 @@
     "intent": {
       "description": "The original human intent captured during the interactive phase",
       "fields": ["summary", "detail", "human_input", "refined_idea"]
+    },
+    "principle": {
+      "description": "A standing architectural principle that constrains all projects and the factory itself",
+      "fields": ["summary", "detail", "rationale", "scope"]
     }
   },
   "edge_types": {

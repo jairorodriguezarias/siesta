@@ -1,1 +1,33 @@
-{"nodes": [], "edges": []}
+{
+  "nodes": [
+    {
+      "id": "n1788094473_27899",
+      "type": "principle",
+      "summary": "Personal projects only — runs entirely on the local computer",
+      "detail": "All generated projects are personal-use software. They execute only on the user's local machine with minimal infrastructure. No cloud services, no deployment pipelines, no remote dependencies, no multi-user concerns.",
+      "created_at": "2026-08-30T12:54:33Z"
+    },
+    {
+      "id": "n1788094473_15604",
+      "type": "principle",
+      "summary": "Simplicity is the core rule — fewer lines of code wins",
+      "detail": "Simplify the process and the code. When two designs work, choose the one with fewer lines and less machinery. Brevity is the primary quality metric; complexity must justify itself or be deleted.",
+      "created_at": "2026-08-30T12:54:33Z"
+    },
+    {
+      "id": "n1788094473_3309",
+      "type": "principle",
+      "summary": "Code must explain itself",
+      "detail": "Auto-explaining code: clear names, small functions, obvious structure. The code should read like documentation without needing separate docs; add comments only where logic is genuinely non-obvious.",
+      "created_at": "2026-08-30T12:54:33Z"
+    },
+    {
+      "id": "n1788094473_23781",
+      "type": "principle",
+      "summary": "Python is the default language",
+      "detail": "Use Python for personal projects by default. Prefer stdlib over external dependencies; keep dependency lists minimal or empty.",
+      "created_at": "2026-08-30T12:54:33Z"
+    }
+  ],
+  "edges": []
+}

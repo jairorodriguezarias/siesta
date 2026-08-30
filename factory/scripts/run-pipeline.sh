@@ -205,6 +205,9 @@ else
 
   KB_SUMMARIES=$("$KB_SCRIPT" query "$PROJECT_DIR/kb/graph.json" --summary-only 2>/dev/null || echo "[]")
 
+  # Standing architectural principles from the global KB (apply to every project)
+  PRINCIPLES=$("$KB_SCRIPT" query "$FACTORY_DIR/kb/global-graph.json" --type principle --summary-only 2>/dev/null || echo "[]")
+
   # Pass models.json content for accuracy
   MODELS_CONFIG=$(cat "$CONFIG_FILE")
 
@@ -220,6 +223,9 @@ $INTENT
 
 KB context:
 $KB_SUMMARIES
+
+Standing architectural principles (mandatory for every project):
+$PRINCIPLES
 
 Model config (use these exact model names in any documentation):
 $MODELS_CONFIG
@@ -520,6 +526,7 @@ $content"
     # ─── Hook: pre-issue ───
     "$HOOKS_DIR/pre-issue.sh" "$PROJECT_DIR" "$CURRENT_ISSUE" > "$PROJECT_DIR/pre_issue_${CURRENT_ISSUE}.json" 2>/dev/null || true
     KB_SUMMARIES=$(cat "$PROJECT_DIR/pre_issue_${CURRENT_ISSUE}.json" 2>/dev/null | jq -c '.kb_summaries' 2>/dev/null || echo "[]")
+    PRINCIPLES=$(cat "$PROJECT_DIR/pre_issue_${CURRENT_ISSUE}.json" 2>/dev/null | jq -c '.principles' 2>/dev/null || echo "[]")
 
     # ─── Gather existing source files for context ───
     SOURCE_CONTEXT=$(gather_source_files "$PROJECT_DIR")
@@ -539,6 +546,9 @@ $ISSUE_TEXT
 
 KB Context:
 $KB_SUMMARIES
+
+Architectural principles (mandatory, see simplicity rule — fewer lines wins):
+$PRINCIPLES
 
 Existing source files in the project:
 $SOURCE_CONTEXT

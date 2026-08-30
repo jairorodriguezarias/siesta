@@ -28,19 +28,18 @@ LEARNINGS=$("$KB_SCRIPT" query "$KB_FILE" --type learning --summary-only 2>/dev/
 # Get blockers (to avoid repeating mistakes)
 BLOCKERS=$("$KB_SCRIPT" query "$KB_FILE" --type blocker --summary-only 2>/dev/null || echo "[]")
 
+# Standing architectural principles (global KB — apply to every project)
+GLOBAL_KB="$(dirname "$KB_SCRIPT")/../kb/global-graph.json"
+PRINCIPLES=$("$KB_SCRIPT" query "$GLOBAL_KB" --type principle --summary-only 2>/dev/null || echo "[]")
+
 # Output JSON to stdout for the pipeline to consume
 jq -n \
+  --arg ISSUE_NUM "$ISSUE_NUM" \
   --argjson summaries "$SUMMARIES" \
   --argjson decisions "$DECISIONS" \
   --argjson learnings "$LEARNINGS" \
   --argjson blockers "$BLOCKERS" \
-  '{
-    issue: $ISSUE_NUM,
-    kb_summaries: $summaries,
-    decisions: $decisions,
-    learnings: $learnings,
-    blockers: $blockers
-  }' --arg ISSUE_NUM "$ISSUE_NUM" \
-  '{issue: $ISSUE_NUM, kb_summaries: $summaries, decisions: $decisions, learnings: $learnings, blockers: $blockers}'
+  --argjson principles "$PRINCIPLES" \
+  '{issue: $ISSUE_NUM, kb_summaries: $summaries, decisions: $decisions, learnings: $learnings, blockers: $blockers, principles: $principles}'
 
 echo "[$(date +%H:%M:%S)] pre-issue: KB context loaded ($(echo "$SUMMARIES" | jq length) nodes)" >&2
