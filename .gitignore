@@ -14,6 +14,10 @@ venv/
 # Project outputs (each project has its own git repo)
 factory/projects/
 
+# Runtime skill views (recreated by setup-github.sh)
+.claude/
+.pi/
+
 # Pipeline checkpoints
 .pipeline-checkpoint
 
