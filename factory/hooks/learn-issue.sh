@@ -168,6 +168,7 @@ ISSUE_LEARNING #$ISSUE_NUM:
   SKILL_UPDATE_END"
 
 LEARN_OUTPUT=$(pi -p --model "$WORKER_MODEL" --provider "$WORKER_PROVIDER" \
+  --thinking off \
   --skill "$FACTORY_SKILLS_DIR/factory-learner/" \
   --skill "$FACTORY_SKILLS_DIR/kb-manager/" \
   --append-system-prompt "$LEARN_PROMPT" \

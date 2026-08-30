@@ -41,7 +41,7 @@ log_learn() { echo -e "${CYAN}[$(date +%H:%M:%S)] 🧠${NC} $1" >&2; }
 
 log "Phase 7: PROJECT-LEVEL LEARNING — Analyzing cross-issue patterns..."
 
-># ─── Read all per-issue learnings from this project ───
+# ─── Read all per-issue learnings from this project ───
 ISSUE_LEARNINGS=""
 for f in "$PROJECT_DIR"/learning_issue_*.txt; do
   if [ -f "$f" ]; then
@@ -135,6 +135,7 @@ PROJECT_LEARNING:
   SKILL_UPDATE_END"
 
 LEARN_OUTPUT=$(pi -p --model "$WORKER_MODEL" --provider "$WORKER_PROVIDER" \
+  --thinking off \
   --skill "$FACTORY_SKILLS_DIR/factory-learner/" \
   --skill "$FACTORY_SKILLS_DIR/kb-manager/" \
   --append-system-prompt "$LEARN_PROMPT" \

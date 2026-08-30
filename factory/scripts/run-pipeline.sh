@@ -228,7 +228,8 @@ $MODELS_CONFIG
 
 Create spec.md with: project name, tech stack, structure, features, acceptance criteria, testing approach, boundaries.
 Write the spec to spec.md. Be concise. Do NOT ask questions — decide autonomously.
-Do NOT write code — only write the spec document." \
+Do NOT write code, do NOT create any files other than spec.md, do NOT build the product.
+You are writing a SPECIFICATION DOCUMENT only." \
     "$INTENT" 2>&1 | tee "$PROJECT_DIR/spec_output.txt"
 
   if [ ! -f "$PROJECT_DIR/spec.md" ]; then
@@ -350,7 +351,23 @@ else
 
   CURRENT_ISSUE=1
   BLOCKED_ISSUES=()
-  declare -A ISSUE_FAIL_COUNT
+  # Use regular array instead of associative array (bash 3.2 on macOS doesn't support -A)
+  # ISSUE_FAIL_COUNT is indexed by issue number (integer)
+  ISSUE_FAIL_COUNT=()
+
+  # Helper: get fail count for an issue (works without associative arrays)
+  get_fail_count() {
+    local issue=$1
+    echo "${ISSUE_FAIL_COUNT[$issue]:-0}"
+  }
+
+  # Helper: increment fail count for an issue
+  inc_fail_count() {
+    local issue=$1
+    local current=$(get_fail_count $issue)
+    ISSUE_FAIL_COUNT[$issue]=$((current + 1))
+    echo $((current + 1))
+  }
 
   # ─── Stop signal check ───
   check_stop() {
@@ -583,18 +600,17 @@ Decide: APPROVED, REJECTED, or NEEDS_REVISION." \
       fi
     fi
 
-    ISSUE_FAIL_COUNT[$CURRENT_ISSUE]=0
     PREVIOUS_FAILURES=""
 
     # ─── Check: CONSULT ───
     if echo "$ISSUE_OUTPUT" | grep -q "CONSULT:"; then
-      ISSUE_FAIL_COUNT[$CURRENT_ISSUE]=$((${ISSUE_FAIL_COUNT[$CURRENT_ISSUE]} + 1))
-      FAIL_NUM=${ISSUE_FAIL_COUNT[$CURRENT_ISSUE]}
+      FAIL_NUM=$(inc_fail_count $CURRENT_ISSUE)
+      FAIL_COUNT=$(get_fail_count $CURRENT_ISSUE)
       log_warn "Worker stuck (attempt $FAIL_NUM), consulting GLM-5.2..."
       CONSULT_TEXT=$(echo "$ISSUE_OUTPUT" | grep -A 50 "CONSULT:")
       PREVIOUS_FAILURES="${PREVIOUS_FAILURES}Attempt $FAIL_NUM: $CONSULT_TEXT\n"
 
-      if [ "${ISSUE_FAIL_COUNT[$CURRENT_ISSUE]}" -ge 3 ]; then
+      if [ "$FAIL_COUNT" -ge 3 ]; then
         log_warn "3 failures on issue #$CURRENT_ISSUE. Triggering deep diagnosis..."
 
         DIAGNOSIS_OUTPUT=$(diagnose_blocker "$CURRENT_ISSUE" "$ISSUE_TEXT" "${PREVIOUS_FAILURES}" "$KB_SUMMARIES")
@@ -643,7 +659,7 @@ $ISSUE_TEXT" \
           continue
         fi
       else
-        CONSULT_OUTPUT=$(consult_glm "$CURRENT_ISSUE" "$CONSULT_TEXT" "$KB_SUMMARIES" "${ISSUE_FAIL_COUNT[$CURRENT_ISSUE]}")
+        CONSULT_OUTPUT=$(consult_glm "$CURRENT_ISSUE" "$CONSULT_TEXT" "$KB_SUMMARIES" "$FAIL_COUNT")
 
         echo "$CONSULT_OUTPUT" > "$PROJECT_DIR/consult_${CURRENT_ISSUE}_output.txt"
         "$KB_SCRIPT" append-node "$PROJECT_DIR/kb/graph.json" "consultation" \
