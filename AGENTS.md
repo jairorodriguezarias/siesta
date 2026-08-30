@@ -6,7 +6,7 @@ This document describes the autonomous agent system that powers Siesta: the role
 
 ## Overview
 
-Siesta uses a **dual-model architecture** with two local Ollama models playing distinct roles. A pipeline orchestrator (`run-pipeline.sh`) coordinates them across 7 phases, with hooks for pre-issue context loading, post-issue logging, and per-issue learning.
+Siesta uses a **dual-model architecture** with two Ollama models playing distinct roles. A pipeline orchestrator (`run-pipeline.sh`) coordinates them across 7 phases, with hooks for pre-issue context loading, post-issue logging, and per-issue learning.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
