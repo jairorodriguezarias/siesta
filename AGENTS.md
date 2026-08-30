@@ -63,7 +63,7 @@ Siesta uses a **dual-model architecture** with two Ollama models playing distinc
 - `spec-driven-development` (Phase 1)
 - `planning-and-task-breakdown` (Phase 2)
 
-**KB interaction:** Logs the human intent as a node, then the spec as a node, then each issue as a node, with `parent_of` edges linking them.
+**KB interaction:** Loads standing architectural principles from the global KB before writing the spec (they are mandatory for every project). Logs the human intent as a node, then the spec as a node, then each issue as a node, with `parent_of` edges linking them.
 
 ---
 
@@ -92,7 +92,7 @@ CODE: <relevant code or error>
 ```
 The orchestrator routes this to the Consultant. The worker does NOT guess.
 
-**KB interaction:** Queries KB summaries before each issue (`pre-issue.sh`). Logs decisions and learnings via `post-issue.sh`.
+**KB interaction:** Queries KB summaries before each issue (`pre-issue.sh`). The pre-issue context also includes the global KB's standing architectural principles — the worker must respect them in every issue. Logs decisions and learnings via `post-issue.sh`.
 
 ---
 
@@ -304,7 +304,18 @@ kb-manager.sh init-project kb/graph.json
 | KB | Location | Scope | Purpose |
 |----|----------|-------|---------|
 | Project KB | `factory/projects/<name>/kb/graph.json` | One project | Track decisions, blockers, consultations for this project |
-| Global KB | `factory/kb/global-graph.json` | All projects | Accumulated learnings across projects; the factory's long-term memory |
+| Global KB | `factory/kb/global-graph.json` | All projects | Standing architectural principles (node type `principle`) plus accumulated learnings across projects — the factory's long-term memory |
+
+### Standing Architectural Principles
+
+The global KB holds `principle` nodes — standing rules that constrain every project. They are injected automatically into the Phase 1 spec prompt and into every per-issue worker context (`pre-issue.sh`). Current principles (query with `kb-manager.sh query factory/kb/global-graph.json --type principle --summary-only`):
+
+1. Personal projects only — runs entirely on the local computer, minimal infrastructure
+2. Simplicity is the core rule — fewer lines of code wins
+3. Code must explain itself
+4. Python is the default language
+
+To change them: update the `principle` nodes in the global KB — every pipeline run reads them fresh.
 
 ---
 
@@ -343,6 +354,19 @@ description: When to use this skill and what it does
 ```
 
 Skills are loaded by the Pi agent via `--skill` flags. The agent follows the skill's process, avoids rationalizations, watches for red flags, and checks the verification gate.
+
+### Skill Locations — Sources vs Views
+
+Two folders hold real skill files (sources of truth); two are symlink-only views for different CLIs. Never edit a view — always edit the source.
+
+| Folder | What | Nature |
+|--------|------|--------|
+| `.agents/skills/` | 10 addyosmani skills | Source — pristine, unmodified, re-syncable via `npx skills add addyosmani/agent-skills` |
+| `factory/skills/` | 5 factory skills | Source — self-improving, editable by the factory-learner |
+| `.pi/skills/` | 15 symlinks | View — what the `pi` CLI sees during the pipeline |
+| `.claude/skills/` | 15 symlinks | View — what Claude Code sees in interactive use |
+
+The view folders are gitignored and recreated by `setup-github.sh`, which is the single place that manages symlinks. When adding a skill, add it to a source folder and regenerate; the learner may only touch `factory/skills/`.
 
 ### Skill Categories
 
@@ -407,7 +431,7 @@ The learner can modify factory skills (add Red Flags, Rationalizations, Process 
 ### Add a new factory skill
 
 1. Create `factory/skills/<skill-name>/SKILL.md` with the standard format
-2. Symlink it for Pi: `ln -s ../../factory/skills/<skill-name> .pi/skills/<skill-name>`
+2. Symlink it into both views: `ln -s ../../factory/skills/<skill-name> .pi/skills/<skill-name> && ln -s ../../factory/skills/<skill-name> .claude/skills/<skill-name>`
 3. Reference it in the pipeline via `--skill "$FACTORY_SKILLS_DIR/<skill-name>/"`
 4. The factory-learner may automatically create skills if it detects novel patterns
 
