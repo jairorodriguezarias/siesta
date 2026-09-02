@@ -49,6 +49,14 @@ def phase(n: int | str, title: str) -> None:
     print(f"{_CYAN}══━─ Phase {n}: {title} ─━══{_NC}", file=sys.stderr)
 
 
+def _child_env() -> dict:
+    """Env for pi children: models must be able to run the KB shim
+    (`python3 -m pipeline.kb ...`) from the project cwd, so the factory
+    dir has to stay on PYTHONPATH regardless of how we were launched."""
+    path = os.environ.get("PYTHONPATH", "")
+    return {**os.environ, "PYTHONPATH": f"{FACTORY}{os.pathsep}{path}".rstrip(os.pathsep)}
+
+
 def build_args(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
                interactive: bool = False, tools: str | None = None) -> list[str]:
     """One canonical pi argument list — order matters only for readability.
@@ -83,11 +91,12 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
     args = build_args(role, body, user, skills=skills, thinking=thinking,
                       interactive=interactive, tools=tools)
     where = str(cwd) if cwd else None
+    env = _child_env()
     if interactive:
         # Phase 0 conversation: stream to the human while recording (tee).
         chunks: list[str] = []
         with subprocess.Popen(args, stdout=subprocess.PIPE, text=True,
-                              cwd=where) as p:
+                              cwd=where, env=env) as p:
             for line in p.stdout:
                 print(line, end="")
                 chunks.append(line)
@@ -95,7 +104,8 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
         text_out = "".join(chunks)
         _maybe_write(artifact, text_out)
         return text_out
-    result = subprocess.run(args, capture_output=True, text=True, cwd=where)
+    result = subprocess.run(args, capture_output=True, text=True, cwd=where,
+                            env=env)
     # Bash piped everything through 2>&1; models sometimes narrate on stderr.
     text_out = (result.stdout or "") + (result.stderr or "")
     _maybe_write(artifact, text_out)

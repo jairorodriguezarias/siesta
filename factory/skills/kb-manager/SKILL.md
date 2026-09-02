@@ -43,19 +43,19 @@ Manages the file-based JSON knowledge graph. Nodes store typed information (deci
 
 **Level 1 — Summary only** (default, cheap):
 ```bash
-kb-manager.sh query kb/graph.json --summary-only
+python3 -m pipeline.kb query kb/graph.json --summary-only
 # Returns: [{id, type, summary}] — minimal tokens
 ```
 
 **Level 2 — Full node** (on demand, when an issue needs detail):
 ```bash
-kb-manager.sh get-node kb/graph.json n1234_5678
+python3 -m pipeline.kb get-node kb/graph.json n1234_5678
 # Returns: full node with detail field
 ```
 
 **Level 3 — Filtered by type** (when you need all decisions, or all blockers):
 ```bash
-kb-manager.sh query kb/graph.json --type decision --summary-only
+python3 -m pipeline.kb query kb/graph.json --type decision --summary-only
 ```
 
 ## Operations
@@ -63,37 +63,37 @@ kb-manager.sh query kb/graph.json --type decision --summary-only
 ### Query (read)
 ```bash
 # All summaries (cheapest)
-kb-manager.sh query kb/graph.json --summary-only
+python3 -m pipeline.kb query kb/graph.json --summary-only
 
 # All decisions only
-kb-manager.sh query kb/graph.json --type decision --summary-only
+python3 -m pipeline.kb query kb/graph.json --type decision --summary-only
 
 # Full detail for a specific node
-kb-manager.sh get-node kb/graph.json n1234_5678
+python3 -m pipeline.kb get-node kb/graph.json n1234_5678
 
 # List everything (quick overview)
-kb-manager.sh list-all kb/graph.json
+python3 -m pipeline.kb list-all kb/graph.json
 ```
 
 ### Append Node (write)
 ```bash
 # Log a decision
-kb-manager.sh append-node kb/graph.json "decision" \
+python3 -m pipeline.kb append-node kb/graph.json "decision" \
   "Used argparse for CLI parsing" \
   "Qwen chose argparse over click for zero dependencies. Click requires extra pip install."
 
 # Log a blocker
-kb-manager.sh append-node kb/graph.json "blocker" \
+python3 -m pipeline.kb append-node kb/graph.json "blocker" \
   "Timer drift on long sessions" \
   "time.time() drifts. Fixed by using time.monotonic(). Suggested by the consultant."
 
 # Log a learning
-kb-manager.sh append-node kb/graph.json "learning" \
+python3 -m pipeline.kb append-node kb/graph.json "learning" \
   "Always use monotonic for timers" \
   "time.time() is affected by system clock changes. time.monotonic() is immune."
 
 # Log a consultation
-kb-manager.sh append-node kb/graph.json "consultation" \
+python3 -m pipeline.kb append-node kb/graph.json "consultation" \
   "Consultant advised on timer drift" \
   "Worker asked about timer drift. Consultant recommended time.monotonic(). Confidence: high."
 ```
@@ -101,18 +101,18 @@ kb-manager.sh append-node kb/graph.json "consultation" \
 ### Append Edge (link)
 ```bash
 # Decision was applied to an issue
-kb-manager.sh append-edge kb/graph.json n1234_5678 n9012_3456 applied_to
+python3 -m pipeline.kb append-edge kb/graph.json n1234_5678 n9012_3456 applied_to
 
 # Blocker was resolved by a consultation
-kb-manager.sh append-edge kb/graph.json n3456_7890 n5678_9012 resolved_by
+python3 -m pipeline.kb append-edge kb/graph.json n3456_7890 n5678_9012 resolved_by
 
 # Learning was learned from a blocker
-kb-manager.sh append-edge kb/graph.json n5678_9012 n3456_7890 learned_from
+python3 -m pipeline.kb append-edge kb/graph.json n5678_9012 n3456_7890 learned_from
 ```
 
 ### Initialize (new project)
 ```bash
-kb-manager.sh init-project kb/graph.json
+python3 -m pipeline.kb init-project kb/graph.json
 ```
 
 ## Common Rationalizations

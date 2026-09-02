@@ -17,7 +17,7 @@ After EVERY issue is executed, Qwen 2.5 analyzes what happened and learns from i
 
 ### Level 1: Per-Issue Learning (after each issue)
 
-Runs immediately after `post-issue.sh`. Qwen analyzes:
+Runs immediately after the issue's post hooks (the per-issue learning step in `pipeline/learn.py`). Qwen analyzes:
 
 1. **Did I get stuck? (CONSULT)**
    - What was the question?
@@ -153,7 +153,7 @@ factory/skills/<new-skill-name>/SKILL.md
 
 Log to global KB:
 ```bash
-kb-manager.sh append-node factory/kb/global-graph.json "learning" \
+python3 -m pipeline.kb append-node factory/kb/global-graph.json "learning" \
   "<one-line summary>" \
   "<full detail: which issue, what happened, what was learned>"
 ```
@@ -164,17 +164,17 @@ Always log to global KB so future issues and projects benefit:
 
 ```bash
 # If there was a blocker
-kb-manager.sh append-node factory/kb/global-graph.json "blocker" \
+python3 -m pipeline.kb append-node factory/kb/global-graph.json "blocker" \
   "Issue #N: <blocker summary>" \
   "<what caused it, how it was resolved>"
 
 # If there was a consultation worth preserving
-kb-manager.sh append-node factory/kb/global-graph.json "consultation" \
+python3 -m pipeline.kb append-node factory/kb/global-graph.json "consultation" \
   "Issue #N: <consultation summary>" \
   "<question + answer + model>"
 
 # If there was a learning
-kb-manager.sh append-node factory/kb/global-graph.json "learning" \
+python3 -m pipeline.kb append-node factory/kb/global-graph.json "learning" \
   "<learning summary>" \
   "<full detail>"
 ```

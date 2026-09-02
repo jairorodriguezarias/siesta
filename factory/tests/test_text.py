@@ -96,6 +96,32 @@ class LearningLines(unittest.TestCase):
     def test_lines_without_marker_ignored(self):
         self.assertEqual(text.learnings("random line\ndefinitely not"), [])
 
+    def test_accepts_plain_hyphen_as_separator(self):
+        # #14: models emit "-" or "–" as often as the em dash the prompt shows
+        kind, summary, detail = text.learnings(
+            "SKILL_IMPROVEMENT: add Red Flag - refuse to skip tests")[0]
+        self.assertEqual(kind, "SKILL_IMPROVEMENT")
+        self.assertEqual(summary, "add Red Flag")
+        self.assertEqual(detail, "refuse to skip tests")
+
+    def test_accepts_en_dash_as_separator(self):
+        kind, summary, detail = text.learnings(
+            "LEARNING: seed the DB – avoids flaky first-run tests.")[0]
+        self.assertEqual(summary, "seed the DB")
+        self.assertEqual(detail, "avoids flaky first-run tests.")
+
+    def test_summary_only_line_gets_empty_detail(self):
+        # #14: the detail was mandatory, so summary-only lines were dropped
+        kind, summary, detail = text.learnings("LEARNING: tests first, always")[0]
+        self.assertEqual(summary, "tests first, always")
+        self.assertEqual(detail, "")
+
+    def test_hyphenated_word_is_not_a_separator(self):
+        # "-v" is glued to the next word: no space after the dash
+        kind, summary, _ = text.learnings(
+            "LEARNING: support the -v flag everywhere")[0]
+        self.assertEqual(summary, "support the -v flag everywhere")
+
 
 class SkillUpdateBlocks(unittest.TestCase):
     def test_extracts_named_blocks(self):

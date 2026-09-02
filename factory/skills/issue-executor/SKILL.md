@@ -19,7 +19,7 @@ The worker model's playbook for executing a single issue. This skill extends `in
 1. Read the issue description and acceptance criteria
 2. Query the KB graph for relevant decisions and learnings:
    ```bash
-   kb-manager.sh query kb/graph.json --summary-only
+   python3 -m pipeline.kb query kb/graph.json --summary-only
    ```
 3. Activate `context-engineering` skill to pack the right context
 4. If the issue uses a framework/library, activate `source-driven-development` to verify against docs
@@ -61,11 +61,11 @@ Then STOP. The orchestrator will route this to the consultant role. Do NOT guess
 
 1. Log any significant decision to the KB:
    ```bash
-   kb-manager.sh append-node kb/graph.json "decision" "<one-line summary>" "<full reasoning>"
+   python3 -m pipeline.kb append-node kb/graph.json "decision" "<one-line summary>" "<full reasoning>"
    ```
 2. If a learning was discovered, log it:
    ```bash
-   kb-manager.sh append-node kb/graph.json "learning" "<one-line summary>" "<full detail>"
+   python3 -m pipeline.kb append-node kb/graph.json "learning" "<one-line summary>" "<full detail>"
    ```
 
 ### Step 6: Git Commit

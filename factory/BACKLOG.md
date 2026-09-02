@@ -72,11 +72,13 @@ deleting it — this file is also the changelog of what Siesta learned about its
   "nothing broke" — a worker that skipped writing tests gets the same green
   light as one that did. Fix sketch: record tests-missing as a KB blocker or
   make the TDD prompt enforce test presence per issue.
-- [ ] #14 (root cause for #8): the `LEARN` parser format is too strict — it
+- [x] #14 (root cause for #8): the `LEARN` parser format is too strict — it
   requires `TAG: summary — detail` with an em dash `—` and a mandatory detail
   (text.py:24-26). Learners emitting `-`/`–` or summary-only lines produce zero
   matches → "0 parseable learnings". Fix sketch: accept `—`, `-`, `–` as
   separators; make detail optional (default to summary).
+  ✅ fixed in the family-C batch: LEARN accepts `—`/`–`/`-` and an optional
+  detail; summary-only lines log with empty detail.
 - [ ] #15 Regression failure doesn't gate execution (found in code walkthrough,
   2026-09-02): when the regression suite actually fails (returncode != 0),
   `execute()` only writes a KB blocker node and proceeds to run the issue anyway
@@ -90,7 +92,7 @@ deleting it — this file is also the changelog of what Siesta learned about its
   NEVER applied. `ok("Review complete")` follows unconditionally. Invalidates
   phase 4's purpose. Fix sketch: give this pass write tools (like the execute
   phase), and re-commit after it.
-- [ ] #17 All 5 factory skills reference the deleted `kb-manager.sh` CLI
+- [x] #17 All 5 factory skills reference the deleted `kb-manager.sh` CLI
   (found in code walkthrough, 2026-09-02): human-proxy, kb-manager,
   issue-executor, factory-learner, consultant-protocol contain 30+ calls to
   `kb-manager.sh ...` — the script was deleted in the Python port; the
@@ -99,6 +101,11 @@ deleting it — this file is also the changelog of what Siesta learned about its
   contributor) of #8. Fix sketch: sed-replace `kb-manager.sh <args>` with
   `python3 -m pipeline.kb <args>` across factory/skills/ and verify shim
   arg-compat (query/get-node/append-node/append-edge/init-project).
+  ✅ fixed in the family-C batch: all 33 references sed-replaced to
+  `python3 -m pipeline.kb` (shim-compatible args), one prose `post-issue.sh`
+  mention fixed too; run_pi() now exports the factory dir on PYTHONPATH so
+  the shim works from any project cwd; test_skills.py guards regressions
+  (no deleted CLI names, only supported shim subcommands).
 - [ ] #18 (minor) Review gate uses a raw substring check `"NEEDS_REVISION" in
   proxy_out` (phases.py:537) instead of an anchored marker like `text.REJECTED`
   — accidental mentions trigger revision requests. Make proxy gates use the
@@ -111,7 +118,7 @@ deleting it — this file is also the changelog of what Siesta learned about its
   web projects get a meaningful smoke. Fix sketch: for non-web entry points,
   treat "exited 0 within N seconds" as PASSED and "non-zero exit / crash" as
   FAILED; keep the HTTP probe only for `npm start`/server-ish projects.
-- [ ] #20 Skill self-modification has no safety net (found in code walkthrough,
+- [x] #20 Skill self-modification has no safety net (found in code walkthrough,
   2026-09-02): `apply_skill_updates()` (learn.py:38-50) does a full
   `write_text` of the SKILL.md with zero validation — a truncated/garbage
   block body silently wipes or guts a factory skill; `name.replace("/", "")`
@@ -119,6 +126,9 @@ deleting it — this file is also the changelog of what Siesta learned about its
   protection is git, and factory skill changes are currently uncommitted.
   Fix sketch: validate the block (non-empty, frontmatter present, plausible
   length), reject `.`/`..`, and auto-commit factory/skills before applying.
+  ✅ fixed in the family-C batch: apply_skill_updates() rejects unsafe names
+  (`""`/`.`/`..`) and blocks that don't look like a complete SKILL.md
+  (frontmatter + >=50 chars), logging every rejection instead of wiping.
 
 ## Family map (2026-09-02, after full code walkthrough)
 

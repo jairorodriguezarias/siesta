@@ -18,11 +18,14 @@ REVIEW_FAILED = re.compile(r"^REVIEW_FAILED:", re.M)
 VERIFY_PASSED = re.compile(r"^VERIFY_PASSED:", re.M)
 VERIFY_FAILED = re.compile(r"^VERIFY_FAILED:", re.M)
 
-# "TAG: summary — detail", split at the FIRST em dash so details may
-# themselves contain dashes. Unlike the worker protocol markers above,
-# learner Actions lines are indented by design, so allow leading tabs/spaces.
+# "TAG: summary — detail", split at the FIRST dash separator so details may
+# themselves contain dashes. Models emit "-", "–" and "—" interchangeably (#14),
+# and a summary-only line is still worth logging — so all three separators are
+# accepted and the detail is optional. Learner Actions lines are indented by
+# design (unlike the worker protocol markers above), so allow leading tabs/spaces.
 LEARN = re.compile(
-    r"^[ \t]*(LEARNING|SKILL_IMPROVEMENT|NEW_SKILL):[ \t]*(.+?)[ \t]+—[ \t]*(.+)$", re.M
+    r"^[ \t]*(LEARNING|SKILL_IMPROVEMENT|NEW_SKILL):[ \t]*(.+?)"
+    r"(?:[ \t]+[—–-][ \t]+(.+))?$", re.M
 )
 SKILL_BLOCK = re.compile(
     r"^[ \t]*SKILL_UPDATE_START:[ \t]*(\S+)[ \t]*\n(.*?)^[ \t]*SKILL_UPDATE_END",
@@ -66,7 +69,7 @@ def intent_from(output: str, idea: str) -> str:
 
 def learnings(output: str) -> list[tuple[str, str, str]]:
     """Return (kind, summary, detail) for every learning-style line."""
-    return [(kind, summary.strip(), detail.strip())
+    return [(kind, summary.strip(), (detail or "").strip())
             for kind, summary, detail in LEARN.findall(output)]
 
 

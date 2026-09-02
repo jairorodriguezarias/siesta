@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pipeline import text
 from pipeline.kb import Graph
-from pipeline.pi import FACTORY_SKILLS, log, ok, run_pi
+from pipeline.pi import FACTORY_SKILLS, log, ok, run_pi, warn
 
 # "ISSUE_LEARNING #2:" / "PROJECT_LEARNING:" report blocks
 ISSUE_LEARN = re.compile(r"^ISSUE_LEARNING.*$", re.M)
@@ -39,14 +39,25 @@ def apply_skill_updates(output: str, skills_dir: Path) -> list[str]:
     """SKILL_UPDATE_START/END blocks -> rewrite or create factory skills.
 
     Only factory skills are writable; addyosmani skills live elsewhere and
-    are never touched by the learner.
+    are never touched by the learner. A block that does not look like a
+    complete SKILL.md (frontmatter + real substance) is rejected and logged,
+    never applied — a truncated or garbage block must not gut a skill (#20).
     """
     applied = []
     for name, content in text.skill_updates(output):
-        target = skills_dir / name.replace("/", "") / "SKILL.md"
+        safe = name.replace("/", "")
+        if safe in ("", ".", ".."):
+            warn(f"Rejected skill update with unsafe name: {name!r}")
+            continue
+        body = content.strip()
+        if not (body.startswith("---") and len(body) >= 50):
+            warn(f"Rejected skill update for {safe}: not a complete SKILL.md "
+                 "(expected frontmatter and real substance)")
+            continue
+        target = skills_dir / safe / "SKILL.md"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content + "\n")
-        applied.append(name)
+        applied.append(safe)
     return applied
 
 

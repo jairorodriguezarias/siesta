@@ -30,7 +30,7 @@ CODE: <relevant code or error>
 Query the KB for any prior decisions or learnings related to this issue:
 
 ```bash
-kb-manager.sh query kb/graph.json --summary-only
+python3 -m pipeline.kb query kb/graph.json --summary-only
 ```
 
 The consultant gets:
@@ -74,13 +74,13 @@ ESCALATE: web search needed for <specific query>
 Log the consultation:
 
 ```bash
-kb-manager.sh append-node kb/graph.json "consultation" "<one-line summary>" "<question + answer + model>"
+python3 -m pipeline.kb append-node kb/graph.json "consultation" "<one-line summary>" "<question + answer + model>"
 ```
 
 If the consultation resolved a blocker:
 
 ```bash
-kb-manager.sh append-node kb/graph.json "decision" "<one-line summary>" "<full resolution>"
+python3 -m pipeline.kb append-node kb/graph.json "decision" "<one-line summary>" "<full resolution>"
 ```
 
 ### Step 6: Return to Worker
@@ -105,7 +105,7 @@ If consultant + web search both fail:
 
 1. Log to KB as blocker:
    ```bash
-   kb-manager.sh append-node kb/graph.json "blocker" "<one-line summary>" "<full detail>"
+   python3 -m pipeline.kb append-node kb/graph.json "blocker" "<one-line summary>" "<full detail>"
    ```
 2. Mark issue as "blocked" in issues.md
 3. Skip to next issue

@@ -20,10 +20,36 @@ SKILL_UPDATE_START: issue-executor
 ---
 name: issue-executor
 new: yes
+
+## Red Flags (new)
+
+- Skipping the regression suite before starting a new issue.
 SKILL_UPDATE_END
 """
 
 EMPTY_OUTPUT = "NO_ACTION: nothing to learn (rare)"
+
+BLANK_BLOCK = """\
+SKILL_UPDATE_START: issue-executor
+
+SKILL_UPDATE_END
+"""
+
+FRAGMENT_BLOCK = """\
+SKILL_UPDATE_START: issue-executor
+## Red Flags (new)
+
+- a section fragment, no frontmatter
+SKILL_UPDATE_END
+"""
+
+DOT_NAME_BLOCK = """\
+SKILL_UPDATE_START: ..
+---
+name: whatever
+body long enough to pass the substance check if the name were allowed
+SKILL_UPDATE_END
+"""
 
 
 class ActOnLearnings(unittest.TestCase):
@@ -78,6 +104,23 @@ class ApplySkillUpdates(unittest.TestCase):
 
     def test_no_updates_means_nothing_applied(self):
         self.assertEqual(learn.apply_skill_updates(EMPTY_OUTPUT, self.skills), [])
+
+    def test_blank_block_rejected_existing_skill_kept(self):
+        # #20: an empty block must not wipe an existing SKILL.md
+        target = self.skills / "issue-executor" / "SKILL.md"
+        target.parent.mkdir()
+        target.write_text("---\nname: issue-executor\n---\nold body")
+        self.assertEqual(learn.apply_skill_updates(BLANK_BLOCK, self.skills), [])
+        self.assertIn("old body", target.read_text())
+
+    def test_fragment_without_frontmatter_rejected(self):
+        # #20: a section fragment would replace the whole file — reject it
+        self.assertEqual(learn.apply_skill_updates(FRAGMENT_BLOCK, self.skills), [])
+        self.assertFalse((self.skills / "issue-executor").exists())
+
+    def test_dot_name_rejected_nothing_written_outside(self):
+        self.assertEqual(learn.apply_skill_updates(DOT_NAME_BLOCK, self.skills), [])
+        self.assertEqual(list(self.skills.rglob("SKILL.md")), [])
 
 
 if __name__ == "__main__":

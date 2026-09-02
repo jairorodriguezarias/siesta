@@ -27,22 +27,22 @@ Before making any decision, query the KB for the original context:
 
 ```bash
 # Get the original spec (Level 1: summaries)
-kb-manager.sh query kb/graph.json --type spec --summary-only
+python3 -m pipeline.kb query kb/graph.json --type spec --summary-only
 
 # Get all decisions made so far
-kb-manager.sh query kb/graph.json --type decision --summary-only
+python3 -m pipeline.kb query kb/graph.json --type decision --summary-only
 
 # Get any blockers encountered
-kb-manager.sh query kb/graph.json --type blocker --summary-only
+python3 -m pipeline.kb query kb/graph.json --type blocker --summary-only
 
 # Get the issue being worked on
-kb-manager.sh query kb/graph.json --type issue --summary-only
+python3 -m pipeline.kb query kb/graph.json --type issue --summary-only
 ```
 
 If the decision requires more detail, drill into specific nodes:
 
 ```bash
-kb-manager.sh get-node kb/graph.json <node_id>
+python3 -m pipeline.kb get-node kb/graph.json <node_id>
 ```
 
 ### Step 2: Evaluate the Decision
@@ -71,7 +71,7 @@ CONDITIONS: <if approved with conditions, list them; otherwise "none">
 Always log the proxy decision so other agents can read it:
 
 ```bash
-kb-manager.sh append-node kb/graph.json "decision" \
+python3 -m pipeline.kb append-node kb/graph.json "decision" \
   "Proxy approved: <one-line summary>" \
   "Acting as human stand-in. Reasoning: <full reasoning>. Based on KB: <evidence>."
 ```
@@ -79,7 +79,7 @@ kb-manager.sh append-node kb/graph.json "decision" \
 If rejected, also log what was wrong:
 
 ```bash
-kb-manager.sh append-node kb/graph.json "blocker" \
+python3 -m pipeline.kb append-node kb/graph.json "blocker" \
   "Proxy rejected: <one-line summary>" \
   "Approach did not align with intent. Reason: <reason>. Suggested: <alternative>."
 ```
