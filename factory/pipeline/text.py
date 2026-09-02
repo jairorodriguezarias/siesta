@@ -33,6 +33,35 @@ SKILL_BLOCK = re.compile(
 )
 
 
+# ─── Degenerate-output guard (silence is not success) ─────────────────────
+# Live runs showed models returning tool-call JSON instead of protocol text
+# and asking the absent human for input. Those outputs are not answers: the
+# gates in phases.py treat them as failed attempts, never as success (#2,
+# #11, #12). Not applied to the interactive interview, where questions to
+# the human are the whole point.
+
+TOOL_SPEAK = re.compile(r'\{\s*"name"\s*:[^}]*"arguments"|"tool_calls"')
+ASKS_HUMAN = re.compile(
+    r"(?i)\b(please provide|once you provide|could you (?:tell|provide|clarify)"
+    r"|what would you like|i need (?:more )?information)\b")
+
+
+def degenerate(output: str) -> str | None:
+    """Why the output cannot be a real answer; None if it looks usable.
+
+    Near-empty bodies, tool-call JSON narration and questions aimed at the
+    absent human mean the phase never got an answer.
+    """
+    body = output.strip()
+    if len(body) < 40:
+        return "too short to be a real answer"
+    if TOOL_SPEAK.search(body):
+        return "tool-call JSON narration, not protocol text"
+    if ASKS_HUMAN.search(body):
+        return "asks the absent human for input"
+    return None
+
+
 def split_issues(issues_md: str) -> list[tuple[int, str]]:
     """Return [(number, body), ...] for each '## Issue #N' section, in order."""
     found = list(ISSUE_HDR.finditer(issues_md))

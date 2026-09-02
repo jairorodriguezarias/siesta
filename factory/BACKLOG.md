@@ -6,28 +6,33 @@ deleting it — this file is also the changelog of what Siesta learned about its
 
 ## P0 — Blockers (fix before the next e2e run)
 
-- [ ] **B1. models.json routing regression.** Working tree has all three roles on
+- [x] **B1. models.json routing regression.** Working tree has all three roles on
   `qwen2.5-coder:latest`; design is GLM-5.2 (planner/consultant) + qwen (worker).
   All-qwen e2e runs fail at phase 1/2: qwen can't hold the text protocol
   (hallucinated an unrelated "Task Manager" spec for a Caesar-cipher idea;
   emitted tool-call JSON instead of VERIFY markers). Decision needed: restore GLM
   routing vs. stay all-local and harden the text protocol.
-- [ ] **B2. KB split.** Principles "Use english" + "Verify pushes contain no PI"
+  ✅ fixed in ab8bce7: GLM-5.2 routing restored (the all-qwen config was an
+  obsolete workaround; the directive-last prompt shape is the real fix).
+- [x] **B2. KB split.** Principles "Use english" + "Verify pushes contain no PI"
   landed in stray nested `factory/factory/kb/global-graph.json` (seeding ran with
   a relative path from cwd `factory/`). Root KB never sees them. Merge nodes into
   `factory/kb/global-graph.json` and delete the stray directory.
-- [ ] **B3. `.gitignore` dropped `.pi/`** (commit 1519f64 had added it). `.pi/` is
+  ✅ fixed in ab8bce7: 2 principle nodes merged, stray dir deleted (9 nodes).
+- [x] **B3. `.gitignore` dropped `.pi/`** (commit 1519f64 had added it). `.pi/` is
   untracked and pushable — violates the user's own no-PI principle. Restore
   before any commit/push.
+  ✅ fixed in ab8bce7: .pi/ back in .gitignore.
 
 ## Round-2 findings (from e2e run 2 + walkthroughs)
 
 - [x] #1 GLM builds the whole app during spec/plan despite "do NOT write code".
   Mitigated: retro-spec + generic FALLBACK_ISSUE recovery (phases.py ~167-248).
-- [ ] #2 "Issue #N executed" false positive: `ok(f"Issue #{num} executed")`
+- [x] #2 "Issue #N executed" false positive: `ok(f"Issue #{num} executed")`
   (phases.py:409) fires on degenerate/terminated worker output — no
   degenerate-output guard. Pair with a minimum-substance check on the worker
   output.
+  ✅ fixed in the family-A batch: degenerate worker output gets one feedback retry, then the issue is blocked — no fake completion node.
 - [ ] #3 Proxy gate fail-open: anything ≠ NEEDS_REVISION counts as approval
   (phases.py:537). Approves helpless narrations. Should require an explicit
   APPROVED marker.
@@ -54,24 +59,27 @@ deleting it — this file is also the changelog of what Siesta learned about its
   A hung `pi`/Ollama call freezes the pipeline forever; `stop.md` can't help
   because it is only checked between issues. Add `timeout=` + a retry policy.
   Same family as #2: the pipeline assumes calls terminate and tell the truth.
-- [ ] #11 Verify phase accepts degenerate output: the landing-page e2e run
+- [x] #11 Verify phase accepts degenerate output: the landing-page e2e run
   "completed" exit 0 while `verify_output.txt` contains tool-call JSON and no
   VERIFY marker at all. Same failure family as #2 but in `phases.verify()` —
   the degenerate-output guard (or the mechanical fallback deciding "passed")
   treats absence of signal as success. Evidence:
   `factory/projects/build-a-modern-landing-page-website/verify_output.txt`.
-- [ ] #12 `intent_from()` fail-open, silent (found in code walkthrough,
+  ✅ fixed in the family-A batch: degenerate verify output (no usable marker) is decided by the mechanical fallback only; an explicit marker stays the primary signal.
+- [x] #12 `intent_from()` fail-open, silent (found in code walkthrough,
   2026-08-31): if the phase-0 interview ends with no `INTENT_FINALIZED:` marker,
   the raw idea is used as intent with NO warning (phases.py:115, text.py:48-64).
   A degenerate interview (model narrated, never concluded) looks identical to a
   clean one. Same "absence of signal = success" family as #2/#3/#11. Fix sketch:
   warn (or retry the interview once) when the marker is missing.
-- [ ] #13 Regression suite green on absence (found in code walkthrough,
+  ✅ fixed in the family-A batch: the interview warns loudly when INTENT_FINALIZED is missing (raw idea is a fallback, not a success).
+- [x] #13 Regression suite green on absence (found in code walkthrough,
   2026-08-31): `run_regression()` returns True when there is no `tests/` dir or
   no known runner (phases.py:273, 277). "No tests" is silently treated as
   "nothing broke" — a worker that skipped writing tests gets the same green
   light as one that did. Fix sketch: record tests-missing as a KB blocker or
   make the TDD prompt enforce test presence per issue.
+  ✅ fixed in the family-A batch: run_regression() returns passed/failed/skipped; 'skipped' (no tests/no runner) warns and never reads as green.
 - [x] #14 (root cause for #8): the `LEARN` parser format is too strict — it
   requires `TAG: summary — detail` with an em dash `—` and a mandatory detail
   (text.py:24-26). Learners emitting `-`/`–` or summary-only lines produce zero
@@ -79,12 +87,13 @@ deleting it — this file is also the changelog of what Siesta learned about its
   separators; make detail optional (default to summary).
   ✅ fixed in the family-C batch: LEARN accepts `—`/`–`/`-` and an optional
   detail; summary-only lines log with empty detail.
-- [ ] #15 Regression failure doesn't gate execution (found in code walkthrough,
+- [x] #15 Regression failure doesn't gate execution (found in code walkthrough,
   2026-09-02): when the regression suite actually fails (returncode != 0),
   `execute()` only writes a KB blocker node and proceeds to run the issue anyway
   (phases.py:390-392). The suite is a witness, not a guard: building continues
   on top of a broken state. Fix sketch: skip the issue (append to `blocked`)
   or retry the previous issue's fix before continuing.
+  ✅ fixed in the family-A batch: a red regression suite gates the next issue (blocked + KB node) — the suite is a guard, not a witness.
 - [ ] #16 Review "fix" pass is a no-op (found in code walkthrough, 2026-09-02):
   when the proxy requests revision, the pipeline runs the worker with
   "Fix the issues now" but `tools="no"` (phases.py:539-543) — the worker

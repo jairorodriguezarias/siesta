@@ -6,8 +6,8 @@
 #   1. Takes your idea
 #   2. Interviews you (human interactive)
 #   3. You leave. Go take a siesta. 💤
-#   4. The planner generates spec + plan (all roles run on local Qwen 2.5)
-#   5. Qwen 2.5 executes issues autonomously
+#   4. The planner (GLM-5.2) generates spec + plan
+#   5. The worker (Qwen 2.5, local) executes issues autonomously
 #   6. If stuck → the consultant resolves → if 3 fails → deep diagnosis
 #   7. Reviews code, verifies it runs, git commits
 #   8. Learns from every issue to improve for next time
@@ -34,8 +34,9 @@ echo "║              💤  SIESTA  💤                                ║"
 echo "║                                                            ║"
 echo "║  \"Give me an idea, go take a siesta, come back to code\"    ║"
 echo "║                                                            ║"
-echo "║  Models:   Qwen 2.5 Coder — all roles, 100% local (Ollama) ║"
-echo "║  Provider: Ollama on this machine — no cloud calls         ║"
+echo "║  Models:   GLM-5.2 (planner/consultant) via pi             ║"
+echo "║  Worker:    Qwen 2.5 Coder — local (Ollama), writes code   ║"
+echo "║  Guard:     Degenerate-output guard + regression gating     ║"
 echo "║  Fallback:    Deep diagnosis + skip (from Ralph)           ║"
 echo "║  Skills:      10 addyosmani + 5 factory custom            ║"
 echo "║  KB:          JSON graph with progressive disclosure      ║"

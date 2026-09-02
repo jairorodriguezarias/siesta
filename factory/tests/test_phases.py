@@ -62,5 +62,37 @@ class PhaseSlots(unittest.TestCase):
         self.assertTrue((self.proj / "issues.md").read_text().startswith("## Issue #1"))
 
 
+class RegressionTriState(unittest.TestCase):
+    """#13: 'no tests' is 'skipped', a distinct state — not a silent green."""
+
+    def regression(self, files: dict) -> str:
+        with TemporaryDirectory() as d:
+            for name, content in files.items():
+                p = Path(d, name)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content)
+            return phases.run_regression(Path(d), 0)
+
+    def test_no_tests_dir_is_skipped(self):
+        self.assertEqual(self.regression({"notes.txt": "nothing"}), "skipped")
+
+    def test_no_runner_manifest_is_skipped(self):
+        self.assertEqual(
+            self.regression({"tests/test_x.py": "def test_x():\n    pass"}),
+            "skipped")
+
+    def test_failing_suite_is_failed(self):
+        self.assertEqual(self.regression({
+            "pyproject.toml": "[project]\nname = 'stub'\n",
+            "tests/test_broken.py": "def test_broken():\n    assert False\n",
+        }), "failed")
+
+    def test_passing_suite_is_passed(self):
+        self.assertEqual(self.regression({
+            "pyproject.toml": "[project]\nname = 'stub'\n",
+            "tests/test_ok.py": "def test_ok():\n    assert True\n",
+        }), "passed")
+
+
 if __name__ == "__main__":
     unittest.main()

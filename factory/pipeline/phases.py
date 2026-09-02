@@ -112,7 +112,11 @@ def phase0(proj: Path, name: str, idea: str, auto: bool,
                cwd=proj, tools="no")
         print("\n")
         ok("Interactive phase complete. Human is leaving.")
-    intent = text.intent_from(out.read_text(), idea)
+    interview_out = out.read_text()
+    if not text.INTENT.search(interview_out):
+        # #12: the raw idea is a fallback, not a success — say it loudly.
+        warn("Interview ended without INTENT_FINALIZED — falling back to the raw idea")
+    intent = text.intent_from(interview_out, idea)
     intent_node = kb.node("intent", f"Human intent for {name}", intent)
     _commit(proj, "Intent captured")
     return intent, intent_node
@@ -269,20 +273,23 @@ RUNNERS = [("package.json", ["npm", "test"]),
            ("go.mod", ["go", "test", "./..."])]
 
 
-def run_regression(proj: Path, n: int) -> bool:
+def run_regression(proj: Path, n: int) -> str:
+    """'passed' | 'failed' | 'skipped'. Skipped (no tests, no runner) is a
+    distinct state — #13: absence of tests must not read as 'green'."""
     if not (proj / "tests").is_dir():
-        return True
+        return "skipped"
     runner = next(((m, c) for m, c in RUNNERS if (proj / m).exists()), None)
     if runner is None:
         log("No known test runner found, skipping regression")
-        return True
+        return "skipped"
     cmd = runner[1]
     log("Running regression suite (all previous tests)...")
     proc = subprocess.run(cmd, cwd=proj, capture_output=True, text=True)
     (proj / f"regression_{n}.log").write_text(proc.stdout + proc.stderr)
     if proc.returncode != 0:
         err(f"Regression suite FAILED before issue #{n}.")
-    return proc.returncode == 0
+        return "failed"
+    return "passed"
 
 
 # ─── Phase 3: EXECUTE ────────────────────────────────────────────────────
@@ -378,6 +385,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
     log(f"Found {len(issues)} issues to execute")
     gkb = Graph(GLOBAL_KB)
     blocked, fails, history = [], {}, {}
+    warned_no_tests = False
     for num in sorted(issues):
         if (proj / "stop.md").exists():
             warn("stop.md detected! Halting pipeline.")
@@ -387,9 +395,20 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         log(f"Executing issue #{num}...")
         issue_text = issues[num]
 
-        if num > 1 and not run_regression(proj, num):
-            kb.node("blocker", f"Regression failure before issue #{num}",
-                    f"Previous issue broke existing tests. See regression_{num}.log")
+        if num > 1:
+            status = run_regression(proj, num)
+            if status == "failed":
+                # #15: the regression suite is a guard, not a witness —
+                # never build the next issue on a broken base.
+                kb.node("blocker", f"Regression failure before issue #{num}",
+                        f"Previous issue broke existing tests. "
+                        f"See regression_{num}.log")
+                warn(f"Regression failed before issue #{num}: skipping it.")
+                blocked.append(num)
+                continue
+            if status == "skipped" and not warned_no_tests:
+                warned_no_tests = True
+                warn("No test suite in project — nothing guards previous issues.")
 
         ctx = pre_issue(proj, num, kb, gkb)
         kb_summaries = json.dumps(ctx["kb_summaries"], separators=(",", ":"))
@@ -403,6 +422,28 @@ def execute(proj: Path, kb: Graph) -> list[int]:
             EXECUTE_PROMPT.format(issue=issue_text, kb=kb_summaries,
                                   principles=principles, source=source),
             issue_text, artifact=proj / f"issue_{num}_output.txt")
+        # #2: a degenerate first answer (tool JSON, questions to the absent
+        # human, truncation) is not an execution — unless the worker is
+        # speaking protocol (CONSULT/PROXY), which _escalate handles.
+        if not (text.CONSULT.search(output) or text.PROXY.search(output)):
+            reason = text.degenerate(output)
+            if reason:
+                warn(f"Issue #{num}: degenerate worker output ({reason}). "
+                     f"Retrying once with feedback...")
+                output = _worker(
+                    proj, RETRY_SKILLS,
+                    f"Your last answer was rejected: {reason}. No human is "
+                    f"present — never ask questions, never narrate tool "
+                    f"calls. Implement and emit the protocol markers.\n\n"
+                    f"Existing source files:\n{source}\n\n"
+                    f"Now implement the issue:\n{issue_text}",
+                    issue_text, artifact=proj / f"issue_{num}_retry_output.txt")
+                if text.degenerate(output):
+                    err(f"Issue #{num} blocked: worker output stayed degenerate")
+                    blocked.append(num)
+                    kb.node("blocker", f"Issue #{num} degenerate output",
+                            f"Worker never produced a usable answer: {reason}")
+                    continue
         stuck = _escalate(proj, num, output, issue_text, kb_summaries, source,
                           kb, fails, history, blocked)
         if not stuck:
@@ -621,14 +662,21 @@ def verify(proj: Path) -> str:
     log(f"Runtime smoke check: {status} — {detail}")
     with open(proj / "verify_output.txt", "a") as f:
         f.write(f"\nRUNTIME_CHECK: {status} — {detail}\n")
-    if text.VERIFY_PASSED.search(out) or text.VERIFY_FAILED.search(out):
+    # #11: with no protocol marker, a degenerate body (tool JSON / questions
+    # to the absent human) is not a verdict — only the mechanical checks may
+    # decide then. An explicit marker stays the primary signal.
+    has_marker = bool(text.VERIFY_PASSED.search(out) or text.VERIFY_FAILED.search(out))
+    reason = None if has_marker else text.degenerate(out)
+    if reason:
+        warn(f"Verify output is degenerate ({reason}) — using the mechanical fallback only")
+    if has_marker:
         # Primary signal: the protocol marker (and smoke must not have failed).
         return "VERIFY_PASSED" if (
             text.VERIFY_PASSED.search(out) and status != "FAILED") else "VERIFY_FAILED"
-    # Model drifted (no marker — tool-speak in the live run): decide from the
-    # regression suite if there is one, else fail.
-    log("No VERIFY marker in output — falling back to the regression suite")
+    # Model drifted (no marker, or degenerate — tool-speak in the live run):
+    # decide from the regression suite if there is one, else fail.
+    log("No usable VERIFY signal — falling back to the regression suite")
     if not (proj / "tests").is_dir():
         return "VERIFY_FAILED"
-    tests_ok = run_regression(proj, 0)
-    return "VERIFY_PASSED" if tests_ok and status != "FAILED" else "VERIFY_FAILED"
+    return "VERIFY_PASSED" if (run_regression(proj, 0) == "passed"
+                               and status != "FAILED") else "VERIFY_FAILED"

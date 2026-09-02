@@ -18,7 +18,7 @@ Phase 0: The planner interviews you about what you want
       ↓
 Phase 1: The planner writes the spec autonomously
 Phase 2: The planner breaks it into ordered issues
-Phase 3: The worker (same local model) executes each issue:
+Phase 3: The worker (local coder model) executes each issue:
          ├─ Writes code + tests (TDD: Red → Green → Refactor)
          ├─ Stuck? → consultant role resolves the doubt
          ├─ 3 fails? → Deep diagnosis (root-cause analysis)
@@ -37,13 +37,16 @@ You:  Come back. Working code. Git history. KB of decisions. 🎉
 
 ## Architecture
 
-### Models (all via Ollama, all on this machine)
+### Models
 
 | Model | Roles | When |
 |-------|-------|------|
-| **Qwen 2.5 Coder** (100% local) | Everything: spec, plan, consult, execute, review, verify, learn | Every phase |
-| **GLM 5.2**(100% Ollama Cloud) |
+| **GLM 5.2** (via `pi`, Ollama Cloud) | Planner, consultant, human-proxy — the roles that must hold the text protocol | Phases 0–2, consultations, proxy decisions |
+| **Qwen 2.5 Coder** (100% local, Ollama) | Worker — the one that writes code, reviews, verifies and learns | Phases 3–5 and 7 |
 
+The split is deliberate: the protocol phases need a model that answers with markers
+(`INTENT_FINALIZED:`, `VERIFY_PASSED:`…) instead of tool-call JSON — live runs showed
+the local coder model alone cannot hold that contract.
 
 Model routing is configured in [`factory/config/models.json`](factory/config/models.json).
 
@@ -94,10 +97,12 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | Feature | How it works |
 |---------|-------------|
 | `stop.md` | Any agent can create `stop.md` in the project dir to halt the pipeline cleanly |
-| Regression suite | All previous tests re-run before each new issue |
+| Regression suite | All previous tests re-run before each new issue — a red suite **gates** the next one (skipped, logged, never built on a broken base) |
+| Degenerate-output guard | Tool-call JSON, questions to the absent human, or truncated output are treated as failed attempts — never as success; a degenerate worker answer gets one feedback retry, then the issue is blocked |
 | Thinking escalation | Two consultant-guided retries before escalation on a failing issue |
 | Deep diagnosis | After 3 failures, the consultant does a root-cause analysis instead of blindly retrying |
 | Blocker logging | Stuck issues are logged to KB and skipped; pipeline continues |
+| Skill-update guard | Self-modification is validated (frontmatter + substance) — a truncated learner block can never gut a factory skill |
 
 ### Self-Improvement Loop
 
@@ -124,10 +129,10 @@ Skills improve. Next project is smarter.
 
 - [Ollama](https://ollama.ai) running locally
 - [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent (`npm install -g pi`)
-- Models: `qwen2.5-coder:latest` (used for every role; or compatible)
+- Models: `glm-5.2:cloud` (planner/consultant, via `pi`) and `qwen2.5-coder:latest` (worker)
 
 ```bash
-# Install models
+# Install the local worker model
 ollama pull qwen2.5-coder
 
 # Install Pi
@@ -204,6 +209,7 @@ siesta/
 │   │   ├── kb.py                  # KB graph store + python3 -m pipeline.kb CLI shim
 │   │   └── text.py                # Marker regexes + pure parsers
 │   ├── tests/                     # Unit + fake-pi integration tests
+│   ├── BACKLOG.md                # Findings + corrections backlog (also a changelog)
 │   ├── skills/                    # 5 custom factory skills
 │   │   ├── issue-executor/SKILL.md
 │   │   ├── consultant-protocol/SKILL.md

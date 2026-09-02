@@ -132,6 +132,32 @@ class SkillUpdateBlocks(unittest.TestCase):
         self.assertNotIn("intro text", updates[0][1])
 
 
+class DegenerateGuard(unittest.TestCase):
+    """#2/#11: tool-call JSON and questions to the absent human aren't answers."""
+
+    def test_tool_call_json_is_degenerate(self):
+        # real evidence: the landing-page run's verify_output.txt
+        reason = text.degenerate('{"name": "bash", "arguments": '
+                                 '{"command": "ls -la"}}')
+        self.assertIn("tool-call JSON", reason)
+
+    def test_asking_the_absent_human_is_degenerate(self):
+        # real evidence: pomodoro verify_output.txt
+        reason = text.degenerate("Once you provide this information, I can "
+                                 "offer more specific guidance on verifying.")
+        self.assertIn("absent human", reason)
+
+    def test_too_short_is_degenerate(self):
+        self.assertIn("too short", text.degenerate("ISSUE_OK: done"))
+
+    def test_real_answer_is_not_degenerate(self):
+        self.assertIsNone(text.degenerate(
+            "ISSUE_OK: implemented the timer module and its tests; the "
+            "whole suite passes."))
+        self.assertIsNone(text.degenerate(
+            "VERIFY_PASSED: static verification complete, entry point exists."))
+
+
 class Helpers(unittest.TestCase):
     def test_after_matches_grep_dash_a_semantics(self):
         # like `grep -A 1`: the marker line plus one following line

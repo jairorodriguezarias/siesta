@@ -77,7 +77,14 @@ How should I implement this?" ;;
 How should I implement this?" ;;
           proxy_request) echo "PROXY_REQUEST: requesting approval to proceed.
 Justification: the change requires it." ;;
-          *) echo "ISSUE_OK: implemented" ;;
+          degenerate_once)
+            case "$*" in
+              *"Your last answer was rejected"*)
+                echo "ISSUE_OK: implemented the module and its tests after the feedback" ;;
+              *) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
+            esac ;;
+          degenerate_always) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
+          *) echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
         esac ;;
     esac ;;
   *) echo "FAKE_PI: unexpected model '$model'" >&2; exit 3 ;;
@@ -277,6 +284,52 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         # 2 issue-level proxies + 1 review proxy
         self.assertEqual(len(self.types(self.kb(), "proxy_decision")), 3)
+
+    # ─── degenerate-output guard (#2) ────────────────────────────────────
+
+    def decisions(self):
+        return self.types(self.kb(), "decision")
+
+    def test_degenerate_worker_output_blocked_not_faked(self):
+        result = self.siesta("--auto", self.idea, scenario="degenerate_always")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        blockers = self.types(self.kb(), "blocker")
+        self.assertIn("Issue #1 degenerate output", blockers)
+        self.assertIn("Issue #2 degenerate output", blockers)
+        # the #2 regression: garbage output must NOT become a completion
+        self.assertNotIn("Issue #1 completed", self.decisions())
+        self.assertFalse((self.proj() / "learning_issue_1.txt").exists())
+        self.assertIn("2 blocked", result.stdout)
+        # per issue: initial + 1 degenerate feedback retry = 2 worker calls,
+        # no learn hooks when blocked; review + verify + project learning = 3
+        self.assertEqual(self.log_count("--model worker-model"), 7)
+
+    def test_degenerate_once_recovers_with_feedback(self):
+        result = self.siesta("--auto", self.idea, scenario="degenerate_once")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(self.types(self.kb(), "blocker"), [])
+        self.assertIn("Issue #1 completed", self.decisions())
+        self.assertIn("0 blocked", result.stdout)
+        self.assertTrue((self.proj() / "learning_issue_1.txt").exists())
+
+    # ─── regression gating (#15) ─────────────────────────────────────────
+
+    def test_failing_regression_gates_the_next_issue(self):
+        proj = self.proj()
+        proj.mkdir(parents=True)
+        (proj / "pyproject.toml").write_text("[project]\nname = 'stub'\n")
+        tests = proj / "tests"
+        tests.mkdir()
+        (tests / "test_broken.py").write_text(
+            "def test_broken():\n    assert False, 'previous issue broke me'\n")
+        result = self.siesta("--auto", self.idea)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        blockers = self.types(self.kb(), "blocker")
+        self.assertIn("Regression failure before issue #2", blockers)
+        # #15: the issue after a red suite is skipped, not built
+        self.assertIn("1 blocked", result.stdout)
+        self.assertFalse((proj / "issue_2_output.txt").exists())
+        self.assertNotIn("Issue #2 completed", self.decisions())
 
     # ─── resume ──────────────────────────────────────────────────────────
 

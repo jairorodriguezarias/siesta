@@ -6,7 +6,7 @@ This document describes the autonomous agent system that powers Siesta: the role
 
 ## Overview
 
-Siesta uses a **dual-model architecture** with two Ollama models playing distinct roles. A pipeline orchestrator (`python3 -m pipeline`) coordinates them across 7 phases, with hooks for pre-issue context loading, post-issue logging, and per-issue learning.
+Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) plays the roles that must hold the text protocol — planner, consultant, human-proxy — while the fully local Qwen 2.5 Coder (Ollama) is the worker that writes, reviews and verifies code. A pipeline orchestrator (`python3 -m pipeline`) coordinates them across 7 phases, with per-issue context loading, post-issue logging, and per-issue learning.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -14,7 +14,7 @@ Siesta uses a **dual-model architecture** with two Ollama models playing distinc
 │                   (Orchestrator - Phase 0-7)                  │
 │                                                              │
 │  ┌──────────────┐    ┌──────────────┐    ┌───────────────┐  │
-│  │  Qwen 2.5    │    │  Qwen 2.5    │    │  Qwen 2.5     │  │
+│  │  GLM 5.2     │    │  Qwen 2.5    │    │  GLM 5.2      │  │
 │  │  (Planner)   │    │  (Worker)    │    │  (Consultant) │  │
 │  │              │    │              │    │               │  │
 │  │ • Interview  │    │ • Execute    │    │ • Resolve     │  │
@@ -49,7 +49,7 @@ Siesta uses a **dual-model architecture** with two Ollama models playing distinc
 
 ## Agent Roles
 
-### 1. Planner — Qwen 2.5 Coder (local)
+### 1. Planner — GLM 5.2 (via pi)
 
 **When:** Phases 0, 1, 2
 
@@ -96,7 +96,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 
 ---
 
-### 3. Consultant — Qwen 2.5 Coder (local)
+### 3. Consultant — GLM 5.2 (via pi)
 
 **When:** Phase 3 (when worker outputs `CONSULT:`)
 
@@ -123,7 +123,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 
 ---
 
-### 4. Human-Proxy — Qwen 2.5 Coder (local)
+### 4. Human-Proxy — GLM 5.2 (consultant role, via pi)
 
 **When:** Phase 3 (when worker outputs `PROXY_REQUEST:`), Phase 4 (review approval)
 
@@ -204,6 +204,18 @@ pre_issue() → Worker (Qwen) → post_issue() → learn_issue()
   Load KB       Implement       Git commit     Learn & improve
   context       + tests         + log to KB    skills
 ```
+
+**Guards around the loop (silence is not success):**
+
+- **Degenerate-output guard** (`text.degenerate()`): a worker answer that is
+  tool-call JSON, asks the absent human for input, or is truncated is not an
+  execution. It gets one feedback retry; if it stays degenerate the issue is
+  blocked and logged to the KB — never recorded as completed.
+- **Regression gating**: the suite re-runs before each new issue. A red suite
+  skips the next issue (blocked) instead of building on a broken base, and
+  "no tests at all" is reported as `skipped` — never as green.
+- **Verify fallback**: with no usable VERIFY marker, only the mechanical
+  checks decide (regression suite + runtime smoke); no tests means failed.
 
 ### Worker Gets Stuck
 
@@ -415,9 +427,9 @@ The learner can modify factory skills (add Red Flags, Rationalizations, Process 
 
 ```json
 {
-  "planner":    { "model": "qwen2.5-coder:latest", "provider": "ollama" },
+  "planner":    { "model": "glm-5.2:cloud",       "provider": "ollama" },
   "worker":     { "model": "qwen2.5-coder:latest", "provider": "ollama" },
-  "consultant": { "model": "qwen2.5-coder:latest", "provider": "ollama" },
+  "consultant": { "model": "glm-5.2:cloud",       "provider": "ollama" },
   "fallback":   { "method": "web-search",         "package": "npm:@ollama/pi-web-search" }
 }
 ```
@@ -465,6 +477,7 @@ Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `ph
 | `factory/pipeline/kb.py` | KB graph store + `python3 -m pipeline.kb` CLI shim |
 | `factory/pipeline/text.py` | Anchored marker regexes + pure parsers |
 | `factory/tests/` | Unit + fake-pi integration tests (`python3 -m unittest discover -s tests`) |
+| `factory/BACKLOG.md` | Findings + corrections backlog — also the changelog of what Siesta learned about itself |
 | `factory/config/models.json` | Model routing config |
 | `factory/kb/schema.json` | KB node/edge type schema |
 | `factory/kb/global-graph.json` | Cross-project accumulated learnings |
