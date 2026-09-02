@@ -388,7 +388,14 @@ def execute(proj: Path, kb: Graph) -> list[int]:
     gkb = Graph(GLOBAL_KB)
     blocked, fails, history = [], {}, {}
     warned_no_tests = False
+    # #9: per-issue idempotency — a resume skips issues whose completion node
+    # is already on disk (post_issue writes "Issue #N completed" decisions).
+    # Blocked issues have no node, so they naturally get retried.
+    completed = {n["summary"] for n in kb.query(type_="decision")}
     for num in sorted(issues):
+        if f"Issue #{num} completed" in completed:
+            log(f"Issue #{num} already completed (resume) — skipping")
+            continue
         if (proj / "stop.md").exists():
             warn("stop.md detected! Halting pipeline.")
             kb.node("blocker", "Pipeline halted by stop.md",
@@ -633,22 +640,42 @@ def _detect_runnable(proj: Path):
     for name in ("main.py", "app.py"):
         if (proj / name).exists():
             return [sys.executable, str(proj / name)], PY_PORTS
+    # #4: a package with __main__.py runs as `python -m <pkg>` — the layout
+    # this pipeline itself generates for modern Python projects.
+    for d in sorted(p for p in proj.iterdir() if p.is_dir()):
+        if (d / "__main__.py").exists():
+            return [sys.executable, "-m", d.name], PY_PORTS
     if (proj / "index.html").exists():
         return [sys.executable, "-m", "http.server", "{PORT}"], None
     return None, None
 
 
 def runtime_smoke(proj: Path) -> tuple[str, str]:
-    """Launch the project locally and probe HTTP. returns (status, detail)."""
+    """Launch the project locally; returns (status, detail).
+
+    Web commands (npm start, http.server) are probed over HTTP. Every other
+    entry point gets CLI semantics (#19): a clean exit 0 is success, a crash
+    is failure, and a process still running after the deadline simply started
+    — which is all "runs locally" means for a timer or a non-HTTP server.
+    """
     cmd, ports = _detect_runnable(proj)
     if cmd is None:
         return "SKIPPED", "no runnable entry point detected"
+    web = cmd[0] == "npm" or "http.server" in cmd
     port = ports[0] if ports else _free_port()
     cmd = [c.replace("{PORT}", str(port)) for c in cmd]
     proc = subprocess.Popen(cmd, cwd=proj, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, start_new_session=True)
     try:
         deadline = time.time() + 12
+        if not web:
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    if proc.returncode == 0:
+                        return "PASSED", "exited cleanly (code 0)"
+                    return "FAILED", f"process exited with code {proc.returncode}"
+                time.sleep(0.75)
+            return "PASSED", "still running after 12s (started cleanly)"
         last = ""
         while time.time() < deadline:
             try:

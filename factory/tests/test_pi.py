@@ -16,6 +16,29 @@ class ModelConfig(unittest.TestCase):
         self.assertEqual(ROLE["consultant"]["provider"], "ollama")
 
 
+class Timeout(unittest.TestCase):
+    """#10: a hung pi call is "no answer", never a frozen pipeline."""
+
+    def test_timed_out_call_returns_empty(self):
+        import subprocess as sp
+        from unittest.mock import patch
+        with patch.object(sp, "run", side_effect=sp.TimeoutExpired(cmd=["pi"], timeout=1)):
+            self.assertEqual(
+                pi.run_pi("worker", "b", "u", thinking="off"), "")
+
+    def test_timeout_is_configurable(self):
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"SIESTA_PI_TIMEOUT": "7"}):
+            import importlib
+            from pipeline import pi as pi_mod
+            importlib.reload(pi_mod)
+            try:
+                self.assertEqual(pi_mod.PI_TIMEOUT, 7)
+            finally:
+                importlib.reload(pi_mod)
+
+
 class BuildArgs(unittest.TestCase):
     def test_non_interactively_flags_skills_and_prompt_shape(self):
         args = build_args(

@@ -408,6 +408,31 @@ class PipelineRun(unittest.TestCase):
 
     # ─── resume ──────────────────────────────────────────────────────────
 
+    def test_resume_skips_completed_issues(self):
+        # #9: a resume must not re-run issues whose completion node is on disk
+        self.siesta("--auto", self.idea)
+        (self.proj() / ".pipeline-checkpoint").write_text("phase-2\n")
+        (self.tmp / "pi_calls.log").write_text("")
+        result = self.siesta("--auto", self.idea, scenario="always_consult")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        # no issue-executor skill calls: both completed issues were skipped
+        # (the path form only — the learner prompts also list the name)
+        self.assertEqual(self.log_count("skills/issue-executor/"), 0)
+        # only the review proxy ran on the consultant side
+        self.assertEqual(self.log_count("consultant-model"), 1)
+        self.assertIn("0 blocked", result.stdout)
+        self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
+                         "complete")
+
+    def test_generated_project_has_hygiene_gitignore(self):
+        # #7: `git add -A` must not commit .DS_Store/__pycache__/checkpoint
+        self.siesta("--auto", self.idea)
+        proj = self.proj()
+        self.assertIn("__pycache__/", (proj / ".gitignore").read_text())
+        files = subprocess.run(["git", "-C", str(proj), "ls-files"],
+                               capture_output=True, text=True).stdout
+        self.assertNotIn(".pipeline-checkpoint", files)
+
     def test_resume_from_phase_2_skips_interview_and_spec(self):
         self.siesta("--auto", self.idea)
         (self.proj() / ".pipeline-checkpoint").write_text("phase-2\n")
@@ -443,7 +468,9 @@ class RuntimeSmoke(unittest.TestCase):
     def smoke(self, files: dict) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as d:
             for name, content in files.items():
-                Path(d, name).write_text(content)
+                p = Path(d, name)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content)
             return phases.runtime_smoke(Path(d))
 
     def test_static_site_is_served_and_probed(self):
@@ -459,6 +486,21 @@ class RuntimeSmoke(unittest.TestCase):
     def test_no_entry_point_skips(self):
         status, detail = self.smoke({"notes.txt": "nothing runnable"})
         self.assertEqual(status, "SKIPPED", detail)
+
+    def test_package_with_dunder_main_runs(self):
+        # #4: `python -m <pkg>` entry points are detected and run
+        status, detail = self.smoke({
+            "pyproject.toml": "[project]\nname = 'pkg'\n",
+            "pkg/__main__.py": "print('hello from the package')",
+        })
+        self.assertEqual(status, "PASSED", detail)
+        self.assertIn("exited cleanly", detail)
+
+    def test_cli_exiting_zero_is_success(self):
+        # #19: a working CLI counts as PASSED, not "process exited with code 0"
+        status, detail = self.smoke({"main.py": "print('done')"})
+        self.assertEqual(status, "PASSED", detail)
+        self.assertIn("exited cleanly", detail)
 
 
 if __name__ == "__main__":

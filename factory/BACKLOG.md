@@ -37,8 +37,9 @@ deleting it — this file is also the changelog of what Siesta learned about its
   (phases.py:537). Approves helpless narrations. Should require an explicit
   APPROVED marker.
   ✅ fixed in the family-B batch: issue-level proxy gates now require an explicit line-start APPROVED marker; REJECTED → retry, and NEEDS_REVISION/hesitation/garbage also retry with feedback — never approval.
-- [ ] #4 `_detect_runnable` misses `python -m <pkg>` (package with
+- [x] #4 `_detect_runnable` misses `python -m <pkg>` (package with
   `__main__.py`).
+  ✅ fixed in the family-D/E batch: _detect_runnable() now finds packages with __main__.py and runs them as `python -m <pkg>` — the layout the pipeline itself generates.
 - [x] #5 Retro `issues.md` template hardcoded for the previous (HTML) project.
   Fixed.
 - [x] #6 Phase 6 commits "Project verified" even when verdict = VERIFY_FAILED
@@ -46,21 +47,26 @@ deleting it — this file is also the changelog of what Siesta learned about its
   (__main__.py:161). Tie the decision node + commit message to the actual
   verdict.
   ✅ fixed in the family-B batch: verify() persists its verdict to verify_verdict.txt; resume reads it instead of hardcoding VERIFY_PASSED, and phase 6 records decision+commit or blocker+UNVERIFIED commit per the real verdict.
-- [ ] #7 Generated projects commit `.DS_Store`/`__pycache__`/`.pipeline-checkpoint`
+- [x] #7 Generated projects commit `.DS_Store`/`__pycache__`/`.pipeline-checkpoint`
   (`git add -A`, no .gitignore). Write a standard .gitignore at project init.
+  ✅ fixed in the family-D/E batch: project init writes a hygiene .gitignore (.DS_Store/__pycache__/*.pyc/.pipeline-checkpoint/verify_verdict.txt) before the first `git add -A`.
 - [ ] #8 Learners emit 0 parseable learnings even with `--no-tools` (root KB has
   only failure nodes). Root cause: prompt format vs `learn.py` parser mismatch.
-- [ ] #9 `execute()` is not per-issue idempotent (found in code walkthrough,
+  🔶 root causes fixed (#14 parser, #17 stale skill CLI); keep open until the
+  next live e2e confirms parseable learnings.
+- [x] #9 `execute()` is not per-issue idempotent (found in code walkthrough,
   2026-08-31). A crash mid-phase-3 re-runs ALL issues on `--resume`, ignoring the
   3 completion records already on disk (KB "Issue #N completed" decision node,
   `🔧 Issue #N` git commit, `issue_N_output.txt`); in-memory `fails`/`history`/
   `blocked` (phases.py:380) are lost. Fix sketch: skip issues that already have a
   completion node in `kb.query(type_="decision")` (~3 lines in the execute loop).
   Nice emergent behavior: blocked issues lack the node, so they naturally retry.
-- [ ] #10 `run_pi()` has no timeout (found in code walkthrough, 2026-08-31).
+  ✅ fixed in the family-D/E batch: execute() is per-issue idempotent: issues with an existing 'Issue #N completed' decision node are skipped on resume; blocked issues have no node and naturally retry.
+- [x] #10 `run_pi()` has no timeout (found in code walkthrough, 2026-08-31).
   A hung `pi`/Ollama call freezes the pipeline forever; `stop.md` can't help
   because it is only checked between issues. Add `timeout=` + a retry policy.
   Same family as #2: the pipeline assumes calls terminate and tell the truth.
+  ✅ fixed in the family-D/E batch: run_pi() enforces SIESTA_PI_TIMEOUT (default 1200s); a timed-out call returns empty so the degenerate guards treat it as a failed attempt — a hung call can no longer freeze the pipeline.
 - [x] #11 Verify phase accepts degenerate output: the landing-page e2e run
   "completed" exit 0 while `verify_output.txt` contains tool-call JSON and no
   VERIFY marker at all. Same failure family as #2 but in `phases.verify()` —
@@ -123,7 +129,7 @@ deleting it — this file is also the changelog of what Siesta learned about its
   — accidental mentions trigger revision requests. Make proxy gates use the
   same anchored-marker style as the rest of the protocol.
   ✅ fixed in the family-B batch: the review gate uses the anchored APPROVED marker (text.APPROVED) instead of a raw substring.
-- [ ] #19 Runtime smoke is HTTP-only and punishes working CLIs (found in code
+- [x] #19 Runtime smoke is HTTP-only and punishes working CLIs (found in code
   walkthrough, 2026-09-02): `runtime_smoke()` probes with `urlopen` — a CLI
   that starts, prints and exits cleanly (exit 0) is reported as
   `FAILED: process exited with code 0` (phases.py:599-600). Any detected CLI
@@ -131,6 +137,7 @@ deleting it — this file is also the changelog of what Siesta learned about its
   web projects get a meaningful smoke. Fix sketch: for non-web entry points,
   treat "exited 0 within N seconds" as PASSED and "non-zero exit / crash" as
   FAILED; keep the HTTP probe only for `npm start`/server-ish projects.
+  ✅ fixed in the family-D/E batch: runtime_smoke() gives non-web entry points CLI semantics: clean exit 0 = PASSED, crash = FAILED, still-running = started cleanly; the HTTP probe stays only for npm start/http.server.
 - [x] #20 Skill self-modification has no safety net (found in code walkthrough,
   2026-09-02): `apply_skill_updates()` (learn.py:38-50) does a full
   `write_text` of the SKILL.md with zero validation — a truncated/garbage

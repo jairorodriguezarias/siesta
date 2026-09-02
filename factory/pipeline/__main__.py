@@ -78,6 +78,12 @@ def _run(args) -> None:
     checkpoint = proj / ".pipeline-checkpoint"
     log(f"Creating project: {name}")
     proj.mkdir(parents=True, exist_ok=True)
+    # #7: generated projects commit with `git add -A` — give them the same
+    # hygiene ignore list the factory itself uses, from the very first commit.
+    gitignore = proj / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text(
+            ".DS_Store\n__pycache__/\n*.pyc\n.pipeline-checkpoint\nverify_verdict.txt\n")
 
     # Seed the KB only when missing — --resume must not wipe a project's memory.
     kb = Graph(proj / "kb" / "graph.json")

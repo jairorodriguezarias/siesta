@@ -12,6 +12,10 @@ from pathlib import Path
 
 PI_BIN = "pi"
 
+# #10: a hung pi/Ollama call must never freeze the pipeline — stop.md only
+# works between issues. Override with SIESTA_PI_TIMEOUT (seconds).
+PI_TIMEOUT = int(os.environ.get("SIESTA_PI_TIMEOUT", "1200"))
+
 # SIESTA_FACTORY redirects projects/, kb/ and skills/ (used by tests).
 FACTORY = Path(os.environ["SIESTA_FACTORY"]) if os.environ.get("SIESTA_FACTORY") \
     else Path(__file__).resolve().parent.parent
@@ -104,10 +108,16 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
         text_out = "".join(chunks)
         _maybe_write(artifact, text_out)
         return text_out
-    result = subprocess.run(args, capture_output=True, text=True, cwd=where,
-                            env=env)
-    # Bash piped everything through 2>&1; models sometimes narrate on stderr.
-    text_out = (result.stdout or "") + (result.stderr or "")
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, cwd=where,
+                                env=env, timeout=PI_TIMEOUT)
+        # Bash piped everything through 2>&1; models sometimes narrate on stderr.
+        text_out = (result.stdout or "") + (result.stderr or "")
+    except subprocess.TimeoutExpired:
+        # #10: a timed-out call is "no answer" — the empty return flows into
+        # the degenerate-output guards, which treat it as a failed attempt.
+        err(f"pi call timed out after {PI_TIMEOUT}s — treating as no answer")
+        text_out = ""
     _maybe_write(artifact, text_out)
     return text_out
 
