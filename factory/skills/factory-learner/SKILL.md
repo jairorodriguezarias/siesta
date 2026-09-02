@@ -21,7 +21,7 @@ Runs immediately after `post-issue.sh`. Qwen analyzes:
 
 1. **Did I get stuck? (CONSULT)**
    - What was the question?
-   - What did GLM answer?
+   - What did the consultant answer?
    - Could the `issue-executor` skill have prevented this?
    - → If yes: append to `issue-executor` Red Flags or Process
 

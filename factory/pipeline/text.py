@@ -1,0 +1,119 @@
+"""Pure text parsing for model output — markers, issue blocks, learning lines.
+
+All markers are anchored at line start (re.M). The worker prompt shows
+indented protocol examples, so a plain substring search would match the
+prompt's own rule text; anchoring prevents that.
+"""
+import re
+
+INTENT = re.compile(r"^INTENT_FINALIZED:[ \t]*(.+)$", re.M)
+ISSUE_HDR = re.compile(r"^##[ \t]+Issue[ \t]+#(\d+)", re.M)
+CONSULT = re.compile(r"^CONSULT:", re.M)
+PROXY = re.compile(r"^PROXY_REQUEST:", re.M)
+SKIP = re.compile(r"^SKIP:", re.M)
+CRITICAL = re.compile(r"^CRITICAL:", re.M)
+REJECTED = re.compile(r"^REJECTED:", re.M)
+REVIEW_PASSED = re.compile(r"^REVIEW_PASSED:", re.M)
+REVIEW_FAILED = re.compile(r"^REVIEW_FAILED:", re.M)
+VERIFY_PASSED = re.compile(r"^VERIFY_PASSED:", re.M)
+VERIFY_FAILED = re.compile(r"^VERIFY_FAILED:", re.M)
+
+# "TAG: summary — detail", split at the FIRST em dash so details may
+# themselves contain dashes. Unlike the worker protocol markers above,
+# learner Actions lines are indented by design, so allow leading tabs/spaces.
+LEARN = re.compile(
+    r"^[ \t]*(LEARNING|SKILL_IMPROVEMENT|NEW_SKILL):[ \t]*(.+?)[ \t]+—[ \t]*(.+)$", re.M
+)
+SKILL_BLOCK = re.compile(
+    r"^[ \t]*SKILL_UPDATE_START:[ \t]*(\S+)[ \t]*\n(.*?)^[ \t]*SKILL_UPDATE_END",
+    re.M | re.S,
+)
+
+
+def split_issues(issues_md: str) -> list[tuple[int, str]]:
+    """Return [(number, body), ...] for each '## Issue #N' section, in order."""
+    found = list(ISSUE_HDR.finditer(issues_md))
+    out = []
+    for i, m in enumerate(found):
+        end = found[i + 1].start() if i + 1 < len(found) else len(issues_md)
+        out.append((int(m.group(1)), issues_md[m.end():end].strip()))
+    return out
+
+
+def after(source: str, match: re.Match, span: int = 50) -> str:
+    """The matched line plus the next `span` lines (replaces `grep -A N`)."""
+    return "\n".join(source[match.start():].splitlines()[: span + 1])
+
+
+def intent_from(output: str, idea: str) -> str:
+    """Interview output -> final intent; falls back to the raw idea.
+
+    Keeps the marker line plus the rest of its paragraph, like the bash
+    `grep -A 50 | sed` extraction, stopping at the first blank line.
+    """
+    m = INTENT.search(output)
+    if not m:
+        return idea
+    lines = [m.group(1)]
+    # `$` is zero-width: the remainder starts with the newline that ended
+    # the marker line, so splitlines() yields one empty line first.
+    for line in output[m.end():].splitlines()[1:]:
+        if not line.strip():
+            break
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def learnings(output: str) -> list[tuple[str, str, str]]:
+    """Return (kind, summary, detail) for every learning-style line."""
+    return [(kind, summary.strip(), detail.strip())
+            for kind, summary, detail in LEARN.findall(output)]
+
+
+def skill_updates(output: str) -> list[tuple[str, str]]:
+    """Return (skill_name, replacement_body) for SKILL_UPDATE_START/END blocks."""
+    return [(name.replace("/", ""), body.strip("\n"))
+            for name, body in SKILL_BLOCK.findall(output)]
+
+
+def head(text: str, n: int) -> str:
+    """First n lines (replaces `head -N`)."""
+    return "\n".join(text.splitlines()[:n])
+
+
+# ─── Document extraction (spec/plan output protocol) ─────────────────────
+# Models run with --no-tools in phases 1-2: they output the document as
+# text and the pipeline saves it. Models with narration habits fence the
+# document or add a prologue — both are stripped here.
+
+HEADING = re.compile(r"^#{1,6}[ \t]+\S", re.M)
+
+
+def unwrap_fences(out: str) -> str:
+    """Strip a single enclosing ``` fence, if present."""
+    s = out.strip()
+    if s.startswith("```"):
+        first_nl = s.find("\n")
+        if first_nl != -1 and s.endswith("```"):
+            return s[first_nl + 1:-3].strip()
+    return s
+
+
+def spec_doc(out: str) -> str | None:
+    """Model output -> spec.md content; None if it is not a plain document.
+
+    A fenced block anywhere means the model dumped code (run #4 smuggled a
+    whole program whose ```python body contained a '###' heading). A spec is
+    prose; reject anything with a live fence after unwrapping the outer one.
+    """
+    doc = unwrap_fences(out).strip()
+    if "```" in doc:
+        return None
+    return doc if HEADING.search(doc) else None
+
+
+def issues_doc(out: str) -> str | None:
+    """Model output -> issues.md content starting at the first '## Issue'."""
+    doc = unwrap_fences(out)
+    m = ISSUE_HDR.search(doc)
+    return doc[m.start():].strip() if m else None

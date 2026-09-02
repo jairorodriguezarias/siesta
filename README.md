@@ -4,7 +4,7 @@
 
 Siesta is a local-first autonomous development pipeline for macOS. You give it a project idea, answer a few clarifying questions, then walk away. When you come back, there's a git repository with working, tested code that runs locally.
 
-No cloud APIs. No external services. Everything runs on your machine using [Ollama](https://ollama.ai) local models and the [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent.
+No cloud APIs. No external services. Everything runs using [Ollama](https://ollama.ai) local models, the [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent and Ollama Cloud (GLM 5.2)
 
 ---
 
@@ -13,22 +13,22 @@ No cloud APIs. No external services. Everything runs on your machine using [Olla
 ```
 You:  "Build me a CLI pomodoro timer in Python"
       ↓
-Phase 0: GLM-5.2 interviews you about what you want
+Phase 0: The planner interviews you about what you want
          You answer. You leave. 💤
       ↓
-Phase 1: GLM-5.2 writes the spec autonomously
-Phase 2: GLM-5.2 breaks it into ordered issues
-Phase 3: Qwen 2.5 Coder executes each issue:
+Phase 1: The planner writes the spec autonomously
+Phase 2: The planner breaks it into ordered issues
+Phase 3: The worker (same local model) executes each issue:
          ├─ Writes code + tests (TDD: Red → Green → Refactor)
-         ├─ Stuck? → GLM-5.2 consults (thinking escalates after 3 fails)
+         ├─ Stuck? → consultant role resolves the doubt
          ├─ 3 fails? → Deep diagnosis (root-cause analysis)
-         ├─ Need approval? → Human-proxy (GLM-5.2) decides based on KB
+         ├─ Need approval? → Human-proxy decides based on KB
          ├─ Regression suite runs before each new issue
          └─ Learns from every issue immediately
-Phase 4: Qwen reviews code, human-proxy approves
-Phase 5: Qwen verifies project runs locally
+Phase 4: Review phase, human-proxy approves
+Phase 5: Verify: project runs locally
 Phase 6: Final git commit
-Phase 7: Qwen learns from the full project, improves skills
+Phase 7: Learns from the full project, improves skills
       ↓
 You:  Come back. Working code. Git history. KB of decisions. 🎉
 ```
@@ -37,27 +37,28 @@ You:  Come back. Working code. Git history. KB of decisions. 🎉
 
 ## Architecture
 
-### Models (all local via Ollama)
+### Models (all via Ollama, all on this machine)
 
-| Model | Role | When |
-|-------|------|------|
-| **GLM-5.2** | Planner + Consultant + Human-proxy | Spec, plan, resolve doubts, approve decisions |
-| **Qwen 2.5 Coder** | Worker + Reviewer + Learner | Execute issues, review code, learn from results |
+| Model | Roles | When |
+|-------|-------|------|
+| **Qwen 2.5 Coder** (100% local) | Everything: spec, plan, consult, execute, review, verify, learn | Every phase |
+| **GLM 5.2**(100% Ollama Cloud) |
+
 
 Model routing is configured in [`factory/config/models.json`](factory/config/models.json).
 
 ### Pipeline (7 Phases)
 
-| Phase | What happens | Model |
-|-------|-------------|-------|
-| 0 — Interview | Interactive Q&A to clarify the idea; human leaves after | GLM-5.2 |
-| 1 — Spec | Autonomous spec generation (tech stack, features, acceptance criteria) | GLM-5.2 |
-| 2 — Plan | Break spec into ordered, atomic issues with dependencies | GLM-5.2 |
-| 3 — Execute | Autonomous loop: implement each issue with TDD, consult when stuck | Qwen 2.5 |
-| 4 — Review | Code review across 5 axes; human-proxy approves | Qwen 2.5 + GLM-5.2 |
-| 5 — Verify | Does it run locally? Fix if not | Qwen 2.5 |
+| Phase | What happens | Role |
+|-------|-------------|------|
+| 0 — Interview | Interactive Q&A to clarify the idea; human leaves after | planner |
+| 1 — Spec | Autonomous spec generation (tech stack, features, acceptance criteria) | planner |
+| 2 — Plan | Break spec into ordered, atomic issues with dependencies | planner |
+| 3 — Execute | Autonomous loop: implement each issue with TDD, consult when stuck | worker |
+| 4 — Review | Code review across 5 axes; human-proxy approves | worker + consultant |
+| 5 — Verify | Does it run locally? Fix if not | worker |
 | 6 — Done | Final git commit | — |
-| 7 — Learn | Cross-issue pattern analysis; skill improvement | Qwen 2.5 |
+| 7 — Learn | Cross-issue pattern analysis; skill improvement | worker |
 
 ### Knowledge Base (KB)
 
@@ -83,7 +84,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | Skill | What it does |
 |-------|-------------|
 | [`issue-executor`](factory/skills/issue-executor/SKILL.md) | Qwen's playbook for executing a single issue (TDD, stuck detection, KB logging) |
-| [`consultant-protocol`](factory/skills/consultant-protocol/SKILL.md) | GLM's playbook for resolving doubts when Qwen gets stuck |
+| [`consultant-protocol`](factory/skills/consultant-protocol/SKILL.md) | The consultant's playbook for resolving doubts when the worker gets stuck |
 | [`human-proxy`](factory/skills/human-proxy/SKILL.md) | Replaces human approval using KB context (evaluates against original intent) |
 | [`kb-manager`](factory/skills/kb-manager/SKILL.md) | Read/write/query the JSON KB graph with progressive disclosure |
 | [`factory-learner`](factory/skills/factory-learner/SKILL.md) | Learns after each issue, improves factory skills immediately |
@@ -94,8 +95,8 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 |---------|-------------|
 | `stop.md` | Any agent can create `stop.md` in the project dir to halt the pipeline cleanly |
 | Regression suite | All previous tests re-run before each new issue |
-| Thinking escalation | GLM-5.2 switches to `thinking=high` after 3 failures on an issue |
-| Deep diagnosis | After 3 failures, GLM does a root-cause analysis instead of blindly retrying |
+| Thinking escalation | Two consultant-guided retries before escalation on a failing issue |
+| Deep diagnosis | After 3 failures, the consultant does a root-cause analysis instead of blindly retrying |
 | Blocker logging | Stuck issues are logged to KB and skipped; pipeline continues |
 
 ### Self-Improvement Loop
@@ -105,9 +106,9 @@ After **every issue**, Qwen 2.5 analyzes what happened and learns:
 ```
 Issue executed
   ↓
-learn-issue.sh runs
+learn_issue() runs
   ├─ Did I get stuck? Why? → Add Red Flag to issue-executor skill
-  ├─ Did GLM help? About what? → Could the skill cover this?
+  ├─ Did the consultant help? About what? → Could the skill cover this?
   ├─ Did proxy reject? Why? → Don't repeat that mistake
   ├─ What went well? → Log as best practice to global KB
   └─ Novel pattern? → Create new factory skill
@@ -123,7 +124,7 @@ Skills improve. Next project is smarter.
 
 - [Ollama](https://ollama.ai) running locally
 - [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent (`npm install -g pi`)
-- Models: `qwen2.5-coder:latest` and `glm-5.2:cloud` (or compatible)
+- Models: `qwen2.5-coder:latest` (used for every role; or compatible)
 
 ```bash
 # Install models
@@ -144,8 +145,8 @@ npx skills add addyosmani/agent-skills
 git clone https://github.com/jairorodriguezarias/siesta.git ~/Desktop/siesta
 cd ~/Desktop/siesta
 
-# Make scripts executable
-chmod +x factory/bin/siesta.sh factory/scripts/*.sh factory/hooks/*.sh
+# Make the entry point executable
+chmod +x factory/bin/siesta.sh
 
 # Verify Ollama is running
 ollama list
@@ -171,8 +172,8 @@ cd ~/Desktop/siesta
 ls factory/projects/
 # → pomodoro-timer-in-python/
 #     ├── .git/          (full commit history)
-#     ├── spec.md         (the spec GLM wrote)
-#     ├── issues.md       (the issues GLM generated)
+#     ├── spec.md         (the spec the planner wrote)
+#     ├── issues.md       (the issues the planner generated)
 #     ├── src/            (the code Qwen wrote)
 #     ├── tests/          (the tests)
 #     └── kb/graph.json   (decisions, blockers, learnings)
@@ -195,14 +196,14 @@ siesta/
 ├── factory/
 │   ├── bin/
 │   │   └── siesta.sh              # Entry point
-│   ├── scripts/
-│   │   ├── run-pipeline.sh        # 7-phase pipeline orchestrator
-│   │   ├── learn.sh               # Project-level learning
-│   │   └── kb-manager.sh          # KB graph operations (query, append, link)
-│   ├── hooks/
-│   │   ├── pre-issue.sh           # Load KB context before issue
-│   │   ├── post-issue.sh          # Log + git commit after issue
-│   │   └── learn-issue.sh         # Per-issue micro-learning
+│   ├── pipeline/                  # Python orchestrator (run with python3 -m pipeline)
+│   │   ├── __main__.py            # Checkpoint, failure trap, phase dispatch, summary
+│   │   ├── phases.py              # Phase bodies 0-7 (interview, spec, plan, execute ladder…)
+│   │   ├── learn.py               # Per-issue + project-level learning
+│   │   ├── pi.py                  # Single run_pi() wrapper — every model call
+│   │   ├── kb.py                  # KB graph store + python3 -m pipeline.kb CLI shim
+│   │   └── text.py                # Marker regexes + pure parsers
+│   ├── tests/                     # Unit + fake-pi integration tests
 │   ├── skills/                    # 5 custom factory skills
 │   │   ├── issue-executor/SKILL.md
 │   │   ├── consultant-protocol/SKILL.md

@@ -85,7 +85,7 @@ kb-manager.sh append-node kb/graph.json "decision" \
 # Log a blocker
 kb-manager.sh append-node kb/graph.json "blocker" \
   "Timer drift on long sessions" \
-  "time.time() drifts. Fixed by using time.monotonic(). Suggested by GLM-5.2."
+  "time.time() drifts. Fixed by using time.monotonic(). Suggested by the consultant."
 
 # Log a learning
 kb-manager.sh append-node kb/graph.json "learning" \
@@ -94,8 +94,8 @@ kb-manager.sh append-node kb/graph.json "learning" \
 
 # Log a consultation
 kb-manager.sh append-node kb/graph.json "consultation" \
-  "GLM advised on timer drift" \
-  "Qwen asked about timer drift. GLM recommended time.monotonic(). Confidence: high."
+  "Consultant advised on timer drift" \
+  "Worker asked about timer drift. Consultant recommended time.monotonic(). Confidence: high."
 ```
 
 ### Append Edge (link)

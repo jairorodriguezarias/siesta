@@ -13,7 +13,7 @@ Replaces the human in autonomous pipeline phases. When an addyosmani skill expec
 - The pipeline needs a go/no-go decision that would normally require a human
 - A skill checkpoint expects human judgment (e.g., "is this approach correct?")
 - NOT for: the initial interview phase (that's the real human)
-- NOT for: technical consultations (that's `consultant-protocol` with GLM-5.2)
+- NOT for: technical consultations (that's `consultant-protocol`)
 
 ## Core Principle
 
@@ -103,9 +103,9 @@ The human-proxy handles these types of "human" decisions:
 | "User should review before merge" | Does the code meet the Definition of Done? | APPROVED or NEEDS_REVISION |
 | "Let user decide between options" | Which option aligns best with the original intent? | Pick one, explain why |
 
-## Model
+## Role
 
-Uses **GLM-5.2** (the planner/consultant model). It has the reasoning capability to evaluate decisions against intent. Qwen 2.5 is the worker; the human-proxy needs to think like a human reviewer, not a coder.
+You are acting as the **human-proxy role** (the factory runs it on the local `qwen2.5-coder` model, but the role is what matters). Think like a human reviewer, not a coder: evaluate decisions against the original intent, not against what would be easiest to implement.
 
 ## Common Rationalizations
 
@@ -133,4 +133,4 @@ Uses **GLM-5.2** (the planner/consultant model). It has the reasoning capability
 - [ ] If rejected, an alternative was provided
 - [ ] Decision was logged to the KB
 - [ ] The decision did NOT introduce new scope beyond the original spec
-- [ ] The model used is GLM-5.2 (not Qwen 2.5)
+- [ ] You decided from the human-proxy role (checking intent), not from the worker role

@@ -6,9 +6,9 @@
 #   1. Takes your idea
 #   2. Interviews you (human interactive)
 #   3. You leave. Go take a siesta. 💤
-#   4. GLM-5.2 generates spec + plan
+#   4. The planner generates spec + plan (all roles run on local Qwen 2.5)
 #   5. Qwen 2.5 executes issues autonomously
-#   6. If stuck → GLM-5.2 consults → if 3 fails → deep diagnosis
+#   6. If stuck → the consultant resolves → if 3 fails → deep diagnosis
 #   7. Reviews code, verifies it runs, git commits
 #   8. Learns from every issue to improve for next time
 #   9. You wake up. Working code is ready.
@@ -34,9 +34,9 @@ echo "║              💤  SIESTA  💤                                ║"
 echo "║                                                            ║"
 echo "║  \"Give me an idea, go take a siesta, come back to code\"    ║"
 echo "║                                                            ║"
-echo "║  Planner:     GLM-5.2 (spec + plan + consultant)           ║"
-echo "║  Worker:      Qwen 2.5 Coder (execute + review + verify)  ║"
-echo "║  Fallback:    Deep diagnosis + skip (from Ralph)          ║"
+echo "║  Models:   Qwen 2.5 Coder — all roles, 100% local (Ollama) ║"
+echo "║  Provider: Ollama on this machine — no cloud calls         ║"
+echo "║  Fallback:    Deep diagnosis + skip (from Ralph)           ║"
 echo "║  Skills:      10 addyosmani + 5 factory custom            ║"
 echo "║  KB:          JSON graph with progressive disclosure      ║"
 echo "║  Learning:    Per-issue + project-level (self-improving)  ║"
@@ -62,7 +62,8 @@ if [ -z "$1" ]; then
 fi
 
 echo -e "${BLUE}━━━ Starting Siesta 💤 ━━━${NC}"
-echo -e "${BLUE}Idea:${NC} $1"
+IDEA="${@: -1}"  # flags may come first; show the idea, not "--auto"
+echo -e "${BLUE}Idea:${NC} $IDEA"
 echo ""
 
 if echo "$@" | grep -q -- "--auto"; then
@@ -73,5 +74,5 @@ else
   echo ""
 fi
 
-# Run the pipeline
-exec "$FACTORY_DIR/scripts/run-pipeline.sh" "$@"
+# Run the pipeline (Python port lives in $FACTORY_DIR/pipeline/)
+exec env PYTHONPATH="$FACTORY_DIR" python3 -m pipeline "$@"

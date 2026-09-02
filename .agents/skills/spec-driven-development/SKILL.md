@@ -5,6 +5,19 @@ description: Creates specs before coding. Use when starting a new project, featu
 
 # Spec-Driven Development
 
+## Factory Adaptation (Siesta)
+
+In the Siesta pipeline this skill runs **autonomously and with NO tools**: you
+cannot read or write files, and no human is present to review your work.
+
+- Output ONLY the complete content of `spec.md` as your final message. The
+  pipeline saves it verbatim, commits it, and hands it to the planner.
+- The human-review gates below do not apply — the pipeline's human-proxy,
+  review and verify phases fill that role.
+- Write the SPECIFICATION only. Never write code, never create files, never
+  start building the product: the worker builds it in a later phase, and
+  pre-building here corrupts the phase separation the pipeline depends on.
+
 ## Overview
 
 Write a structured specification before writing any code. The spec is the shared source of truth between you and the human engineer — it defines what we're building, why, and how we'll know it's done. Code without a spec is guessing.

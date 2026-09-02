@@ -1,0 +1,63 @@
+import unittest
+from pathlib import Path
+
+from pipeline import pi
+from pipeline.pi import ROLE, build_args
+
+
+class ModelConfig(unittest.TestCase):
+    def test_roles_loaded_from_models_json(self):
+        # Design routing: GLM-5.2 plans/consults (text protocol), local qwen codes.
+        # GLM obeying the last human message (runs #3/#4) is fixed by the
+        # directive-last prompt shape in phases.py, not by the model choice.
+        self.assertEqual(ROLE["planner"]["model"], "glm-5.2:cloud")
+        self.assertEqual(ROLE["worker"]["model"], "qwen2.5-coder:latest")
+        self.assertEqual(ROLE["consultant"]["model"], "glm-5.2:cloud")
+        self.assertEqual(ROLE["consultant"]["provider"], "ollama")
+
+
+class BuildArgs(unittest.TestCase):
+    def test_non_interactively_flags_skills_and_prompt_shape(self):
+        args = build_args(
+            "worker", body="You are a developer.", user="do the thing",
+            skills=(pi.SKILLS / "test-driven-development", pi.FACTORY_SKILLS / "kb-manager"),
+            thinking="off")
+        pi_bin, i = pi.PI_BIN, args
+        self.assertEqual(i[0], pi_bin)
+        self.assertEqual(i[1], "-p")                      # non-interactive
+        self.assertEqual(i[i.index("--model") + 1], "qwen2.5-coder:latest")
+        self.assertEqual(i[i.index("--provider") + 1], "ollama")
+        self.assertEqual(i[i.index("--thinking") + 1], "off")
+        self.assertEqual(i[i.index("--skill") + 1],
+                         str(pi.SKILLS / "test-driven-development") + "/")
+        self.assertEqual(i[i.index("--skill", i.index("--skill") + 1) + 1],
+                         str(pi.FACTORY_SKILLS / "kb-manager") + "/")
+        self.assertEqual(i[i.index("--append-system-prompt") + 1], "You are a developer.")
+        self.assertEqual(i[-1], "do the thing")
+
+    def test_skill_dirs_keep_trailing_slash_like_bash(self):
+        args = build_args("planner", body="b", user="u",
+                          skills=(pi.SKILLS / "interview-me",), thinking="off")
+        self.assertEqual(str(args[args.index("--skill") + 1]).rstrip("/") + "/",
+                         str(pi.SKILLS / "interview-me") + "/")
+
+    def test_thinking_is_always_explicit(self):
+        args = build_args("consultant", body="b", user="u", thinking="high")
+        self.assertEqual(args[args.index("--thinking") + 1], "high")
+
+    def test_no_tools_flag_for_text_protocol_calls(self):
+        args = build_args("worker", body="b", user="u", tools="no")
+        self.assertIn("--no-tools", args)
+
+    def test_tools_allowlist_flag_name(self):
+        args = build_args("planner", body="b", user="u", tools="write")
+        self.assertEqual(args[args.index("--tools") + 1], "write")
+
+    def test_default_leaves_tools_untouched(self):
+        args = build_args("worker", body="b", user="u")
+        self.assertNotIn("--no-tools", args)
+        self.assertNotIn("--tools", args)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -6,15 +6,15 @@ This document describes the autonomous agent system that powers Siesta: the role
 
 ## Overview
 
-Siesta uses a **dual-model architecture** with two Ollama models playing distinct roles. A pipeline orchestrator (`run-pipeline.sh`) coordinates them across 7 phases, with hooks for pre-issue context loading, post-issue logging, and per-issue learning.
+Siesta uses a **dual-model architecture** with two Ollama models playing distinct roles. A pipeline orchestrator (`python3 -m pipeline`) coordinates them across 7 phases, with hooks for pre-issue context loading, post-issue logging, and per-issue learning.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     run-pipeline.sh                          │
+│                  python3 -m pipeline                         │
 │                   (Orchestrator - Phase 0-7)                  │
 │                                                              │
 │  ┌──────────────┐    ┌──────────────┐    ┌───────────────┐  │
-│  │  GLM-5.2     │    │  Qwen 2.5    │    │  GLM-5.2      │  │
+│  │  Qwen 2.5    │    │  Qwen 2.5    │    │  Qwen 2.5     │  │
 │  │  (Planner)   │    │  (Worker)    │    │  (Consultant) │  │
 │  │              │    │              │    │               │  │
 │  │ • Interview  │    │ • Execute    │    │ • Resolve     │  │
@@ -49,7 +49,7 @@ Siesta uses a **dual-model architecture** with two Ollama models playing distinc
 
 ## Agent Roles
 
-### 1. Planner — GLM-5.2
+### 1. Planner — Qwen 2.5 Coder (local)
 
 **When:** Phases 0, 1, 2
 
@@ -92,11 +92,11 @@ CODE: <relevant code or error>
 ```
 The orchestrator routes this to the Consultant. The worker does NOT guess.
 
-**KB interaction:** Queries KB summaries before each issue (`pre-issue.sh`). The pre-issue context also includes the global KB's standing architectural principles — the worker must respect them in every issue. Logs decisions and learnings via `post-issue.sh`.
+**KB interaction:** Queries KB summaries before each issue (`phases.pre_issue()`). The pre-issue context also includes the global KB's standing architectural principles — the worker must respect them in every issue. Logs decisions and learnings via `phases.post_issue()`.
 
 ---
 
-### 3. Consultant — GLM-5.2
+### 3. Consultant — Qwen 2.5 Coder (local)
 
 **When:** Phase 3 (when worker outputs `CONSULT:`)
 
@@ -109,8 +109,8 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 - If web search also fails, logs as blocker and the issue is skipped
 
 **Escalation ladder:**
-1. Normal consultation (thinking=off)
-2. After 2 failures: thinking escalates to `high`
+1. Normal consultation (one resolution-guided retry)
+2. After 2 failures: a second resolution-guided retry
 3. After 3 failures: **Deep diagnosis** — root-cause analysis, can recommend SKIP
 4. If diagnosis says `CRITICAL:` → `stop.md` is created, pipeline halts
 
@@ -123,7 +123,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 
 ---
 
-### 4. Human-Proxy — GLM-5.2
+### 4. Human-Proxy — Qwen 2.5 Coder (local)
 
 **When:** Phase 3 (when worker outputs `PROXY_REQUEST:`), Phase 4 (review approval)
 
@@ -157,14 +157,14 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 
 **Responsibilities:**
 
-**Per-issue learning (Level 1):** Runs immediately after each issue via `learn-issue.sh`:
+**Per-issue learning (Level 1):** Runs immediately after each issue via `learn.learn_issue()`:
 - Did I get stuck? Why? → Add Red Flag to `issue-executor` skill
 - Was I rejected by the proxy? Why? → Add to Rationalizations table
 - What decision did I make? Is it a pattern? → Log to global KB
 - What went well? → Log as best practice
 - Novel pattern not covered by any skill? → Create new factory skill
 
-**Project-level learning (Level 2):** Runs once at project end via `learn.sh`:
+**Project-level learning (Level 2):** Runs once at project end via `learn.learn_project()`:
 - Which issues had blockers? Were they related?
 - Which consultations were most valuable?
 - Cross-issue patterns?
@@ -198,7 +198,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 ### Normal Issue Execution
 
 ```
-pre-issue.sh → Worker (Qwen) → post-issue.sh → learn-issue.sh
+pre_issue() → Worker (Qwen) → post_issue() → learn_issue()
      │              │                │                │
      ▼              │                ▼                ▼
   Load KB       Implement       Git commit     Learn & improve
@@ -208,13 +208,13 @@ pre-issue.sh → Worker (Qwen) → post-issue.sh → learn-issue.sh
 ### Worker Gets Stuck
 
 ```
-Worker → CONSULT: → Consultant (GLM) → RESOLUTION: → Worker retries
-  │                                                    │
-  │  (if 2nd failure)                                  │
-  └→ CONSULT: → Consultant (thinking=high) → ─────────┘
+Worker → CONSULT: → Consultant → RESOLUTION: → Worker retries
+  │                                            │
+  │  (if 2nd failure)                          │
+  └→ CONSULT: → Consultant → ─────────────────┘
   │
   │  (if 3rd failure)
-  └→ Deep diagnosis (GLM thinking=high)
+  └→ Deep diagnosis (consultant role)
        ├→ DIAGNOSIS: fix → Worker retries with plan
        └→ SKIP: → Log blocker, skip issue, continue pipeline
 ```
@@ -222,7 +222,7 @@ Worker → CONSULT: → Consultant (GLM) → RESOLUTION: → Worker retries
 ### Worker Needs Human Approval
 
 ```
-Worker → PROXY_REQUEST: → Human-proxy (GLM)
+Worker → PROXY_REQUEST: → Human-proxy (consultant role)
                                ├→ APPROVED → Worker continues
                                ├→ REJECTED → Worker tries different approach
                                └→ NEEDS_REVISION → Worker adjusts and re-submits
@@ -231,7 +231,7 @@ Worker → PROXY_REQUEST: → Human-proxy (GLM)
 ### Deep Diagnosis (after 3 failures)
 
 ```
-diagnose_blocker (GLM, thinking=high)
+diagnose_blocker (consultant role)
   ├→ Root cause identified + fix plan → Worker implements fix
   ├→ SKIP: → Log blocker, skip issue, continue
   └→ CRITICAL: → Create stop.md, halt pipeline
@@ -277,26 +277,26 @@ Agents don't load the full KB. They load in levels:
 | 2 — Filtered by type | All decisions, or all blockers | Low | When looking for specific patterns |
 | 3 — Full node | Complete detail field | Higher | When a specific node is relevant |
 
-### KB Operations (via `kb-manager.sh`)
+### KB Operations (via `python3 -m pipeline.kb`)
 
 ```bash
-# Query summaries (cheapest)
-kb-manager.sh query kb/graph.json --summary-only
+# Query summaries (cheapest; run from factory/ or set PYTHONPATH=factory)
+python3 -m pipeline.kb query kb/graph.json --summary-only
 
 # Query specific type
-kb-manager.sh query kb/graph.json --type decision --summary-only
+python3 -m pipeline.kb query kb/graph.json --type decision --summary-only
 
 # Get full node detail
-kb-manager.sh get-node kb/graph.json n1695234567_12345
+python3 -m pipeline.kb get-node kb/graph.json n1695234567_12345
 
 # Append a decision
-kb-manager.sh append-node kb/graph.json "decision" "Summary" "Full detail"
+python3 -m pipeline.kb append-node kb/graph.json "decision" "Summary" "Full detail"
 
 # Link two nodes
-kb-manager.sh append-edge kb/graph.json n123 n456 applied_to
+python3 -m pipeline.kb append-edge kb/graph.json n123 n456 applied_to
 
 # Initialize fresh KB
-kb-manager.sh init-project kb/graph.json
+python3 -m pipeline.kb init-project kb/graph.json
 ```
 
 ### Two KB Tiers
@@ -308,12 +308,14 @@ kb-manager.sh init-project kb/graph.json
 
 ### Standing Architectural Principles
 
-The global KB holds `principle` nodes — standing rules that constrain every project. They are injected automatically into the Phase 1 spec prompt and into every per-issue worker context (`pre-issue.sh`). Current principles (query with `kb-manager.sh query factory/kb/global-graph.json --type principle --summary-only`):
+The global KB holds `principle` nodes — standing rules that constrain every project. They are injected automatically into the Phase 1 spec prompt and into every per-issue worker context (`phases.pre_issue()`). Current principles (query with `python3 -m pipeline.kb query factory/kb/global-graph.json --type principle --summary-only`):
 
 1. Personal projects only — runs entirely on the local computer, minimal infrastructure
 2. Simplicity is the core rule — fewer lines of code wins
 3. Code must explain itself
 4. Python is the default language
+5. Use english — docs, KB content and code comments
+6. Verify pushes contain no PI — `.pi/` stays ignored; no personal information in commits
 
 To change them: update the `principle` nodes in the global KB — every pipeline run reads them fresh.
 
@@ -361,7 +363,7 @@ Two folders hold real skill files (sources of truth); two are symlink-only views
 
 | Folder | What | Nature |
 |--------|------|--------|
-| `.agents/skills/` | 10 addyosmani skills | Source — pristine, unmodified, re-syncable via `npx skills add addyosmani/agent-skills` |
+| `.agents/skills/` | 10 addyosmani skills | Source — base from addyosmani, may be tailored to the factory (marked "Factory Adaptation" sections; original provenance noted) |
 | `factory/skills/` | 5 factory skills | Source — self-improving, editable by the factory-learner |
 | `.pi/skills/` | 15 symlinks | View — what the `pi` CLI sees during the pipeline |
 | `.claude/skills/` | 15 symlinks | View — what Claude Code sees in interactive use |
@@ -370,7 +372,7 @@ The view folders are gitignored and recreated by `setup-github.sh`, which is the
 
 ### Skill Categories
 
-**Addyosmani skills (10, unmodified):**
+**Addyosmani skills (10, tailoring allowed):**
 - `interview-me` — Structured interview to clarify intent
 - `spec-driven-development` — Write specs with acceptance criteria
 - `planning-and-task-breakdown` — Break specs into atomic issues
@@ -389,7 +391,7 @@ The view folders are gitignored and recreated by `setup-github.sh`, which is the
 - `kb-manager` — KB graph operations with progressive disclosure
 - `factory-learner` — Per-issue and project-level learning
 
-The learner can modify factory skills (add Red Flags, Rationalizations, Process steps, Verification checks) but never touches addyosmani skills.
+The learner can modify factory skills (add Red Flags, Rationalizations, Process steps, Verification checks) but never touches addyosmani skills — manual factory adaptations to addyosmani skills (e.g. the autonomous no-tools output protocol) are made by the human directly in `.agents/skills/`.
 
 ---
 
@@ -413,16 +415,16 @@ The learner can modify factory skills (add Red Flags, Rationalizations, Process 
 
 ```json
 {
-  "planner":    { "model": "glm-5.2:cloud",       "provider": "ollama" },
+  "planner":    { "model": "qwen2.5-coder:latest", "provider": "ollama" },
   "worker":     { "model": "qwen2.5-coder:latest", "provider": "ollama" },
-  "consultant": { "model": "glm-5.2:cloud",       "provider": "ollama" },
+  "consultant": { "model": "qwen2.5-coder:latest", "provider": "ollama" },
   "fallback":   { "method": "web-search",         "package": "npm:@ollama/pi-web-search" }
 }
 ```
 
 ### KB Schema
 
-[`factory/kb/schema.json`](factory/kb/schema.json) — Defines valid node types and edge types. Used by `kb-manager.sh` to validate node types before appending.
+[`factory/kb/schema.json`](factory/kb/schema.json) — Defines valid node types and edge types. Used by `pipeline/kb.py` (the `Graph` store) to validate node types before appending.
 
 ---
 
@@ -432,7 +434,7 @@ The learner can modify factory skills (add Red Flags, Rationalizations, Process 
 
 1. Create `factory/skills/<skill-name>/SKILL.md` with the standard format
 2. Symlink it into both views: `ln -s ../../factory/skills/<skill-name> .pi/skills/<skill-name> && ln -s ../../factory/skills/<skill-name> .claude/skills/<skill-name>`
-3. Reference it in the pipeline via `--skill "$FACTORY_SKILLS_DIR/<skill-name>/"`
+3. Reference it in the pipeline via `FACTORY_SKILLS / "<skill-name>"` in `factory/pipeline/phases.py`
 4. The factory-learner may automatically create skills if it detects novel patterns
 
 ### Change model routing
@@ -442,12 +444,12 @@ Edit `factory/config/models.json`. The pipeline reads this at startup. You can u
 ### Add a new KB node type
 
 1. Add it to `factory/kb/schema.json` under `node_types`
-2. Use it in `kb-manager.sh append-node` calls
-3. Query it with `kb-manager.sh query <graph> --type <new_type>`
+2. Use it in `python3 -m pipeline.kb append-node` calls
+3. Query it with `python3 -m pipeline.kb query <graph> --type <new_type>`
 
 ### Add a new pipeline phase
 
-Edit `factory/scripts/run-pipeline.sh`. The phases are sequential bash blocks. Add your phase between existing ones. Use `log_phase` for consistent output.
+Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `phaseN()` function, then wire it into the dispatch in `factory/pipeline/__main__.py` (following the skip/resume pattern of the existing phases). Use `phase(N, "TITLE")` from `pipeline.pi` for consistent output.
 
 ---
 
@@ -456,17 +458,18 @@ Edit `factory/scripts/run-pipeline.sh`. The phases are sequential bash blocks. A
 | File | Purpose |
 |------|---------|
 | `factory/bin/siesta.sh` | Entry point — takes idea, runs pipeline |
-| `factory/scripts/run-pipeline.sh` | 7-phase orchestrator |
-| `factory/scripts/learn.sh` | Project-level learning (Phase 7) |
-| `factory/scripts/kb-manager.sh` | KB graph CRUD operations |
-| `factory/hooks/pre-issue.sh` | Load KB context before each issue |
-| `factory/hooks/post-issue.sh` | Log decision + git commit after each issue |
-| `factory/hooks/learn-issue.sh` | Per-issue micro-learning |
+| `factory/pipeline/__main__.py` | Orchestrator — checkpoint, failure trap, phase dispatch, summary |
+| `factory/pipeline/phases.py` | Phase bodies 0-7 (interview, spec, plan, execute ladder, review, verify + runtime smoke) |
+| `factory/pipeline/learn.py` | Per-issue micro-learning + project-level learning (Phase 7) |
+| `factory/pipeline/pi.py` | Single `run_pi()` wrapper — every model call |
+| `factory/pipeline/kb.py` | KB graph store + `python3 -m pipeline.kb` CLI shim |
+| `factory/pipeline/text.py` | Anchored marker regexes + pure parsers |
+| `factory/tests/` | Unit + fake-pi integration tests (`python3 -m unittest discover -s tests`) |
 | `factory/config/models.json` | Model routing config |
 | `factory/kb/schema.json` | KB node/edge type schema |
 | `factory/kb/global-graph.json` | Cross-project accumulated learnings |
 | `factory/skills/*/SKILL.md` | 5 custom factory skills |
-| `.agents/skills/*/SKILL.md` | 10 addyosmani skills (intact) |
+| `.agents/skills/*/SKILL.md` | 10 addyosmani skills (with factory-tailoring sections) |
 | `.agents/agents/code-reviewer.md` | Code reviewer persona |
 | `.agents/references/definition-of-done.md` | Standing done checklist |
 | `.agents/references/security-checklist.md` | Security quick reference |

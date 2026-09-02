@@ -55,7 +55,7 @@ CONTEXT: <what you've tried so far>
 CODE: <relevant code or error message>
 ```
 
-Then STOP. The orchestrator will route this to the consultant model (GLM-5.2). Do NOT guess or proceed with low confidence.
+Then STOP. The orchestrator will route this to the consultant role. Do NOT guess or proceed with low confidence.
 
 ### Step 5: Log Decision
 

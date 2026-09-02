@@ -3,12 +3,12 @@
 cd ~/Desktop/siesta
 
 # Fix any remaining SLDC references
-for f in factory/scripts/run-pipeline.sh factory/scripts/learn.sh factory/scripts/kb-manager.sh factory/hooks/learn-issue.sh factory/hooks/pre-issue.sh factory/hooks/post-issue.sh; do
+for f in factory/bin/siesta.sh; do
   sed -i '' 's|/Desktop/SLDC/|/Desktop/siesta/|g' "$f" 2>/dev/null
   sed -i '' 's|/SLDC/|/siesta/|g' "$f" 2>/dev/null
 done
 
-chmod +x factory/bin/siesta.sh factory/scripts/*.sh factory/hooks/*.sh
+chmod +x factory/bin/siesta.sh
 
 # Remove skills-lock.json if exists
 rm -f skills-lock.json
@@ -143,7 +143,7 @@ After **every issue**, Qwen 2.5 analyzes what happened and learns:
 ```
 Issue executed
   ↓
-learn-issue.sh runs
+learn_issue() runs
   ├─ Did I get stuck? Why? → Add Red Flag to issue-executor skill
   ├─ Did GLM help? About what? → Could the skill cover this?
   ├─ Did proxy reject? Why? → Don't repeat that mistake
@@ -184,7 +184,7 @@ git clone https://github.com/YOUR_USERNAME/siesta.git ~/Desktop/siesta
 cd ~/Desktop/siesta
 
 # Make executable
-chmod +x factory/bin/siesta.sh factory/scripts/*.sh factory/hooks/*.sh
+chmod +x factory/bin/siesta.sh
 
 # Verify Ollama is running
 ollama list
@@ -234,14 +234,14 @@ siesta/
 ├── factory/
 │   ├── bin/
 │   │   └── siesta.sh              # 💤 Entry point
-│   ├── scripts/
-│   │   ├── run-pipeline.sh        # 7-phase pipeline orchestrator
-│   │   ├── learn.sh               # Project-level learning
-│   │   └── kb-manager.sh          # KB graph operations
-│   ├── hooks/
-│   │   ├── pre-issue.sh           # Load KB context before issue
-│   │   ├── post-issue.sh          # Log + commit after issue
-│   │   └── learn-issue.sh         # Learn from each issue
+│   ├── pipeline/                  # Python orchestrator (python3 -m pipeline)
+│   │   ├── __main__.py            # Checkpoint, failure trap, dispatch, summary
+│   │   ├── phases.py              # Phase bodies 0-7
+│   │   ├── learn.py               # Per-issue + project learning
+│   │   ├── pi.py                  # run_pi() model-call wrapper
+│   │   ├── kb.py                  # KB graph store + CLI shim
+│   │   └── text.py                # Marker regexes + parsers
+│   ├── tests/                     # Unit + fake-pi integration tests
 │   ├── skills/                    # 5 custom factory skills
 │   │   ├── issue-executor/
 │   │   ├── consultant-protocol/

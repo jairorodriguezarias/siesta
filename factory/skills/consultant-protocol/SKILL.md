@@ -1,11 +1,11 @@
 ---
 name: consultant-protocol
-description: Protocol for consulting the senior model (GLM-5.2) when the worker (Qwen 2.5) is stuck. Use when the worker outputs CONSULT:. Extends doubt-driven-development with cross-model handoff.
+description: Protocol for the consultant role to resolve a worker CONSULT: request (same local model, different role). Extends doubt-driven-development with the factory's role handoff.
 ---
 
 # Consultant Protocol
 
-When the worker model (Qwen 2.5) gets stuck and outputs `CONSULT:`, this skill defines how the consultant model (GLM-5.2) receives the question, reasons about it, and returns a resolution.
+When the worker role gets stuck and outputs `CONSULT:`, this skill defines how the consultant role (same local model, fresh context — the factory runs every role on `qwen2.5-coder`) receives the question, reasons about it, and returns a resolution.
 
 ## When to Use
 

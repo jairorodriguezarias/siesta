@@ -5,6 +5,19 @@ description: Breaks work into ordered tasks. Use when you have a spec or clear r
 
 # Planning and Task Breakdown
 
+## Factory Adaptation (Siesta)
+
+In the Siesta pipeline this skill runs **autonomously and with NO tools**: you
+cannot read or write files, and no human is present to review the plan.
+
+- Output ONLY the complete content of `issues.md` as your final message. The
+  pipeline saves it verbatim and commits it.
+- Ignore the `tasks/` output-file convention below — the pipeline owns the
+  file. Use the issue format instead: `## Issue #N: Title` headers, each with
+  description, acceptance criteria, and dependencies.
+- Do NOT write code. The plan is a document only — implementing anything now
+  corrupts the phase separation the rest of the pipeline depends on.
+
 ## Overview
 
 Decompose work into small, verifiable tasks with explicit acceptance criteria. Good task breakdown is the difference between an agent that completes work reliably and one that produces a tangled mess. Every task should be small enough to implement, test, and verify in a single focused session.
