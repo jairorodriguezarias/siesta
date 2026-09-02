@@ -145,13 +145,21 @@ your answer is stated in the final message below.
 spec.md contains: project name, tech stack, structure, features, acceptance
 criteria, testing approach, boundaries. Be concise. Do NOT ask questions —
 decide autonomously. Do NOT write code and do NOT build the product: this is
-a SPECIFICATION DOCUMENT only."""
+a SPECIFICATION DOCUMENT only. The spec describes the SPECIFIC product in the
+HUMAN INTENT above: use its key concepts by name. Never output a generic
+template with TBD/placeholder fields."""
 
 # The final human message is the actual request (runs #3/#4: the model obeys
 # the last turn, so the order lives here and the data lives in the body).
 SPEC_DIRECTIVE = ("This is not a coding request — it is a documentation task. "
                   "You have NO TOOLS. Output ONLY the complete content of "
                   "spec.md as your final message. Do NOT write code.")
+
+SPEC_RETRY_DIRECTIVE = (
+    "Your previous answer was rejected: it was not a usable spec for THIS "
+    "product. Write the specification for the product described in the system "
+    "prompt: name its key concepts directly, no generic template, no TBD "
+    "placeholders, no code. Output ONLY the complete content of spec.md.")
 
 
 def _code_artifacts(proj: Path) -> int:
@@ -187,6 +195,21 @@ def phase1(proj: Path, name: str, intent: str, intent_node: str, kb: Graph) -> s
                  skills=(SKILLS / "spec-driven-development", FACTORY_SKILLS / "kb-manager"),
                  artifact=proj / "spec_output.txt", cwd=proj, tools="no")
     doc = text.spec_doc(out)
+    if doc is not None and not text.shares_content(intent, doc):
+        # round-3: a format-valid spec that names none of the intent's
+        # concepts is a generic template hallucination, not a spec.
+        warn("Spec shares no content with the intent — generic template? Rejecting...")
+        doc = None
+    if doc is None:
+        warn("No usable spec in model output. Retrying once with feedback...")
+        out = run_pi("planner", body, SPEC_RETRY_DIRECTIVE,
+                     skills=(SKILLS / "spec-driven-development",
+                             FACTORY_SKILLS / "kb-manager"),
+                     artifact=proj / "spec_retry_output.txt", cwd=proj, tools="no")
+        doc = text.spec_doc(out)
+        if doc is not None and not text.shares_content(intent, doc):
+            warn("Spec still off-intent after retry — rejecting")
+            doc = None
     if doc is not None:
         (proj / "spec.md").write_text(doc + "\n")
     else:
@@ -216,12 +239,19 @@ You have NO TOOLS — you cannot read or write files. What the pipeline does wit
 your answer is stated in the final message below.
 
 Each issue: a '## Issue #N: Title' header, then description, acceptance
-criteria, dependencies. Keep issues small and atomic. Do NOT write code —
-output the plan document only."""
+criteria, dependencies. Every issue header must match exactly '## Issue #N: '
+(N counting from 1) — no priority groupings, no other numbering styles.
+Keep issues small and atomic. Do NOT write code — output the plan document only."""
 
 PLAN_DIRECTIVE = ("This is not a code review request — it is a planning task. "
                   "You have NO TOOLS. Output ONLY the complete content of "
                   "issues.md as your final message. Do NOT write code.")
+
+PLAN_RETRY_DIRECTIVE = (
+    "Your previous answer was rejected: it had no '## Issue #N: Title' "
+    "headers. Output the plan document where EVERY issue begins with exactly "
+    "'## Issue #N: Title' (N counting from 1). No priority sections, no '### 1.' "
+    "numbering, no code.")
 
 FALLBACK_ISSUE = """## Issue #1: Review, verify and complete the project
 
@@ -244,6 +274,14 @@ def phase2(proj: Path, name: str, spec_node: str, kb: Graph) -> int:
                  skills=(SKILLS / "planning-and-task-breakdown",),
                  artifact=proj / "plan_output.txt", cwd=proj, tools="no")
     doc = text.issues_doc(out)
+    if doc is None:
+        # round-3: the model drifted to '### 1.' / priority sections — one
+        # retry with the exact required format, then the honest fallbacks.
+        warn("Plan output has no '## Issue #N:' headers. Retrying once with feedback...")
+        out = run_pi("planner", body, PLAN_RETRY_DIRECTIVE,
+                     skills=(SKILLS / "planning-and-task-breakdown",),
+                     artifact=proj / "plan_retry_output.txt", cwd=proj, tools="no")
+        doc = text.issues_doc(out)
     if doc is not None:
         (proj / "issues.md").write_text(doc + "\n")
     else:

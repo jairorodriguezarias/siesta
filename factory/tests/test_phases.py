@@ -61,6 +61,52 @@ class PhaseSlots(unittest.TestCase):
         self.assertEqual(n, 1)
         self.assertTrue((self.proj / "issues.md").read_text().startswith("## Issue #1"))
 
+    def test_phase1_template_spec_gets_one_feedback_retry(self):
+        # round-3: a format-valid but off-intent spec is rejected once, then
+        # retried; the good retry lands in spec.md
+        template = ("# Specification\n\n## Document Metadata\n"
+                    "Project name: TBD\nAuthor: TBD\nStatus: Draft\n")
+        good = "# Spec\n\nA tiny caesar cipher CLI in Python, stdlib only.\n"
+        calls = []
+
+        def fake(role, body, user, **kw):
+            calls.append(user)
+            return template if len(calls) == 1 else good
+
+        with patch.object(phases, "run_pi", fake):
+            phases.phase1(self.proj, "caesar", "a tiny caesar cipher cli",
+                          "n1", self.kb)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("rejected", calls[1])
+        self.assertIn("caesar cipher CLI", (self.proj / "spec.md").read_text())
+
+    def test_phase1_gives_up_after_off_intent_retry(self):
+        template = ("# Specification\n\n## Document Metadata\n"
+                    "Project name: TBD\nAuthor: TBD\nStatus: Draft\n")
+        with patch.object(phases, "run_pi", lambda *a, **k: template):
+            with self.assertRaises(SystemExit):
+                phases.phase1(self.proj, "caesar", "a tiny caesar cipher cli",
+                              "n1", self.kb)
+
+    def test_phase2_wrong_header_format_gets_one_feedback_retry(self):
+        # round-3: '### 1.' priority sections don't parse — retry demands
+        # the exact '## Issue #N:' header
+        drifted = ("# Issues\n\n## High Priority\n\n### 1. Define MVP scope\n"
+                   "- Status: Open\n")
+        good = "## Issue #1: Add encode\n\nImplement shift encoding.\n"
+        calls = []
+
+        def fake(role, body, user, **kw):
+            calls.append(user)
+            return drifted if len(calls) == 1 else good
+
+        with patch.object(phases, "run_pi", fake):
+            phases.phase2(self.proj, "caesar", "n1", self.kb)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("'## Issue #N: Title'", calls[1])
+        self.assertTrue((self.proj / "issues.md").read_text()
+                        .startswith("## Issue #1"))
+
 
 class RegressionTriState(unittest.TestCase):
     """#13: 'no tests' is 'skipped', a distinct state — not a silent green."""

@@ -117,6 +117,27 @@ def head(text: str, n: int) -> str:
     return "\n".join(text.splitlines()[:n])
 
 
+# Glue words that appear in any text and prove nothing about relevance.
+_STOP = {"this", "that", "with", "from", "have", "will", "your", "when",
+         "must", "should", "each", "their", "which", "about", "into"}
+
+
+def content_words(s: str) -> set[str]:
+    """Lowercase words of 4+ letters, minus glue words."""
+    return {w for w in re.findall(r"[a-z]{4,}", s.lower())} - _STOP
+
+
+def shares_content(a: str, b: str) -> bool:
+    """True if both texts mention at least one shared content word.
+
+    A spec/plan that shares NO content word with the intent is a generic
+    template hallucination, not an answer (round-3 finding: GLM emitted a
+    'Project name: TBD' shell spec, then 'CI/CD pipeline' issues, for a
+    council-CLI idea — format checks alone let it through).
+    """
+    return bool(content_words(a) & content_words(b))
+
+
 # ─── Document extraction (spec/plan output protocol) ─────────────────────
 # Models run with --no-tools in phases 1-2: they output the document as
 # text and the pipeline saves it. Models with narration habits fence the

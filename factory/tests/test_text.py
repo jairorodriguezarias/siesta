@@ -177,6 +177,30 @@ class ExplicitApproval(unittest.TestCase):
             "NEEDS_REVISION: add input validation before shipping"))
 
 
+class ContentRelevance(unittest.TestCase):
+    """Round-3: a spec sharing NO content word with the intent is a template."""
+
+    def test_generic_template_shares_nothing_with_intent(self):
+        intent = "a local CLI tool for adversarially exploring research ideas"
+        template = ("# Specification\n\n## Document Metadata\n"
+                    "Project name: TBD\nAuthor: TBD\nStatus: Draft\n")
+        self.assertFalse(text.shares_content(intent, template))
+
+    def test_real_spec_shares_concepts(self):
+        intent = "a local CLI tool for adversarially exploring research ideas"
+        spec = "# Spec\n\nThe research council CLI runs adversarial rounds."
+        self.assertTrue(text.shares_content(intent, spec))
+
+    def test_glue_words_prove_nothing(self):
+        # "this/with/about" appear everywhere — they must not count as overlap
+        self.assertFalse(text.shares_content("build this with care",
+                                             "about this template"))
+
+    def test_short_and_stop_words_excluded(self):
+        self.assertEqual(text.content_words("The CLI run with data"),
+                         {"data"})  # "cli"/"run" too short, "with" glue
+
+
 class Helpers(unittest.TestCase):
     def test_after_matches_grep_dash_a_semantics(self):
         # like `grep -A 1`: the marker line plus one following line

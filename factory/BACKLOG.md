@@ -149,6 +149,20 @@ deleting it — this file is also the changelog of what Siesta learned about its
   ✅ fixed in the family-C batch: apply_skill_updates() rejects unsafe names
   (`""`/`.`/`..`) and blocks that don't look like a complete SKILL.md
   (frontmatter + >=50 chars), logging every rejection instead of wiping.
+- [x] #21 Spec template hallucination passes the format check (round-3 e2e,
+  2026-09-02, GLM): for the council-CLI idea GLM emitted a generic
+  'Project name: TBD / Author: TBD' shell spec — spec_doc() validated headings
+  and fences but not content. ✅ fixed in the round-3 batch: new
+  text.shares_content() relevance guard — a spec sharing no content word with
+  the intent is rejected, with one SPEC_RETRY_DIRECTIVE feedback retry before
+  the honest abort.
+- [x] #22 Plan format drift has no retry (round-3 e2e, 2026-09-02, GLM): the
+  planner emitted priority sections with '### 1.' headers instead of the
+  required '## Issue #N:' — issues_doc() (correctly) refused it and the
+  pipeline aborted with no retry. ✅ fixed in the round-3 batch: one
+  PLAN_RETRY_DIRECTIVE feedback retry demanding the exact header format
+  before the fallbacks; both spec and plan prompts now forbid templates/
+  priority groupings explicitly.
 
 ## Family map (2026-09-02, after full code walkthrough)
 
