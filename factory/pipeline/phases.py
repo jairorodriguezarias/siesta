@@ -332,7 +332,9 @@ KB Context (original intent and all decisions):
 {kb}
 
 Evaluate against the original human intent in the KB.
-Decide: APPROVED, REJECTED, or NEEDS_REVISION."""
+Decide: APPROVED, REJECTED, or NEEDS_REVISION — and output the decision as a
+line starting with the marker (e.g. APPROVED: <reason>). A decision line that
+does not start with a marker counts as NOT approved."""
 
 CONSULT_PROMPT = """You are a senior engineer. Follow the consultant-protocol skill.
 A developer is stuck:
@@ -470,10 +472,19 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                                            FACTORY_SKILLS / "kb-manager"), cwd=proj, tools="no",
                           artifact=proj / f"proxy_{num}_output.txt")
         kb.node("proxy_decision", f"Proxy decision for issue #{num}", decision)
-        if text.REJECTED.search(decision):
-            warn("Proxy rejected, retrying...")
+        if text.APPROVED.search(decision):
+            log("Proxy explicitly approved — continuing with the approach")
+        elif text.REJECTED.search(decision):
+            warn("Proxy rejected, retrying with a different approach...")
             output = _retry(
                 f"Proxy rejected: {decision}. Try a different approach for: {issue_text}")
+        else:
+            # #3: fail-closed gate — NEEDS_REVISION, hesitation or garbage is
+            # NOT approval; the worker gets the feedback and retries.
+            warn("Proxy did not explicitly approve — retrying with feedback...")
+            output = _retry(
+                f"Proxy did not approve. Feedback: {decision}. "
+                f"Adjust the approach and implement: {issue_text}")
 
     # Escalation ladder: 2 resolution-guided retries, then the fail-3 deep
     # diagnosis (documented in README/AGENTS.md; unreachable in bash).
@@ -556,7 +567,8 @@ Review output:
 {review}
 KB Context:
 {kb}
-Decide: APPROVED or NEEDS_REVISION."""
+Decide: APPROVED or NEEDS_REVISION — and output the decision as a line starting
+with the marker. A decision line without a marker counts as NOT approved."""
 
 
 def review(proj: Path, kb: Graph) -> None:
@@ -575,13 +587,20 @@ def review(proj: Path, kb: Graph) -> None:
                        review_out, skills=(FACTORY_SKILLS / "human-proxy",),
                        artifact=proj / "proxy_review_output.txt", cwd=proj, tools="no")
     kb.node("proxy_decision", "Proxy review approval", proxy_out)
-    if "NEEDS_REVISION" in proxy_out:
-        warn("Proxy requests revision, fixing...")
-        run_pi("worker", f"Proxy requested: {proxy_out}.\n\nSource files:\n{source}\n\n"
-               "Fix the issues now. Output the corrected file contents.",
-               "Fix review issues",
-               skills=(SKILLS / "code-review-and-quality", SKILLS / "code-simplification"),
-               artifact=proj / "review_fixes_output.txt", cwd=proj, tools="no")
+    if not text.APPROVED.search(proxy_out):
+        # #3/#18: approval requires an explicit line-start marker —
+        # NEEDS_REVISION, hesitation or garbage all mean "fix it", never "pass".
+        warn("Proxy did not explicitly approve the review — fixing...")
+        # #16: this pass has write tools (like the execute phase) so the fixes
+        # actually land in the files, and are committed afterwards.
+        fixes = run_pi("worker", f"Proxy requested: {proxy_out}.\n\nSource files:\n{source}\n\n"
+                       "Fix the issues now. Output the corrected file contents.",
+                       "Fix review issues",
+                       skills=(SKILLS / "code-review-and-quality", SKILLS / "code-simplification"),
+                       artifact=proj / "review_fixes_output.txt", cwd=proj)
+        if text.degenerate(fixes):
+            warn("Review-fix output looks degenerate — fixes may not have been applied")
+        _commit(proj, "🔧 Review fixes: apply proxy-requested revisions")
     ok("Review complete")
 
 
@@ -649,6 +668,13 @@ def runtime_smoke(proj: Path) -> tuple[str, str]:
 
 
 def verify(proj: Path) -> str:
+    """Run the verify checks; persist the verdict for --resume (#6)."""
+    verdict = _verify(proj)
+    (proj / "verify_verdict.txt").write_text(verdict + "\n")
+    return verdict
+
+
+def _verify(proj: Path) -> str:
     source = gather(proj)
     out = run_pi("worker", VERIFY_PROMPT.format(source=source),
                  "Verify this project runs locally",

@@ -13,6 +13,10 @@ PROXY = re.compile(r"^PROXY_REQUEST:", re.M)
 SKIP = re.compile(r"^SKIP:", re.M)
 CRITICAL = re.compile(r"^CRITICAL:", re.M)
 REJECTED = re.compile(r"^REJECTED:", re.M)
+# Explicit approval only (#3): "APPROVED" at line start, optionally after the
+# skill's own "PROXY_DECISION:" prefix. Hesitation, NEEDS_REVISION or garbage
+# do not match — gates treat no explicit approval as "not approved".
+APPROVED = re.compile(r"^(?:PROXY_DECISION:[ \t]*)?APPROVED\b", re.M)
 REVIEW_PASSED = re.compile(r"^REVIEW_PASSED:", re.M)
 REVIEW_FAILED = re.compile(r"^REVIEW_FAILED:", re.M)
 VERIFY_PASSED = re.compile(r"^VERIFY_PASSED:", re.M)

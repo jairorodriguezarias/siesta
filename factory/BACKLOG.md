@@ -33,17 +33,19 @@ deleting it — this file is also the changelog of what Siesta learned about its
   degenerate-output guard. Pair with a minimum-substance check on the worker
   output.
   ✅ fixed in the family-A batch: degenerate worker output gets one feedback retry, then the issue is blocked — no fake completion node.
-- [ ] #3 Proxy gate fail-open: anything ≠ NEEDS_REVISION counts as approval
+- [x] #3 Proxy gate fail-open: anything ≠ NEEDS_REVISION counts as approval
   (phases.py:537). Approves helpless narrations. Should require an explicit
   APPROVED marker.
+  ✅ fixed in the family-B batch: issue-level proxy gates now require an explicit line-start APPROVED marker; REJECTED → retry, and NEEDS_REVISION/hesitation/garbage also retry with feedback — never approval.
 - [ ] #4 `_detect_runnable` misses `python -m <pkg>` (package with
   `__main__.py`).
 - [x] #5 Retro `issues.md` template hardcoded for the previous (HTML) project.
   Fixed.
-- [ ] #6 Phase 6 commits "Project verified" even when verdict = VERIFY_FAILED
+- [x] #6 Phase 6 commits "Project verified" even when verdict = VERIFY_FAILED
   (__main__.py:169-171); resume path also hardcodes VERIFY_PASSED
   (__main__.py:161). Tie the decision node + commit message to the actual
   verdict.
+  ✅ fixed in the family-B batch: verify() persists its verdict to verify_verdict.txt; resume reads it instead of hardcoding VERIFY_PASSED, and phase 6 records decision+commit or blocker+UNVERIFIED commit per the real verdict.
 - [ ] #7 Generated projects commit `.DS_Store`/`__pycache__`/`.pipeline-checkpoint`
   (`git add -A`, no .gitignore). Write a standard .gitignore at project init.
 - [ ] #8 Learners emit 0 parseable learnings even with `--no-tools` (root KB has
@@ -94,13 +96,14 @@ deleting it — this file is also the changelog of what Siesta learned about its
   on top of a broken state. Fix sketch: skip the issue (append to `blocked`)
   or retry the previous issue's fix before continuing.
   ✅ fixed in the family-A batch: a red regression suite gates the next issue (blocked + KB node) — the suite is a guard, not a witness.
-- [ ] #16 Review "fix" pass is a no-op (found in code walkthrough, 2026-09-02):
+- [x] #16 Review "fix" pass is a no-op (found in code walkthrough, 2026-09-02):
   when the proxy requests revision, the pipeline runs the worker with
   "Fix the issues now" but `tools="no"` (phases.py:539-543) — the worker
   cannot write files, so "fixes" land in `review_fixes_output.txt` and are
   NEVER applied. `ok("Review complete")` follows unconditionally. Invalidates
   phase 4's purpose. Fix sketch: give this pass write tools (like the execute
   phase), and re-commit after it.
+  ✅ fixed in the family-B batch: the review-fix pass runs with write tools (like execute) and commits its changes afterwards; degenerate fix output warns.
 - [x] #17 All 5 factory skills reference the deleted `kb-manager.sh` CLI
   (found in code walkthrough, 2026-09-02): human-proxy, kb-manager,
   issue-executor, factory-learner, consultant-protocol contain 30+ calls to
@@ -115,10 +118,11 @@ deleting it — this file is also the changelog of what Siesta learned about its
   mention fixed too; run_pi() now exports the factory dir on PYTHONPATH so
   the shim works from any project cwd; test_skills.py guards regressions
   (no deleted CLI names, only supported shim subcommands).
-- [ ] #18 (minor) Review gate uses a raw substring check `"NEEDS_REVISION" in
+- [x] #18 (minor) Review gate uses a raw substring check `"NEEDS_REVISION" in
   proxy_out` (phases.py:537) instead of an anchored marker like `text.REJECTED`
   — accidental mentions trigger revision requests. Make proxy gates use the
   same anchored-marker style as the rest of the protocol.
+  ✅ fixed in the family-B batch: the review gate uses the anchored APPROVED marker (text.APPROVED) instead of a raw substring.
 - [ ] #19 Runtime smoke is HTTP-only and punishes working CLIs (found in code
   walkthrough, 2026-09-02): `runtime_smoke()` probes with `urlopen` — a CLI
   that starts, prints and exits cleanly (exit 0) is reported as

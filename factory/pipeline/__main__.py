@@ -158,7 +158,9 @@ def _run(args) -> None:
     # ─── PHASE 5: VERIFY (+ runtime smoke check) ─────────────────────────
     if done("phase-5"):
         log("Phase 5 already complete (resume mode), skipping...")
-        verdict = "VERIFY_PASSED"
+        # #6: read the real recorded verdict — a resume must not invent a pass.
+        verdict = ((proj / "verify_verdict.txt").read_text().strip()
+                   if (proj / "verify_verdict.txt").exists() else "VERIFY_UNKNOWN")
     else:
         phase(5, "VERIFY — Runs locally?")
         verdict = phases.verify(proj)
@@ -166,9 +168,16 @@ def _run(args) -> None:
 
     # ─── PHASE 6: DONE ───────────────────────────────────────────────────
     phase(6, "DONE")
-    kb.node("decision", f"Project complete: {name}",
-            f"Project verified running locally. Verdict: {verdict}.")
-    phases._commit(proj, f"Project verified: {name}")
+    # #6: the decision node and the commit message tell the truth about the
+    # verdict — never "verified" for a project that failed verify.
+    if verdict == "VERIFY_PASSED":
+        kb.node("decision", f"Project complete: {name}",
+                "Project verified running locally.")
+        phases._commit(proj, f"Project verified: {name}")
+    else:
+        kb.node("blocker", f"Project NOT verified: {name}",
+                f"Verify verdict was {verdict} — the project may not run locally.")
+        phases._commit(proj, f"Project delivered UNVERIFIED: {name}")
 
     # ─── PHASE 7: LEARN (project-level) ──────────────────────────────────
     phase(7, "LEARN — Project-level learning")

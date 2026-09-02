@@ -158,6 +158,25 @@ class DegenerateGuard(unittest.TestCase):
             "VERIFY_PASSED: static verification complete, entry point exists."))
 
 
+class ExplicitApproval(unittest.TestCase):
+    """#3: only a line-start APPROVED counts — nothing else is approval."""
+
+    def test_line_start_approved_matches(self):
+        self.assertTrue(text.APPROVED.search("APPROVED: aligned with the KB intent"))
+
+    def test_skill_decision_prefix_matches(self):
+        self.assertTrue(text.APPROVED.search(
+            "PROXY_DECISION: APPROVED\nREASONING: matches the spec"))
+
+    def test_hesitation_is_not_approval(self):
+        self.assertIsNone(text.APPROVED.search(
+            "I am honestly not sure the human would approve this approach."))
+
+    def test_needs_revision_is_not_approval(self):
+        self.assertIsNone(text.APPROVED.search(
+            "NEEDS_REVISION: add input validation before shipping"))
+
+
 class Helpers(unittest.TestCase):
     def test_after_matches_grep_dash_a_semantics(self):
         # like `grep -A 1`: the marker line plus one following line

@@ -41,8 +41,17 @@ case "$model" in
     esac ;;
   consultant-model)
     case "$*" in
-      *"APPROVED or NEEDS_REVISION"*) echo "APPROVED" ;;
-      *"You are the human-proxy"*) echo "APPROVED" ;;
+      *"Evaluate if this review meets"*)
+        case "$FAKE_PI_SCENARIO" in
+          review_needs_revision) echo "NEEDS_REVISION: the CLI lacks input validation" ;;
+          *) echo "APPROVED: meets the definition of done" ;;
+        esac ;;
+      *"A worker requests approval"*)
+        case "$FAKE_PI_SCENARIO" in
+          proxy_rejected) echo "REJECTED: over-engineered, use the standard library" ;;
+          proxy_no_marker) echo "I am honestly not sure whether the human would approve this." ;;
+          *) echo "APPROVED: aligned with the intent recorded in the KB" ;;
+        esac ;;
       *"DEEP DIAGNOSIS"*)
         case "$FAKE_PI_SCENARIO" in
           diagnosis_skips) echo "DIAGNOSIS: wrong environment
@@ -57,7 +66,11 @@ APPROACH: take the simplest path" ;;
     esac ;;
   worker-model)
     case "$*" in
-      *"QA engineer"*) echo "VERIFY_PASSED: static verification complete" ;;
+      *"QA engineer"*)
+        case "$FAKE_PI_SCENARIO" in
+          verify_fails) echo "VERIFY_FAILED: the entry point crashes on launch" ;;
+          *) echo "VERIFY_PASSED: static verification complete" ;;
+        esac ;;
       *"code-reviewer"*) echo "REVIEW_PASSED: no issues found" ;;
       *"You are the factory-learner"*)
         echo "PROJECT_LEARNING:
@@ -77,6 +90,13 @@ How should I implement this?" ;;
 How should I implement this?" ;;
           proxy_request) echo "PROXY_REQUEST: requesting approval to proceed.
 Justification: the change requires it." ;;
+          proxy_rejected|proxy_no_marker)
+            case "$*" in
+              *"Proxy rejected"*|*"Proxy did not approve"*)
+                echo "ISSUE_OK: implemented a simpler approach with tests included" ;;
+              *) echo "PROXY_REQUEST: requesting approval to proceed.
+Justification: the change requires it." ;;
+            esac ;;
           degenerate_once)
             case "$*" in
               *"Your last answer was rejected"*)
@@ -330,6 +350,61 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("1 blocked", result.stdout)
         self.assertFalse((proj / "issue_2_output.txt").exists())
         self.assertNotIn("Issue #2 completed", self.decisions())
+
+    # ─── explicit-approval gates (#3) ─────────────────────────────────────
+
+    def test_unapproved_proxy_feedback_retries_issue(self):
+        # #3: hesitation is not approval — the worker gets feedback and retries
+        result = self.siesta("--auto", self.idea, scenario="proxy_no_marker")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(self.types(self.kb(), "blocker"), [])
+        self.assertIn("Issue #1 completed", self.decisions())
+        self.assertNotIn("did not approve", result.stderr)  # recovered quietly
+        # per issue: PROXY attempt + 1 feedback retry + learn hook; then
+        # review + verify + project learning
+        self.assertEqual(self.log_count("--model worker-model"), 9)
+        # 2 issue-level proxies + 1 review proxy
+        self.assertEqual(self.log_count("--model consultant-model"), 3)
+
+    def test_proxy_rejection_retries_with_different_approach(self):
+        result = self.siesta("--auto", self.idea, scenario="proxy_rejected")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertIn("REJECTED", (self.proj() / "proxy_1_output.txt").read_text())
+        self.assertEqual(self.types(self.kb(), "blocker"), [])
+        self.assertIn("Issue #1 completed", self.decisions())
+        self.assertEqual(self.log_count("--model consultant-model"), 3)
+
+    # ─── review revision now applies fixes (#16/#18) ─────────────────────
+
+    def test_review_revision_applies_fixes_with_tools(self):
+        result = self.siesta("--auto", self.idea, scenario="review_needs_revision")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        # #16: the fix pass runs WITH write tools and its changes are committed
+        fix_calls = [line for line in (self.tmp / "pi_calls.log").read_text()
+                     .splitlines() if "Fix review issues" in line]
+        self.assertEqual(len(fix_calls), 1)
+        self.assertNotIn("--no-tools", fix_calls[0])
+        log = subprocess.run(["git", "-C", str(self.proj()), "log", "--oneline"],
+                             capture_output=True, text=True).stdout
+        self.assertIn("Review fixes", log)
+        self.assertIn("NEEDS_REVISION", (self.proj() / "proxy_review_output.txt").read_text())
+
+    # ─── verify verdict tells the truth (#6) ─────────────────────────────
+
+    def test_failed_verify_is_recorded_as_unverified(self):
+        result = self.siesta("--auto", self.idea, scenario="verify_fails")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertTrue(any("Project NOT verified" in b
+                            for b in self.types(self.kb(), "blocker")))
+        self.assertEqual((self.proj() / "verify_verdict.txt").read_text().strip(),
+                         "VERIFY_FAILED")
+        log = subprocess.run(["git", "-C", str(self.proj()), "log", "--oneline"],
+                             capture_output=True, text=True).stdout
+        self.assertIn("UNVERIFIED", log)
+        self.assertNotIn("Project verified", log)
+        # a failed project still completes (issues done), only the verdict is honest
+        self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
+                         "complete")
 
     # ─── resume ──────────────────────────────────────────────────────────
 
