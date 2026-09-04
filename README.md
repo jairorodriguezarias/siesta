@@ -144,16 +144,16 @@ ollama pull qwen2.5-coder
 
 # Install Pi
 npm install -g pi
-
-# Install skills from addyosmani
-cd ~/Desktop/siesta
-npx skills add addyosmani/agent-skills
 ```
+
+All 15 skills (10 from addyosmani + 5 factory) are tracked in this repository,
+so cloning brings them — no separate skill install step is needed.
 
 ### Setup
 
 ```bash
-# Clone
+# Clone — https://github.com/jairorodriguezarias/siesta brings all 15 skills
+# (.agents/skills/ + factory/skills/, tracked in git)
 git clone https://github.com/jairorodriguezarias/siesta.git ~/Desktop/siesta
 cd ~/Desktop/siesta
 
@@ -165,6 +165,19 @@ ollama list
 
 # Verify Pi is configured
 pi --help
+```
+
+The runtime skill views (`.pi/skills/`, `.claude/skills/`) are gitignored and
+NOT auto-generated. After cloning, recreate the symlinks from the tracked
+sources:
+
+```bash
+for src in .agents/skills/*/ factory/skills/*/; do
+  name="$(basename "${src%/}")"
+  mkdir -p .pi/skills .claude/skills
+  ln -sf "../../${src%/}" ".pi/skills/$name"
+  ln -s "../../${src%/}" ".claude/skills/$name"
+done
 ```
 
 ---
@@ -242,8 +255,8 @@ siesta/
 │       ├── pre-issue.sh
 │       └── post-issue.sh
 │
-├── .pi/skills/                    # Symlinks for Pi agent
-├── .claude/skills/                # Symlinks for Claude Code
+├── .pi/skills/                    # Symlinks for Pi agent (gitignored view)
+├── .claude/skills/                # Symlinks for Claude Code (gitignored view)
 ├── AGENTS.md                      # Agent system documentation
 └── .gitignore
 ```
@@ -256,7 +269,7 @@ siesta/
 
 > Production-grade engineering skills for AI coding agents.
 
-Siesta uses 10 of the 24 skills from this repository (unmodified, intact). The skill anatomy, anti-rationalization tables, verification gates, and progressive disclosure patterns all come from Addy Osmani's work. The lifecycle (DEFINE → PLAN → BUILD → VERIFY → REVIEW → SHIP) and the `definition-of-done.md` reference are directly from this project.
+Siesta uses 10 of the 24 skills from this repository. The skill anatomy, anti-rationalization tables, verification gates, and progressive disclosure patterns all come from Addy Osmani's work. The lifecycle (DEFINE → PLAN → BUILD → VERIFY → REVIEW → SHIP) and the `definition-of-done.md` reference are directly from this project.
 
 ### [SantanderAI/ralph](https://github.com/SantanderAI/ralph)
 
