@@ -167,18 +167,9 @@ ollama list
 pi --help
 ```
 
-The runtime skill views (`.pi/skills/`, `.claude/skills/`) are gitignored and
-NOT auto-generated. After cloning, recreate the symlinks from the tracked
-sources:
-
-```bash
-for src in .agents/skills/*/ factory/skills/*/; do
-  name="$(basename "${src%/}")"
-  mkdir -p .pi/skills .claude/skills
-  ln -sf "../../${src%/}" ".pi/skills/$name"
-  ln -s "../../${src%/}" ".claude/skills/$name"
-done
-```
+No view or skill setup is needed beyond the clone: the pipeline loads every
+skill with explicit `--skill <path>` flags pointing at the tracked sources
+(`.agents/skills/`, `factory/skills/`).
 
 ---
 
@@ -255,8 +246,6 @@ siesta/
 │       ├── pre-issue.sh
 │       └── post-issue.sh
 │
-├── .pi/skills/                    # Symlinks for Pi agent (gitignored view)
-├── .claude/skills/                # Symlinks for Claude Code (gitignored view)
 ├── AGENTS.md                      # Agent system documentation
 └── .gitignore
 ```

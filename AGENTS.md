@@ -398,24 +398,16 @@ description: When to use this skill and what it does
 
 Skills are loaded by the Pi agent via `--skill` flags. The agent follows the skill's process, avoids rationalizations, watches for red flags, and checks the verification gate.
 
-### Skill Locations — Sources vs Views
-
-Two folders hold real skill files (sources of truth); two are symlink-only views for different CLIs. Never edit a view — always edit the source.
-
-| Folder | What | Nature |
-|--------|------|--------|
-| `.agents/skills/` | 10 addyosmani skills | Source — base from addyosmani, may be tailored to the factory (marked "Factory Adaptation" sections; original provenance noted) |
-| `factory/skills/` | 5 factory skills | Source — self-improving, editable by the factory-learner |
-| `.pi/skills/` | 15 symlinks | View — what the `pi` CLI sees during the pipeline |
-| `.claude/skills/` | 15 symlinks | View — what Claude Code sees in interactive use |
+### Skill Locations
 
 All skills are tracked in this repository
 ([https://github.com/jairorodriguezarias/siesta](https://github.com/jairorodriguezarias/siesta)) —
-a fresh clone brings the 15 sources; no separate skill-install step exists. The
-view folders are gitignored and are NOT auto-generated: after cloning (or after
-adding a skill) recreate the symlinks with the loop documented in the README's
-Installation section. `setup-github.sh` is a legacy one-shot migration script —
-it does NOT manage symlinks. The learner may only touch `factory/skills/`.
+a fresh clone brings the 15 sources; no separate skill-install step exists. There
+are no runtime view folders: `run_pi()` loads each skill with an explicit
+`--skill <path>` flag pointing at the tracked sources. `.pi/` and `.claude/`
+remain in `.gitignore` only as guards (the `pi` CLI can write runtime state
+there). `setup-github.sh` is a legacy one-shot migration script — deprecated.
+The learner may only touch `factory/skills/`.
 
 ### Skill Categories
 
@@ -488,10 +480,9 @@ for it — kept in sync with the actual `run_pi(..., skills=(...))` calls in
 ### Add a new factory skill
 
 1. Create `factory/skills/<skill-name>/SKILL.md` with the standard format
-2. Symlink it into both views: `ln -s ../../factory/skills/<skill-name> .pi/skills/<skill-name> && ln -s ../../factory/skills/<skill-name> .claude/skills/<skill-name>`
-3. Commit it — a fresh clone of the repo must bring the new skill
-4. Reference it in the pipeline via `FACTORY_SKILLS / "<skill-name>"` in `factory/pipeline/phases.py`
-5. The factory-learner may automatically create skills if it detects novel patterns
+2. Commit it — a fresh clone of the repo must bring the new skill
+3. Reference it in the pipeline via `FACTORY_SKILLS / "<skill-name>"` in `factory/pipeline/phases.py`
+4. The factory-learner may automatically create skills if it detects novel patterns
 
 ### Change model routing
 
@@ -523,7 +514,7 @@ Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `ph
 | `factory/tests/` | Unit + fake-pi integration tests (`python3 -m unittest discover -s tests`) |
 | `factory/BACKLOG.md` | Findings + corrections backlog — also the changelog of what Siesta learned about itself |
 | `factory/config/models.json` | Model routing config |
-| `setup-github.sh` | Legacy one-shot migration script (path fixes, old .gitignore, embedded README heredoc) — deprecated, does NOT manage skill views |
+| `setup-github.sh` | Legacy one-shot migration script (path fixes, old .gitignore, embedded README heredoc) — deprecated, unrelated to skill loading |
 | `factory/kb/schema.json` | KB node/edge type schema |
 | `factory/kb/global-graph.json` | Cross-project accumulated learnings |
 | `factory/skills/*/SKILL.md` | 5 custom factory skills |
