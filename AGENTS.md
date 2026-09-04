@@ -505,6 +505,7 @@ Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `ph
 | File | Purpose |
 |------|---------|
 | `factory/bin/siesta.sh` | Entry point — takes idea, runs pipeline |
+| `factory/pipeline.log` | Full orchestrator narration, tee'd from the console (runtime, gitignored) |
 | `factory/pipeline/__main__.py` | Orchestrator — checkpoint, failure trap, phase dispatch, summary |
 | `factory/pipeline/phases.py` | Phase bodies 0-7 (interview, spec, plan, execute ladder, review, verify + runtime smoke) |
 | `factory/pipeline/learn.py` | Per-issue micro-learning + project-level learning (Phase 7) |

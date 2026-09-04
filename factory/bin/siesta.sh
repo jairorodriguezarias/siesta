@@ -19,6 +19,11 @@ set -e
 
 FACTORY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Persist the full orchestrator narration (banner, phases, guards, summaries)
+# to factory/pipeline.log — the console log is the only trace layer that was
+# not persisted. *.log is gitignored; tee -a appends across runs.
+exec > >(tee -a "$FACTORY_DIR/pipeline.log") 2>&1
+
 # ─── Colors ───
 RED='\033[0;31m'
 GREEN='\033[0;32m'
