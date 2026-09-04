@@ -99,6 +99,13 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | `stop.md` | Any agent can create `stop.md` in the project dir to halt the pipeline cleanly |
 | Regression suite | All previous tests re-run before each new issue — a red suite **gates** the next one (skipped, logged, never built on a broken base) |
 | Degenerate-output guard | Tool-call JSON, questions to the absent human, or truncated output are treated as failed attempts — never as success; a degenerate worker answer gets one feedback retry, then the issue is blocked |
+| Call timeout | Every `pi`/Ollama call is capped by `SIESTA_PI_TIMEOUT` (1200s default) — a hung call returns empty and counts as a failed attempt instead of freezing the pipeline (`stop.md` only works between issues) |
+| Explicit approval signal | Proxy gates are fail-closed: only a line-start `APPROVED` marker continues the pipeline. `NEEDS_REVISION`, hesitation, or garbage retry with feedback — unmarked output can never count as approval |
+| Honest verify verdict | `verify()` persists its verdict to `verify_verdict.txt`; resume reads it (never invents a pass), and a failed verify produces a blocker node + an `UNVERIFIED` commit instead of "Project verified" |
+| Idempotent resume | Issues with an "Issue #N completed" KB decision node are skipped on `--resume`; blocked issues have no node and naturally retry |
+| Spec relevance guard | A spec sharing zero content words with the interview intent is rejected as a template hallucination — one retry with feedback, then abort |
+| Planner retries | A spec/plan answer that is unusable (generic template, no `## Issue #N:` headers) gets one directive retry demanding the exact format before the honest fallbacks |
+| Generated hygiene | Project init writes a standard `.gitignore` (`.DS_Store`, `__pycache__/`, checkpoints) before the first `git add -A` |
 | Thinking escalation | Two consultant-guided retries before escalation on a failing issue |
 | Deep diagnosis | After 3 failures, the consultant does a root-cause analysis instead of blindly retrying |
 | Blocker logging | Stuck issues are logged to KB and skipped; pipeline continues |

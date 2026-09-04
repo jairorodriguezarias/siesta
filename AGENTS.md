@@ -74,7 +74,7 @@ Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) play
 **Responsibilities:**
 - **Phase 3:** Executes each issue following TDD (Red → Green → Refactor). Writes code and tests. If stuck, outputs `CONSULT:` with a specific question, context, and code. If a skill says "ask the human", outputs `PROXY_REQUEST:`.
 - **Phase 4:** Reviews all code across 5 axes: correctness, readability, architecture, security, performance. Outputs `REVIEW_PASSED:` or `REVIEW_FAILED:`.
-- **Phase 5:** Verifies the project runs locally. Detects project type, tries to run it, fixes if needed.
+- **Phase 5:** Verifies the project runs locally. Detects project type (incl. packages with `__main__.py`, run as `python -m <pkg>`), tries to run it, fixes if needed. Persists the verdict to `verify_verdict.txt` — phase 6 records decision+commit or blocker+`UNVERIFIED` commit per the real verdict.
 
 **Skills used:**
 - `incremental-implementation` (Phase 3)
@@ -131,7 +131,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 - Replaces the human in autonomous phases. The human already left — their intent is in the KB.
 - Loads the original human intent, spec, and all prior decisions from the KB
 - Evaluates the request against: alignment with intent, scope, simplicity, risk, consistency
-- Outputs `APPROVED`, `REJECTED`, or `NEEDS_REVISION` with reasoning and KB evidence
+- Outputs `APPROVED`, `REJECTED`, or `NEEDS_REVISION` with reasoning and KB evidence — as a line-start marker (the gate is fail-closed: unmarked output is never approval)
 - Does NOT invent new requirements — only evaluates against existing intent
 
 **Decision categories:**
@@ -216,6 +216,35 @@ pre_issue() → Worker (Qwen) → post_issue() → learn_issue()
   "no tests at all" is reported as `skipped` — never as green.
 - **Verify fallback**: with no usable VERIFY marker, only the mechanical
   checks decide (regression suite + runtime smoke); no tests means failed.
+- **Call timeout** (`pi.PI_TIMEOUT`, env `SIESTA_PI_TIMEOUT`, 1200s default):
+  a hung `pi`/Ollama call returns empty and counts as a failed attempt —
+  the degenerate guards already handle it. `stop.md` only works between
+  issues, so a timeout is the only defense against a frozen call.
+- **Explicit approval marker** (`text.APPROVED`): anchored to line start
+  (optional `PROXY_DECISION:` prefix). Both proxy gates are fail-closed —
+  explicit `APPROVED` continues, `REJECTED` retries with a different
+  approach, and `NEEDS_REVISION` / hesitation / garbage retry with feedback.
+  Unmarked output can never count as approval, and an accidental mention of
+  `NEEDS_REVISION` inside prose cannot trigger a revision.
+- **Review-fix with write tools**: the proxy-requested fix pass runs with
+  write tools (like the execute phase) so fixes actually land in files and
+  are committed afterwards; degenerate fix output only warns.
+- **Per-issue idempotent resume**: `execute()` skips issues whose
+  "Issue #N completed" decision node is already on disk; blocked issues
+  have no node, so they naturally retry on resume.
+- **Spec relevance guard** (`text.shares_content()`): a spec sharing zero
+  content words with the interview intent is rejected as a template
+  hallucination — one `SPEC_RETRY_DIRECTIVE` retry, then abort.
+- **Planner retries**: a plan without `## Issue #N:` headers gets one
+  `PLAN_RETRY_DIRECTIVE` retry demanding the exact format before the
+  fallbacks. Both prompts forbid generic templates and priority groupings.
+- **Honest verify verdict**: `verify()` persists its verdict to
+  `verify_verdict.txt`; resume reads it instead of hardcoding
+  `VERIFY_PASSED`, and phase 6 ties the decision node + commit message to
+  the real verdict (failed verify → blocker node + `UNVERIFIED` commit).
+- **Generated hygiene**: project init writes a standard `.gitignore`
+  (`.DS_Store`, `__pycache__/`, `*.pyc`, checkpoint, `verify_verdict.txt`)
+  before the first `git add -A`.
 
 ### Worker Gets Stuck
 
@@ -235,9 +264,9 @@ Worker → CONSULT: → Consultant → RESOLUTION: → Worker retries
 
 ```
 Worker → PROXY_REQUEST: → Human-proxy (consultant role)
-                               ├→ APPROVED → Worker continues
+                               ├→ APPROVED (line-start marker) → Worker continues
                                ├→ REJECTED → Worker tries different approach
-                               └→ NEEDS_REVISION → Worker adjusts and re-submits
+                               └→ NEEDS_REVISION / unmarked → Worker adjusts, resubmits with feedback
 ```
 
 ### Deep Diagnosis (after 3 failures)
@@ -433,6 +462,14 @@ The learner can modify factory skills (add Red Flags, Rationalizations, Process 
   "fallback":   { "method": "web-search",         "package": "npm:@ollama/pi-web-search" }
 }
 ```
+
+Each role also carries a `skills` list documenting the skills `run_pi()` loads
+for it — kept in sync with the actual `run_pi(..., skills=(...))` calls in
+`phases.py` / `learn.py`. The pipeline itself only reads `model` and `provider`.
+
+### Timeouts
+
+`SIESTA_PI_TIMEOUT` (seconds, default 1200) caps every `pi` call — see the call-timeout guard above.
 
 ### KB Schema
 
