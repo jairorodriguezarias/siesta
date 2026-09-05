@@ -242,6 +242,10 @@ pre_issue() → Worker (Qwen) → post_issue() → learn_issue()
   `verify_verdict.txt`; resume reads it instead of hardcoding
   `VERIFY_PASSED`, and phase 6 ties the decision node + commit message to
   the real verdict (failed verify → blocker node + `UNVERIFIED` commit).
+- **Fence-aware spec parsing** (`text.spec_doc()`): a language-tagged code
+  fence in a spec answer means the model dumped code — rejected (run #4
+  smuggled a whole program whose ```python body contained a `###` heading);
+  bare fenced prose blocks are kept as illustration.
 - **Generated hygiene**: project init writes a standard `.gitignore`
   (`.DS_Store`, `__pycache__/`, `*.pyc`, checkpoint, `verify_verdict.txt`)
   before the first `git add -A`.
@@ -356,7 +360,7 @@ The global KB holds `principle` nodes — standing rules that constrain every pr
 3. Code must explain itself
 4. Python is the default language
 5. Use english — docs, KB content and code comments
-6. Verify pushes contain no PI — `.pi/` stays ignored; no personal information in commits
+6. Verify pushes contain no PI — `.pi/` and `.qwen/` stay ignored; no personal information in commits
 
 To change them: update the `principle` nodes in the global KB — every pipeline run reads them fresh.
 
@@ -404,10 +408,9 @@ All skills are tracked in this repository
 ([https://github.com/jairorodriguezarias/siesta](https://github.com/jairorodriguezarias/siesta)) —
 a fresh clone brings the 15 sources; no separate skill-install step exists. There
 are no runtime view folders: `run_pi()` loads each skill with an explicit
-`--skill <path>` flag pointing at the tracked sources. `.pi/` and `.claude/`
-remain in `.gitignore` only as guards (the `pi` CLI can write runtime state
-there). `setup-github.sh` is a legacy one-shot migration script — deprecated.
-The learner may only touch `factory/skills/`.
+`--skill <path>` flag pointing at the tracked sources. `.pi/`, `.qwen/` and
+`.claude/` remain in `.gitignore` only as guards (the `pi` CLI can write
+runtime state there). The learner may only touch `factory/skills/`.
 
 ### Skill Categories
 
@@ -470,6 +473,23 @@ Each role also carries a `skills` list documenting the skills `run_pi()` loads
 for it — kept in sync with the actual `run_pi(..., skills=(...))` calls in
 `phases.py` / `learn.py`. The pipeline itself only reads `model` and `provider`.
 
+### pi invocation contract (`pipeline/pi.py`)
+
+Every model call goes through `build_args()` / `run_pi()`, which enforces two
+rules the pipeline depends on:
+
+- **One positional prompt** (`body + "\n\n" + user`, data first, directive
+  last): pi 0.84.3 stopped delivering `--append-system-prompt` content to the
+  model (#23) — the old shape put the intent in the system prompt and GLM saw
+  the format but not the subject. Merging keeps the "model obeys the last
+  turn" order from runs #3/#4.
+- **Thinking pinning** (`_safe_thinking()`): pi without an explicit
+  `--thinking` sends a level Ollama rejects for non-thinking models
+  (qwen2.5-coder 400s "does not support thinking"). The requested level is
+  forwarded only for known thinking models (glm); everything else is pinned
+  to `off` — so a misrouted deep-diagnosis call (`thinking="high"` on qwen)
+  can no longer 400. Never call `pi` without an explicit `--thinking`.
+
 ### Timeouts
 
 `SIESTA_PI_TIMEOUT` (seconds, default 1200) caps every `pi` call — see the call-timeout guard above.
@@ -514,13 +534,12 @@ Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `ph
 | `factory/pipeline/__main__.py` | Orchestrator — checkpoint, failure trap, phase dispatch, summary |
 | `factory/pipeline/phases.py` | Phase bodies 0-7 (interview, spec, plan, execute ladder, review, verify + runtime smoke) |
 | `factory/pipeline/learn.py` | Per-issue micro-learning + project-level learning (Phase 7) |
-| `factory/pipeline/pi.py` | Single `run_pi()` wrapper — every model call |
+| `factory/pipeline/pi.py` | Single `run_pi()` wrapper — every model call: one positional prompt, thinking pinning, call timeout |
 | `factory/pipeline/kb.py` | KB graph store + `python3 -m pipeline.kb` CLI shim |
 | `factory/pipeline/text.py` | Anchored marker regexes + pure parsers |
 | `factory/tests/` | Unit + fake-pi integration tests (`python3 -m unittest discover -s tests`) |
 | `factory/BACKLOG.md` | Findings + corrections backlog — also the changelog of what Siesta learned about itself |
 | `factory/config/models.json` | Model routing config |
-| `setup-github.sh` | Legacy one-shot migration script (path fixes, old .gitignore, embedded README heredoc) — deprecated, unrelated to skill loading |
 | `factory/kb/schema.json` | KB node/edge type schema |
 | `factory/kb/global-graph.json` | Cross-project accumulated learnings |
 | `factory/skills/*/SKILL.md` | 5 custom factory skills |

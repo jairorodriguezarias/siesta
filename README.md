@@ -50,6 +50,16 @@ the local coder model alone cannot hold that contract.
 
 Model routing is configured in [`factory/config/models.json`](factory/config/models.json).
 
+Every model call goes through one wrapper ([`factory/pipeline/pi.py`](factory/pipeline/pi.py))
+that enforces two rules the pipeline depends on:
+
+- **One positional prompt** — body and directive merged (data first, directive last).
+  pi 0.84.3 stopped delivering `--append-system-prompt` content, so the old shape
+  showed the model the format but not the subject.
+- **Thinking pinning** — the requested `--thinking` level is forwarded only for known
+  thinking models (GLM); non-thinking models (Qwen) are pinned to `off`, so a
+  misrouted call can never 400 with "does not support thinking".
+
 ### Pipeline (7 Phases)
 
 | Phase | What happens | Role |
@@ -104,6 +114,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | Honest verify verdict | `verify()` persists its verdict to `verify_verdict.txt`; resume reads it (never invents a pass), and a failed verify produces a blocker node + an `UNVERIFIED` commit instead of "Project verified" |
 | Idempotent resume | Issues with an "Issue #N completed" KB decision node are skipped on `--resume`; blocked issues have no node and naturally retry |
 | Spec relevance guard | A spec sharing zero content words with the interview intent is rejected as a template hallucination — one retry with feedback, then abort |
+| Fence-aware spec parsing | A language-tagged code fence in a spec answer means the model dumped code — rejected; bare fenced prose blocks are kept as illustration |
 | Planner retries | A spec/plan answer that is unusable (generic template, no `## Issue #N:` headers) gets one directive retry demanding the exact format before the honest fallbacks |
 | Generated hygiene | Project init writes a standard `.gitignore` (`.DS_Store`, `__pycache__/`, checkpoints) before the first `git add -A` |
 | Thinking escalation | Two consultant-guided retries before escalation on a failing issue |
@@ -212,6 +223,7 @@ siesta/
 ├── factory/
 │   ├── bin/
 │   │   └── siesta.sh              # Entry point
+│   ├── pipeline.log               # Full orchestrator narration (runtime, gitignored via *.log)
 │   ├── pipeline/                  # Python orchestrator (run with python3 -m pipeline)
 │   │   ├── __main__.py            # Checkpoint, failure trap, phase dispatch, summary
 │   │   ├── phases.py              # Phase bodies 0-7 (interview, spec, plan, execute ladder…)
@@ -247,6 +259,7 @@ siesta/
 │       └── post-issue.sh
 │
 ├── AGENTS.md                      # Agent system documentation
+├── LICENSE                        # MIT
 └── .gitignore
 ```
 
