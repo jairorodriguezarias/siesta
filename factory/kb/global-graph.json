@@ -90,6 +90,125 @@
       "summary": "Pipeline failure: a-tiny-python-3-cli-wordcount-py-reads",
       "detail": "Pipeline failed at checkpoint phase-0. Error: 1.",
       "created_at": "2026-09-04T05:58:15Z"
+    },
+    {
+      "id": "n1788625194_252192",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #3)",
+      "detail": "Add guidance on how to perform code reviews to ensure that the implementation meets all the acceptance criteria before passing the issue to the next stage.",
+      "created_at": "2026-09-05T16:19:54Z"
+    },
+    {
+      "id": "n1788625194_717627",
+      "type": "learning",
+      "summary": "Verification of function implementation",
+      "detail": "It is crucial to verify that the function implementation meets all the acceptance criteria before executing the next steps. This will help prevent any issues that arise in later stages of the process.",
+      "created_at": "2026-09-05T16:19:54Z"
+    },
+    {
+      "id": "n1788625194_520296",
+      "type": "learning",
+      "summary": "Code review",
+      "detail": "Performing a code review before executing the next steps can help catch any mistakes or issues that the developer may have missed during the initial implementation.",
+      "created_at": "2026-09-05T16:19:54Z"
+    },
+    {
+      "id": "n1788628605_784134",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #5)",
+      "detail": "Add a learning module on \"Output Formatting in Python\" that covers string formatting techniques and examples.",
+      "created_at": "2026-09-05T17:16:45Z"
+    },
+    {
+      "id": "n1788628605_13950",
+      "type": "learning",
+      "summary": "Example output formatting",
+      "detail": "Add a learning entry to the global KB on how to format output in Python for CLI tools. Example:",
+      "created_at": "2026-09-05T17:16:45Z"
+    },
+    {
+      "id": "n1788629482_38462",
+      "type": "decision",
+      "summary": "Skill improvement: factory-learner (issue #7)",
+      "detail": "Add guidance on the importance of completing function implementations before testing.",
+      "created_at": "2026-09-05T17:31:22Z"
+    },
+    {
+      "id": "n1788629482_507649",
+      "type": "decision",
+      "summary": "Skill improvement: factory-learner (issue #7)",
+      "detail": "Implement a step-by-step checklist for testing that ensures all necessary functions are included and properly tested.",
+      "created_at": "2026-09-05T17:31:22Z"
+    },
+    {
+      "id": "n1788629482_915636",
+      "type": "learning",
+      "summary": "Issue #7",
+      "detail": "Worker failed to implement required functions before attempting to test the code, leading to a failed test suite.",
+      "created_at": "2026-09-05T17:31:22Z"
+    },
+    {
+      "id": "n1788629482_507231",
+      "type": "learning",
+      "summary": "Issue #7",
+      "detail": "Importance of thorough testing and completing function implementations before running tests.",
+      "created_at": "2026-09-05T17:31:22Z"
+    },
+    {
+      "id": "n1788629903_133383",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #8)",
+      "detail": "Nothing to add or change, as the existing skill performed flawlessly.",
+      "created_at": "2026-09-05T17:38:23Z"
+    },
+    {
+      "id": "n1788629903_120812",
+      "type": "learning",
+      "summary": "Issue completed successfully",
+      "detail": "Nothing to log this time, as the issue was straightforward.",
+      "created_at": "2026-09-05T17:38:23Z"
+    },
+    {
+      "id": "n1788630204_155616",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #9)",
+      "detail": "Add a note to the issue-executor skill to distinguish between routine and complex proxy requests.",
+      "created_at": "2026-09-05T17:43:24Z"
+    },
+    {
+      "id": "n1788630204_314441",
+      "type": "learning",
+      "summary": "Routine Proxy Requests",
+      "detail": "Proxy requests for routine decisions such as code reviews or small feature implementations should be handled without external consultation.",
+      "created_at": "2026-09-05T17:43:24Z"
+    },
+    {
+      "id": "n1788630428_814143",
+      "type": "decision",
+      "summary": "Skill improvement: factory-learner (issue #10)",
+      "detail": "Add a section to the documentation that covers best practices for writing test cases that include both verification of output and counts of each word.",
+      "created_at": "2026-09-05T17:47:08Z"
+    },
+    {
+      "id": "n1788630428_725196",
+      "type": "learning",
+      "summary": "\"Improving test cases: Test cases should include tests that check both the output of the function and the counts of each word.\"",
+      "detail": "Document the importance of testing both the output of the function and the counts of each word.",
+      "created_at": "2026-09-05T17:47:08Z"
+    },
+    {
+      "id": "n1788630428_164108",
+      "type": "learning",
+      "summary": "\"Writing effective test cases: It's important to carefully review the acceptance criteria before writing the test case to ensure that the test case covers all the necessary requirements.\"",
+      "detail": "Emphasize the importance of carefully reviewing the acceptance criteria before writing the test case.",
+      "created_at": "2026-09-05T17:47:08Z"
+    },
+    {
+      "id": "n1788630428_906509",
+      "type": "learning",
+      "summary": "\"Checking output format: The output of the function Needs to be displayed in a specific format.\"",
+      "detail": "Emphasize the importance of checking the format of the output.",
+      "created_at": "2026-09-05T17:47:08Z"
     }
   ],
   "edges": []
