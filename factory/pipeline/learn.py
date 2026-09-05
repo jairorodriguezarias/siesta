@@ -24,13 +24,17 @@ _KIND_COUNT = {"LEARNING": "learnings", "SKILL_IMPROVEMENT": "improvements",
 def act_on_learnings(output: str, gkb: Graph, n: int | None) -> dict:
     """Log LEARNING/SKILL_IMPROVEMENT/NEW_SKILL lines to the global KB."""
     counts = {"learnings": 0, "improvements": 0, "new_skills": 0}
+    # round-5: n is None for project-level learning — that used to log
+    # "(issue #None)" into the KB.
+    where = f" (issue #{n})" if n is not None else " (project level)"
     for kind, summary, detail in text.learnings(output):
         if kind == "LEARNING":
             gkb.node("learning", summary, detail)
         else:
-            gkb.node("decision", f"Skill improvement: {summary} (issue #{n})"
+            gkb.node("decision",
+                     f"Skill improvement: {summary}{where}"
                      if kind == "SKILL_IMPROVEMENT"
-                     else f"New skill proposed: {summary} (issue #{n})", detail)
+                     else f"New skill proposed: {summary}{where}", detail)
         counts[_KIND_COUNT[kind]] += 1
     return counts
 

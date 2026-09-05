@@ -184,20 +184,71 @@ model as protocol-compliant, which is why these survived it.
   `verify_output.txt` contains `Warning: Model "qwen2.5-coder:latest" not
   found for provider "ollama". Using custom model id.` — pi stderr noise inside
   the parsed artifact; it also flags that calls may not run the intended model.
-- [ ] `Graph` reads the whole file at init and rewrites it whole on every node()
-  — two instances over the same path in one process lose each other's writes.
-  Latent (each graph has one owner today); safe until someone refactors.
-- [ ] `Graph.node()` validates types against schema.json but `edge()` validates
-  nothing — any from/to/kind passes.
-
-- [ ] run_pi() concatenates stdout+stderr into the parsed text. Provider noise in
-  stderr can corrupt marker parsing. Consider tagging/filtering stderr before
-  parse, or logging stderr separately from the artifact.
 - [ ] Marker parsers (`REVIEW_*`, `VERIFY_*`, `CONSULT`, `PROXY`) accept markers
   inside fenced code blocks the model quotes as examples (false positives) —
   fence content sits at column 0 so the `^` anchor doesn't help. `spec_doc()`
   already solves this for spec/plan by rejecting live fences; reuse that
   approach (ignore code-fence regions before matching).
+
+## Round-5 findings (2026-09-05 — full code walkthrough, fixes same day)
+
+- [x] **#28 Two live `Graph` instances over the global KB — phase 7 wipes the
+  run's per-issue learnings.** `__main__._run` creates `gkb` at start and keeps
+  it all run; `phases.execute()` creates a second instance that writes the
+  per-issue learnings; phase 7 then saves through the FIRST (stale) instance,
+  rewriting global-graph.json without the nodes written since it loaded. The
+  "latent" note above was wrong — this fired on every run reaching phase 7
+  (evidence: the Sep-5 run's learning nodes existed on disk, at risk the
+  moment phase 7 ran). The BACKLOG family it belongs to: C (fragile protocol
+  trust) — the code trusted its own in-memory cache.
+  ✅ fixed: `Graph` now re-reads the file on every operation (load-modify-save
+  per call — the graphs are tiny); two regression tests in test_kb.py.
+- [x] **#29 `post_issue` logs the FIRST attempt, not the final one.** A success
+  that arrived via retry/diagnosis wrote the degenerate first output into the
+  "Issue #N completed" decision node.
+  ✅ fixed: `post_issue` takes the final worker output (in memory), not
+  `issue_{n}_output.txt`.
+- [x] **#30 `runtime_smoke` inherits the pipeline's stdin** — a CLI that reads
+  stdin hung until the deadline and read as "PASSED (started cleanly)".
+  ✅ fixed: `stdin=subprocess.DEVNULL` on the smoke Popen.
+- [x] **#31 `_commit` fails silently** — no returncode check; a repo without
+  git identity produced runs that "completed" with an empty git history.
+  ✅ fixed: commit failures warn with git's stderr.
+- [x] **#32 Project-level skill actions logged "(issue #None)"** —
+  `act_on_learnings(..., n=None)` from phase 7 wrote the literal None into
+  KB summaries.
+  ✅ fixed: n=None logs "(project level)".
+
+Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
+
+- [ ] **#33 `_detect_runnable` misses single-file CLIs** (a root-level
+  `wordcount.py` — exactly the run-4/5 idea layout — is SKIPPED by the smoke).
+- [ ] **#34 `--resume` reports 0 blocked issues** — `blocked = []` is set by
+  definition when phase-3 is done; the summary lies. Rebuild from KB blocker
+  nodes.
+- [ ] **#35 The interactive interview has no timeout** — the #10 fix only
+  covers the non-interactive path (`Popen` + `p.wait()` without a limit).
+- [ ] **#36 `_strip_indented_fences` rejects any spec containing one tagged
+  fence** (```python etc.) — trades the run-4 false negatives for false
+  positives: a legit spec showing one CLI example dies whole. Consider a
+  fenced-lines ratio, or stripping instead of rejecting.
+- [ ] **#37 The learner runs as `worker` (qwen local, thinking off)** — the
+  weakest model owns the strictest output format. Route learning calls to
+  `consultant` (GLM) if #8-style parse problems return.
+- [ ] **#38 Artifacts pollute generated repos** — `pre_issue_*.json`,
+  `*_output.txt`, `regression_*.log` land in project commits via `add -A`;
+  extend the generated .gitignore or move them under `.pipeline/`.
+- [ ] **#39 `gather()` has no total budget** — 500 lines per file × every
+  source file per call; the worker prompt grows unbounded. Cap the aggregate.
+- [ ] **#40 `shares_content` passes on one shared word** ("python" alone
+  validates any Python spec). Require ≥2 shared words or a ratio.
+- [ ] **#41 `review()` skips the degenerate guard** — the only "silence =
+  success" phase without it (marker absence only warns, then proxy decides).
+- [ ] **#42 Dead code/UX**: `PY_PORTS` unused since #19; `phase2`'s return value
+  ignored; duplicated skills tuples; `verify`/`_verify` merge; the duplicate
+  BACKLOG entry (removed in this round).
+- [ ] **#43 `Graph.edge()` validates nothing** (carried over from the hardening
+  list) — any from/to/kind passes, even dangling node ids.
 
 ## Round-4 findings (2026-09-04 — external toolchain regressions, e2e relaunch pending)
 

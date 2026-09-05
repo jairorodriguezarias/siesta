@@ -78,6 +78,14 @@ class ActOnLearnings(unittest.TestCase):
         counts = learn.act_on_learnings(EMPTY_OUTPUT, self.gkb, 1)
         self.assertEqual(counts, {"learnings": 0, "improvements": 0, "new_skills": 0})
 
+    def test_project_level_actions_do_not_log_issue_none(self):
+        # round-5: project-level learning calls with n=None — the KB summary
+        # must say "project level", not "(issue #None)"
+        learn.act_on_learnings(LEARNER_OUTPUT, self.gkb, None)
+        decisions = [n["summary"] for n in self.gkb.query("decision")]
+        self.assertIn("Skill improvement: issue-executor (project level)", decisions)
+        self.assertNotIn("Skill improvement: issue-executor (issue #None)", decisions)
+
 
 class ApplySkillUpdates(unittest.TestCase):
     def setUp(self):

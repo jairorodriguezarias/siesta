@@ -56,6 +56,34 @@ class GraphNodes(unittest.TestCase):
         self.assertIn("created_at", edge)
 
 
+class SharedPathInstances(unittest.TestCase):
+    """round-5: __main__ and phases each held a Graph over the global KB —
+    the stale instance's save wiped the fresh one's nodes (per-issue
+    learnings vanished at phase 7). Every operation re-reads the file, so
+    concurrent instances never lose each other's writes."""
+
+    def test_stale_instance_write_does_not_wipe_concurrent_nodes(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "graph.json"
+            first = Graph(path)
+            first.node("learning", "from a previous run")
+            second = Graph(path)          # loaded before first writes again
+            first.node("learning", "per-issue learning")
+            second.node("learning", "project-level learning")   # the wipe scenario
+            stored = [n["summary"] for n in Graph(path).query("learning")]
+        self.assertEqual(stored, ["from a previous run",
+                                  "per-issue learning", "project-level learning"])
+
+    def test_query_sees_nodes_written_via_another_instance(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "graph.json"
+            first = Graph(path)
+            second = Graph(path)
+            first.node("decision", "later write")
+            self.assertEqual([n["summary"] for n in second.query("decision")],
+                             ["later write"])
+
+
 class GraphReads(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

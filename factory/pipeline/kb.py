@@ -26,6 +26,15 @@ def _save(path: Path, data: dict) -> None:
 
 
 class Graph:
+    """One JSON file, many live instances.
+
+    round-5: __main__ and phases each held a Graph over the global KB, and
+    the stale instance's save wiped the nodes the fresh one had written (the
+    per-issue learnings vanished at phase 7). Every operation now re-reads
+    the file first — the graphs are tiny, so load-modify-save per call makes
+    every instance always-current and loses nothing.
+    """
+
     def __init__(self, path: Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -33,7 +42,11 @@ class Graph:
             self.path.write_text(json.dumps(EMPTY))
         self.data = json.loads(self.path.read_text())
 
+    def _reload(self) -> None:
+        self.data = json.loads(self.path.read_text())
+
     def node(self, type_: str, summary: str, detail: str = "") -> str:
+        self._reload()
         schema = self.path.parent / "schema.json"
         if schema.exists():
             valid = json.loads(schema.read_text()).get("node_types", {})
@@ -51,6 +64,7 @@ class Graph:
         return node["id"]
 
     def edge(self, frm: str, to: str, kind: str) -> str:
+        self._reload()
         self.data["edges"].append(
             {"from": frm, "to": to, "type": kind, "created_at": _now()})
         _save(self.path, self.data)
@@ -58,12 +72,14 @@ class Graph:
 
     def query(self, type_: str | None = None,
               summary_only: bool = False) -> list[dict]:
+        self._reload()
         nodes = [n for n in self.data["nodes"] if type_ is None or n["type"] == type_]
         if summary_only:
             nodes = [{k: n[k] for k in ("id", "type", "summary")} for n in nodes]
         return nodes
 
     def get(self, node_id: str) -> dict | None:
+        self._reload()
         return next((n for n in self.data["nodes"] if n["id"] == node_id), None)
 
     def compact(self, type_: str | None = None) -> str:

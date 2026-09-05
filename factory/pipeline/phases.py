@@ -50,13 +50,18 @@ def gather(proj: Path) -> str:
     return "".join(parts)
 
 
-def _git(proj: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=proj, capture_output=True)
+def _git(proj: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=proj, capture_output=True)
 
 
 def _commit(proj: Path, msg: str) -> None:
+    # round-5: a failed commit used to pass silently — the run "completed"
+    # with an empty repo and no trace of why.
     _git(proj, "add", "-A")
-    _git(proj, "commit", "-m", msg)
+    proc = _git(proj, "commit", "-m", msg)
+    if proc.returncode != 0:
+        warn(f"git commit failed in {proj}: "
+             f"{proc.stderr.decode(errors='replace').strip()}")
 
 
 # ─── Per-issue hooks (KB context before, decision + commit after) ────────
@@ -74,9 +79,11 @@ def pre_issue(proj: Path, n: int, kb: Graph, gkb: Graph) -> dict:
     return ctx
 
 
-def post_issue(proj: Path, n: int, out: Path, kb: Graph) -> str:
-    body = text.head(out.read_text(), 200) if out.exists() else ""
-    node_id = kb.node("decision", f"Issue #{n} completed", body)
+def post_issue(proj: Path, n: int, output: str, kb: Graph) -> str:
+    # round-5: takes the FINAL worker output, not issue_{n}_output.txt — a
+    # success that arrived via retry/diagnosis used to log the degenerate
+    # first attempt as the completion record.
+    node_id = kb.node("decision", f"Issue #{n} completed", text.head(output, 200))
     _commit(proj, f"🔧 Issue #{n}: implemented")
     return node_id
 
@@ -495,7 +502,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                           kb, fails, history, blocked)
         if not stuck:
             ok(f"Issue #{num} executed")
-            post_issue(proj, num, proj / f"issue_{num}_output.txt", kb)
+            post_issue(proj, num, output, kb)
             # micro-learning after every issue (the per-issue learner)
             learn.learn_issue(proj, num, issue_text, kb, gkb)
     return blocked
@@ -702,8 +709,11 @@ def runtime_smoke(proj: Path) -> tuple[str, str]:
     web = cmd[0] == "npm" or "http.server" in cmd
     port = ports[0] if ports else _free_port()
     cmd = [c.replace("{PORT}", str(port)) for c in cmd]
-    proc = subprocess.Popen(cmd, cwd=proj, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, start_new_session=True)
+    # round-5: stdin=DEVNULL — a CLI that reads stdin (pipes, prompts) used to
+    # inherit the terminal, hang until the deadline, and read as "PASSED".
+    proc = subprocess.Popen(cmd, cwd=proj, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
     try:
         deadline = time.time() + 12
         if not web:
