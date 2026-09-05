@@ -28,6 +28,21 @@ _config = json.loads(CONFIG.read_text())
 ROLE = {r: {"model": _config[r]["model"], "provider": _config[r]["provider"]}
         for r in ("planner", "worker", "consultant")}
 
+# #24: pi without an explicit --thinking sends a level Ollama rejects for
+# non-thinking models (qwen2.5-coder 400s: "does not support thinking"). The
+# flag is therefore load-bearing. But a *non-default* level on a model that
+# does not support thinking also 400s (deep-diagnosis "high" on qwen) — so
+# only forward --thinking when the routed model is a known thinking model;
+# for others pin "off", which every provider accepts.
+THINKING_MODELS = ("glm",)
+
+
+def _safe_thinking(model: str, thinking: str) -> str:
+    lowered = model.lower()
+    if any(family in lowered for family in THINKING_MODELS):
+        return thinking
+    return "off"
+
 # ANSI colors for the log helpers
 _CYAN, _GREEN, _YELLOW, _RED, _NC = ("\033[0;36m", "\033[0;32m", "\033[0;33m",
                                      "\033[0;31m", "\033[0m")
@@ -67,20 +82,25 @@ def build_args(role: str, body: str, user: str, *, skills=(), thinking: str = "o
 
     tools="no" adds --no-tools (text-protocol phases: the model must answer
     with protocol markers, not tool calls); a name list adds an allowlist.
+
+    body + user go in ONE positional prompt (data first, directive last):
+    pi 0.84.3 stopped delivering --append-system-prompt content to the model
+    (verified for both glm-5.2:cloud and qwen2.5-coder — #23). Keep the
+    "model obeys the last turn" order from runs #3/#4.
     """
     args = [PI_BIN]
     if not interactive:
         args.append("-p")
     args += ["--model", ROLE[role]["model"],
              "--provider", ROLE[role]["provider"],
-             "--thinking", thinking]
+             "--thinking", _safe_thinking(ROLE[role]["model"], thinking)]
     if tools == "no":
         args += ["--no-tools"]
     elif tools:
         args += ["--tools", tools]
     for s in skills:
         args += ["--skill", f"{Path(s).as_posix().rstrip('/')}/"]
-    args += ["--append-system-prompt", body, user]
+    args += [f"{body}\n\n{user}"]
     return args
 
 

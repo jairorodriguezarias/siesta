@@ -55,8 +55,8 @@ class BuildArgs(unittest.TestCase):
                          str(pi.SKILLS / "test-driven-development") + "/")
         self.assertEqual(i[i.index("--skill", i.index("--skill") + 1) + 1],
                          str(pi.FACTORY_SKILLS / "kb-manager") + "/")
-        self.assertEqual(i[i.index("--append-system-prompt") + 1], "You are a developer.")
-        self.assertEqual(i[-1], "do the thing")
+        self.assertEqual(i[-1],
+                         "You are a developer.\n\ndo the thing")  # body+user merged (#23)
 
     def test_skill_dirs_keep_trailing_slash_like_bash(self):
         args = build_args("planner", body="b", user="u",
@@ -67,6 +67,17 @@ class BuildArgs(unittest.TestCase):
     def test_thinking_is_always_explicit(self):
         args = build_args("consultant", body="b", user="u", thinking="high")
         self.assertEqual(args[args.index("--thinking") + 1], "high")
+
+    def test_thinking_high_survives_for_thinking_models(self):
+        # glm-5.2:cloud supports thinking — the requested level is forwarded.
+        args = build_args("consultant", body="b", user="u", thinking="high")
+        self.assertEqual(args[args.index("--thinking") + 1], "high")
+
+    def test_thinking_never_reaches_non_thinking_models(self):
+        # #24: qwen2.5-coder 400s on any thinking level; even a caller
+        # requesting "high" (deep diagnosis) must be pinned to "off".
+        args = build_args("worker", body="b", user="u", thinking="high")
+        self.assertEqual(args[args.index("--thinking") + 1], "off")
 
     def test_no_tools_flag_for_text_protocol_calls(self):
         args = build_args("worker", body="b", user="u", tools="no")
