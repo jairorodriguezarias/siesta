@@ -25,3 +25,4 @@ factory/projects/
 
 # Runtime pi agent state (contains PI — never push)
 .pi/
+.qwen/
