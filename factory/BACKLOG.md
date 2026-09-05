@@ -198,3 +198,58 @@ model as protocol-compliant, which is why these survived it.
   fence content sits at column 0 so the `^` anchor doesn't help. `spec_doc()`
   already solves this for spec/plan by rejecting live fences; reuse that
   approach (ignore code-fence regions before matching).
+
+## Round-4 findings (2026-09-04 — external toolchain regressions, e2e relaunch pending)
+
+Found while monitoring the wordcount e2e relaunch (idea: `--auto "A tiny Python 3
+CLI, wordcount.py…"`). The run died in 20s at phase 1 — NOT a pipeline bug: pi
+was updated to 0.84.3 since the Sep 2 runs and changed behavior. Evidence smoke
+tests (raw `pi` calls, no pipeline involved):
+
+- T1: GLM cloud, data inline in user message → answers correctly ("SLEEZE")
+- T2/T2b: qwen WITHOUT explicit `--thinking` → 400 "does not support thinking"
+- T2c: qwen WITH `--thinking off` → works ("OK")
+- T3: GLM with `--thinking high` → works
+- T4: qwen + `--append-system-prompt` → model answers "Qwen" — content lost
+
+- [ ] **#23 pi 0.84.3 drops `--append-system-prompt` content** (pi-wide: both
+  glm-5.2:cloud and qwen2.5-coder local). Effect on the pipeline: the spec call
+  puts the intent in the system prompt and only the directive in the final
+  message → GLM saw the format, not the subject ("You've told me the format…
+  but not what the spec is about") and the run failed at phase 1.
+  ✅ **fixed in 9aeb01d (114 OK):** `pi.py build_args()` now
+  sends `body + "\\n\\n" + user` as one positional prompt (data first, directive
+  last — preserves the runs #3/#4 "obeys the last turn" order); `test_pi.py`
+  updated. **Pending:** live e2e confirmation (#25).
+- [x] **#24 pi default thinking breaks non-thinking models.** Calling pi without
+  an explicit `--thinking` sends a level Ollama rejects for qwen2.5-coder (400
+  "does not support thinking"). The pipeline is immune — build_args always
+  passes `--thinking` explicitly — but the rule is now load-bearing: never call
+  pi without an explicit `--thinking`. Also: if models.json ever routes a
+  non-thinking model to the deep-diagnosis call (`thinking="high"`), that call
+  will 400 — consider a build_args guard that only forwards --thinking when the
+  model supports it.
+  ✅ fixed in 9aeb01d: `build_args()` guard `_safe_thinking()` forwards the
+  requested level only for known thinking models (glm) and pins `off` otherwise,
+  so a misrouted deep-diagnosis call (`thinking="high"` on qwen) can no longer
+  400; unit-tested both ways.
+- [ ] **#25 Relaunch run-4 after #23 is green.** Idea already detailed for
+  --auto intent (wordcount.py CLI). Failed attempt artifacts live in
+  `factory/projects/a-tiny-python-3-cli-wordcount-py-that/` (interview_output,
+  spec_output ×2, failure KB nodes) — relaunch fresh with the same idea, then
+  confirm #8 (parseable learner outputs) with this run too.
+- [x] **#26 Decide the fate of the 2 never-loaded addyosmani skills**
+  (`git-workflow-and-versioning`, `using-agent-skills` — verified: no run_pi
+  call loads them). Options: wire git-workflow into review/commit guidance, or
+  document both as interactive-human-only in AGENTS.md.
+  ✅ decided: document both as interactive-human-only (this batch, AGENTS.md) —
+  the Python port commits via `_commit()` in `phases.py`, so wiring them in
+  would be decorative.
+- [x] **#27 Document `.agents/hooks/*.sh` as bash-era legacy** in AGENTS.md —
+  kept per decision (2026-09-04) but the Python port never executes them; say
+  so explicitly to avoid future archaeology.
+  ✅ documented in AGENTS.md (this batch).
+
+Improvements already shipped this round (for the changelog):
+- [x] Orchestrator narration persisted: siesta.sh tees stdout+stderr to
+  `factory/pipeline.log` (9b45293). README/AGENTS updated accordingly.

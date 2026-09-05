@@ -421,7 +421,12 @@ The learner may only touch `factory/skills/`.
 - `code-review-and-quality` — 5-axis code review
 - `code-simplification` — Reduce complexity without changing behavior
 - `git-workflow-and-versioning` — Atomic commits, clean history
+  **(#26: never loaded by the pipeline** — no `run_pi()` call references it; the
+  Python port commits via `_commit()` in `phases.py` instead. Interactive-human
+  use only.)
 - `using-agent-skills` — Meta-skill for skill usage
+  **(#26: never loaded by the pipeline** — skill discovery is hard-coded in
+  `phases.py`/`learn.py`. Interactive-human use only.)
 
 **Factory skills (5, custom, self-improving):**
 - `issue-executor` — Worker's playbook per issue
@@ -521,5 +526,6 @@ Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `ph
 | `factory/skills/*/SKILL.md` | 5 custom factory skills |
 | `.agents/skills/*/SKILL.md` | 10 addyosmani skills (with factory-tailoring sections) |
 | `.agents/agents/code-reviewer.md` | Code reviewer persona |
+| `.agents/hooks/pre-issue.sh`, `post-issue.sh` | **#27: bash-era legacy — kept per decision (2026-09-04) but the Python port never executes them.** The equivalent logic lives in `phases.pre_issue()` / `phases.post_issue()`. Do not expect these scripts to run. |
 | `.agents/references/definition-of-done.md` | Standing done checklist |
 | `.agents/references/security-checklist.md` | Security quick reference |

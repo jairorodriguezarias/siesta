@@ -76,6 +76,20 @@
       "summary": "Pipeline failure: a-local-cli-tool-for-adversarially",
       "detail": "Pipeline failed at checkpoint phase-0. Error: 1.",
       "created_at": "2026-09-02T04:45:01Z"
+    },
+    {
+      "id": "n1788497275_524982",
+      "type": "learning",
+      "summary": "Pipeline failure: a-tiny-python-3-cli-wordcount-py-that",
+      "detail": "Pipeline failed at checkpoint phase-0. Error: 1.",
+      "created_at": "2026-09-04T04:47:55Z"
+    },
+    {
+      "id": "n1788501495_909921",
+      "type": "learning",
+      "summary": "Pipeline failure: a-tiny-python-3-cli-wordcount-py-reads",
+      "detail": "Pipeline failed at checkpoint phase-0. Error: 1.",
+      "created_at": "2026-09-04T05:58:15Z"
     }
   ],
   "edges": []
