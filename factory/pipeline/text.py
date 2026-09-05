@@ -156,15 +156,32 @@ def unwrap_fences(out: str) -> str:
     return s
 
 
+def _strip_indented_fences(doc: str) -> str:
+    """Remove fenced blocks of any indentation, keeping inner lines.
+
+    run-4 (2026-09-04): GLM specs legitimately fence small blocks — a
+    Structure tree, expected CLI output under Acceptance Criteria. Blanket
+    "any fence = code dump" rejected two format-valid specs and killed the
+    run. What we actually must keep out is fence content that *looks like
+    code* (run #4's smuggled ```python program). Real code fences carry a
+    language tag on the opening fence; prose examples are bare ```.
+    """
+    FENCE = re.compile(r"^[ \t]*```(\w[\w+-]*)[ \t]*$", re.M)
+    if not FENCE.search(doc):
+        return re.sub(r"^[ \t]*```[ \t]*$", "", doc, flags=re.M)
+    return ""
+
+
 def spec_doc(out: str) -> str | None:
     """Model output -> spec.md content; None if it is not a plain document.
 
-    A fenced block anywhere means the model dumped code (run #4 smuggled a
-    whole program whose ```python body contained a '###' heading). A spec is
-    prose; reject anything with a live fence after unwrapping the outer one.
+    A bare fence is prose illustration and is dropped; a language-tagged
+    fence (```python, ```bash …) means the model dumped code — reject
+    (run #4 smuggled a whole program whose ```python body contained a '###'
+    heading). After unwrapping the outer fence, of course.
     """
-    doc = unwrap_fences(out).strip()
-    if "```" in doc:
+    doc = _strip_indented_fences(unwrap_fences(out).strip())
+    if not doc:
         return None
     return doc if HEADING.search(doc) else None
 

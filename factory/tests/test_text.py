@@ -288,6 +288,21 @@ class DocExtraction(unittest.TestCase):
                 "### How to use it:\n\n```bash\npython caesar.py\n```")
         self.assertIsNone(text.spec_doc(dump))
 
+    def test_spec_doc_keeps_bare_fenced_prose_blocks(self):
+        # Live run-4 (2026-09-04): valid GLM specs fence the Structure tree and
+        # expected CLI output with bare ``` — not code dumps. They must pass.
+        spec = ("# Spec: wordcount\n\n## Structure\n```\nwordcount.py\ntests/\n```\n\n"
+                "## Acceptance Criteria\n- prints:\n  ```\n  the: 3\n  ```")
+        doc = text.spec_doc(spec)
+        self.assertIsNotNone(doc)
+        self.assertIn("wordcount.py", doc)
+        self.assertIn("the: 3", doc)
+
+    def test_spec_doc_still_rejects_indented_tagged_fences(self):
+        dump = ("# Spec\n\n## Acceptance Criteria\n- prints:\n  ```python\n"
+                "  print('hi')\n  ```")
+        self.assertIsNone(text.spec_doc(dump))
+
 
 if __name__ == "__main__":
     unittest.main()
