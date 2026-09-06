@@ -32,6 +32,25 @@ def _latest(kb: Graph, type_: str) -> str | None:
     return nodes[-1]["id"] if nodes else None
 
 
+def _blocked_from_kb(kb: Graph) -> list[int]:
+    """#34: rebuild the blocked-issue list from KB nodes on resume.
+
+    The in-memory list died with the previous run; the KB is the truth. A
+    blocker whose issue later completed (retried on resume, #9) no longer
+    counts — completion outranks the stale blocker.
+    """
+    completed = {n["summary"] for n in kb.query(type_="decision")}
+    blocked: list[int] = []
+    for node in kb.query(type_="blocker"):
+        m = re.search(r"[Ii]ssue #(\d+)", node["summary"])
+        if not m:
+            continue  # run-level blockers (stop.md, pipeline failed) carry no number
+        num = int(m.group(1))
+        if f"Issue #{num} completed" not in completed and num not in blocked:
+            blocked.append(num)
+    return sorted(blocked)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="siesta")
     ap.add_argument("--auto", action="store_true",
@@ -147,7 +166,7 @@ def _run(args) -> None:
     # ─── PHASE 3: EXECUTE (per-issue loop) ───────────────────────────────
     if done("phase-3"):
         log("Phase 3 already complete (resume mode), skipping...")
-        blocked: list[int] = []
+        blocked = _blocked_from_kb(kb)
     else:
         phase(3, "EXECUTE — Implement every issue")
         blocked = phases.execute(proj, kb)

@@ -529,6 +529,17 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
                          "complete")
 
+    def test_resume_reports_blocked_issues_from_kb(self):
+        # #34: the in-memory blocked list dies with the run — a resume past
+        # phase-3 must rebuild it from KB blocker nodes, not claim 0.
+        first = self.siesta("--auto", self.idea, scenario="always_consult")
+        self.assertIn("2 blocked", first.stdout)
+        (self.tmp / "pi_calls.log").write_text("")
+        second = self.siesta("--auto", self.idea)
+        self.assertEqual(second.returncode, 0, second.stderr[-3000:])
+        self.assertIn("2 blocked", second.stdout)
+        self.assertIn("Blocked issues: #1, #2", second.stderr)
+
     def test_generated_project_has_hygiene_gitignore(self):
         # #7: `git add -A` must not commit .DS_Store/__pycache__/checkpoint
         self.siesta("--auto", self.idea)
