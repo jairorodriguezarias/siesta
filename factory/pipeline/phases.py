@@ -45,13 +45,36 @@ def _project_files(proj: Path):
             yield f
 
 
+# #39: total prompt budget for gather() — per-file caps alone let the
+# worker prompt grow unbounded on big projects and flood the model's
+# context. ~120k chars ≈ 30k tokens: bounded, still room for real work.
+GATHER_BUDGET = 120_000
+
+
 def gather(proj: Path) -> str:
+    files = [f for f in _project_files(proj)
+             if f.suffix.lstrip(".") in SOURCE_EXTS]
     parts = []
-    for f in _project_files(proj):
-        if f.suffix.lstrip(".") not in SOURCE_EXTS:
-            continue
+    remaining = GATHER_BUDGET
+    for i, f in enumerate(files):
+        if remaining <= 0:
+            parts.append(f"\n\n--- TRUNCATED: {len(files) - i} further "
+                         f"source files not shown (context budget) ---")
+            break
         content = text.head(f.read_text(errors="replace"), 500)
-        parts.append(f"\n\n--- File: {f.relative_to(proj)} ---\n{content}")
+        header = f"\n\n--- File: {f.relative_to(proj)} ---\n"
+        if len(header) + len(content) > remaining:
+            cut = "\n--- (file cut mid-way: context budget) ---"
+            room = remaining - len(header) - len(cut)
+            shown = len(files) - i
+            if room > 0:  # partial fit: keep the head that fits, say it was cut
+                parts.append(header + content[:room] + cut)
+                shown = len(files) - i - 1
+            parts.append(f"\n\n--- TRUNCATED: {shown} further source "
+                         f"files not shown (context budget) ---")
+            break
+        parts.append(header + content)
+        remaining -= len(header) + len(content)
     return "".join(parts)
 
 

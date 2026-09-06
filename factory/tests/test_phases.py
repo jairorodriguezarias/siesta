@@ -264,5 +264,38 @@ class AbandonedInterview(unittest.TestCase):
         self.assertEqual(intent, "build a pomodoro app")
 
 
+class GatherBudget(unittest.TestCase):
+    """#39: gather() must cap the TOTAL prompt size — 500 lines per file ×
+    every source file grows the worker prompt unbounded."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = Path(self.tmp.name)
+
+    def _write(self, name: str, lines: int):
+        p = self.proj / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("\n".join(f"# line {i} of {name}" for i in range(lines)))
+
+    def test_small_project_gathers_everything(self):
+        self._write("app.py", 50)
+        out = phases.gather(self.proj)
+        self.assertIn("--- File: app.py ---", out)
+        self.assertIn("# line 49 of app.py", out)  # whole file included
+        self.assertNotIn("TRUNCATED", out)
+
+    def test_huge_project_is_bounded_with_notice(self):
+        for i in range(40):  # 40 × 500 lines ≈ 380KB — far past any budget
+            self._write(f"mod_{i:02d}.py", 500)
+        out = phases.gather(self.proj)
+        self.assertLessEqual(len(out), phases.GATHER_BUDGET + 2_000)
+        self.assertIn("TRUNCATED:", out)
+        self.assertIn("files not shown", out)
+        # deterministic order: the first files made it in, the tail did not
+        self.assertIn("--- File: mod_00.py ---", out)
+        self.assertNotIn("--- File: mod_39.py ---", out)
+
+
 if __name__ == "__main__":
     unittest.main()
