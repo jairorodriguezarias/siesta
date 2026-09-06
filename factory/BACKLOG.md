@@ -241,8 +241,14 @@ Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
   extend the generated .gitignore or move them under `.pipeline/`.
 - [ ] **#39 `gather()` has no total budget** — 500 lines per file × every
   source file per call; the worker prompt grows unbounded. Cap the aggregate.
-- [ ] **#40 `shares_content` passes on one shared word** ("python" alone
+- [x] **#40 `shares_content` passes on one shared word** ("python" alone
   validates any Python spec). Require ≥2 shared words or a ratio.
+  ✅ fixed: `shares_content()` now requires at least TWO shared content words,
+  except when the intent itself has fewer than two content words — then one
+  match is all an honest spec can offer, and a contentless intent passes
+  vacuously (`min(2, len(intent words))`); phase1's warn reworded to "shares
+  too little content". Four new unit tests in test_text (ContentRelevance);
+  the old 1-word fixture moved to the 2-word contract. 139 tests green.
 - [ ] **#41 `review()` skips the degenerate guard** — the only "silence =
   success" phase without it (marker absence only warns, then proxy decides).
 - [ ] **#42 Dead code/UX**: `PY_PORTS` unused since #19; `phase2`'s return value

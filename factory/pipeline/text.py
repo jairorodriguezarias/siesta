@@ -128,14 +128,20 @@ def content_words(s: str) -> set[str]:
 
 
 def shares_content(a: str, b: str) -> bool:
-    """True if both texts mention at least one shared content word.
+    """True if both texts share at least two content words (#40).
 
     A spec/plan that shares NO content word with the intent is a generic
     template hallucination, not an answer (round-3 finding: GLM emitted a
     'Project name: TBD' shell spec, then 'CI/CD pipeline' issues, for a
-    council-CLI idea — format checks alone let it through).
+    council-CLI idea — format checks alone let it through). One shared word
+    ("python") proves nearly as little, so two are required — unless `a`
+    (the intent) has fewer than two content words of its own, when one
+    match is all an honest spec can offer. A contentless intent passes
+    vacuously: the guard has nothing to judge, and rejecting every spec
+    would kill the run.
     """
-    return bool(content_words(a) & content_words(b))
+    words_a = content_words(a)
+    return len(words_a & content_words(b)) >= min(2, len(words_a))
 
 
 # ─── Document extraction (spec/plan output protocol) ─────────────────────

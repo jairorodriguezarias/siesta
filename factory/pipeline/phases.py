@@ -237,9 +237,9 @@ def phase1(proj: Path, name: str, intent: str, intent_node: str, kb: Graph) -> s
                  artifact=proj / "spec_output.txt", cwd=proj, tools="no")
     doc = text.spec_doc(out)
     if doc is not None and not text.shares_content(intent, doc):
-        # round-3: a format-valid spec that names none of the intent's
-        # concepts is a generic template hallucination, not a spec.
-        warn("Spec shares no content with the intent — generic template? Rejecting...")
+        # round-3 + #40: a format-valid spec that names (almost) none of the
+        # intent's concepts is a generic template hallucination, not a spec.
+        warn("Spec shares too little content with the intent — generic template? Rejecting...")
         doc = None
     if doc is None:
         warn("No usable spec in model output. Retrying once with feedback...")

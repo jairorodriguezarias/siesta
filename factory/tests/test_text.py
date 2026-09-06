@@ -178,7 +178,8 @@ class ExplicitApproval(unittest.TestCase):
 
 
 class ContentRelevance(unittest.TestCase):
-    """Round-3: a spec sharing NO content word with the intent is a template."""
+    """Round-3 + #40: an off-intent spec is a template — and so is one
+    that shares only a single generic word like 'python'."""
 
     def test_generic_template_shares_nothing_with_intent(self):
         intent = "a local CLI tool for adversarially exploring research ideas"
@@ -188,8 +189,33 @@ class ContentRelevance(unittest.TestCase):
 
     def test_real_spec_shares_concepts(self):
         intent = "a local CLI tool for adversarially exploring research ideas"
-        spec = "# Spec\n\nThe research council CLI runs adversarial rounds."
+        spec = "# Spec\n\nThe research council CLI explores ideas in adversarial rounds."
         self.assertTrue(text.shares_content(intent, spec))
+
+    def test_one_generic_shared_word_is_not_relevance(self):
+        # #40: "python" alone used to validate any Python spec
+        intent = "a python tool for tracking pomodoro sessions"
+        spec = "# Specification\n\nA python program with clean modules.\n"
+        self.assertFalse(text.shares_content(intent, spec))
+
+    def test_two_shared_words_pass(self):
+        intent = "a python tool for tracking pomodoro sessions"
+        spec = "# Spec\n\nThe pomodoro tracker is a python CLI.\n"
+        self.assertTrue(text.shares_content(intent, spec))
+
+    def test_single_content_word_intent_needs_only_that_word(self):
+        # a 1-content-word intent cannot honestly yield two shared words
+        intent = "a pomodoro app"
+        spec = "# Spec\n\nThe pomodoro app stores sessions locally."
+        self.assertTrue(text.shares_content(intent, spec))
+
+    def test_two_word_intent_needs_both_words(self):
+        # min(2, len(intent words)): a 2-content-word intent needs its two
+        intent = "a pomodoro timer"
+        half = "# Spec\n\nThe pomodoro app tracks sessions."
+        both = "# Spec\n\nThe pomodoro timer app tracks sessions."
+        self.assertFalse(text.shares_content(intent, half))
+        self.assertTrue(text.shares_content(intent, both))
 
     def test_glue_words_prove_nothing(self):
         # "this/with/about" appear everywhere — they must not count as overlap
