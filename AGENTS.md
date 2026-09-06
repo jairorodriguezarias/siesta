@@ -6,7 +6,7 @@ This document describes the autonomous agent system that powers Siesta: the role
 
 ## Overview
 
-Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) plays the roles that must hold the text protocol — planner, consultant, human-proxy — while the fully local Qwen 2.5 Coder (Ollama) is the worker that writes, reviews and verifies code. A pipeline orchestrator (`python3 -m pipeline`) coordinates them across 7 phases, with per-issue context loading, post-issue logging, and per-issue learning.
+Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) plays the roles that must hold the text protocol — planner, consultant, human-proxy — while the fully local Gemma4 8B (Ollama) is the worker that writes, reviews and verifies code. A pipeline orchestrator (`python3 -m pipeline`) coordinates them across 7 phases, with per-issue context loading, post-issue logging, and per-issue learning.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -14,7 +14,7 @@ Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) play
 │                   (Orchestrator - Phase 0-7)                  │
 │                                                              │
 │  ┌──────────────┐    ┌──────────────┐    ┌───────────────┐  │
-│  │  GLM 5.2     │    │  Qwen 2.5    │    │  GLM 5.2      │  │
+│  │  GLM 5.2     │    │  Gemma 4     │    │  GLM 5.2      │  │
 │  │  (Planner)   │    │  (Worker)    │    │  (Consultant) │  │
 │  │              │    │              │    │               │  │
 │  │ • Interview  │    │ • Execute    │    │ • Resolve     │  │
@@ -35,7 +35,7 @@ Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) play
 │                             ▼                               │
 │                    ┌──────────────┐                         │
 │                    │  Learner     │                         │
-│                    │  (Qwen 2.5)  │                         │
+│                    │  (Gemma 4)   │                         │
 │                    │              │                         │
 │                    │ • Per-issue  │                         │
 │                    │   learning   │                         │
@@ -67,7 +67,7 @@ Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) play
 
 ---
 
-### 2. Worker — Qwen 2.5 Coder
+### 2. Worker — Gemma4 8B
 
 **When:** Phase 3 (Execute), Phase 4 (Review), Phase 5 (Verify)
 
@@ -151,7 +151,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 
 ---
 
-### 5. Learner — Qwen 2.5
+### 5. Learner — Gemma4
 
 **When:** After every issue (Phase 3 hook), and at project end (Phase 7)
 
@@ -179,7 +179,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 
 ---
 
-### 6. Code Reviewer — Qwen 2.5 (persona)
+### 6. Code Reviewer — Gemma4 (persona)
 
 **When:** Phase 4
 
@@ -198,7 +198,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 ### Normal Issue Execution
 
 ```
-pre_issue() → Worker (Qwen) → post_issue() → learn_issue()
+pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
      │              │                │                │
      ▼              │                ▼                ▼
   Load KB       Implement       Git commit     Learn & improve
@@ -297,7 +297,7 @@ The KB is a JSON graph stored in files:
       "id": "n1695234567_12345",
       "type": "decision",
       "summary": "Used argparse for CLI parsing",
-      "detail": "Qwen chose argparse over click for zero dependencies...",
+      "detail": "The worker chose argparse over click for zero dependencies...",
       "created_at": "2025-01-15T10:30:00Z"
     }
   ],
@@ -463,7 +463,7 @@ The learner can modify factory skills (add Red Flags, Rationalizations, Process 
 ```json
 {
   "planner":    { "model": "glm-5.2:cloud",       "provider": "ollama" },
-  "worker":     { "model": "qwen2.5-coder:latest", "provider": "ollama" },
+  "worker":     { "model": "gemma4:latest",        "provider": "ollama" },
   "consultant": { "model": "glm-5.2:cloud",       "provider": "ollama" },
   "fallback":   { "method": "web-search",         "package": "npm:@ollama/pi-web-search" }
 }
@@ -472,6 +472,15 @@ The learner can modify factory skills (add Red Flags, Rationalizations, Process 
 Each role also carries a `skills` list documenting the skills `run_pi()` loads
 for it — kept in sync with the actual `run_pi(..., skills=(...))` calls in
 `phases.py` / `learn.py`. The pipeline itself only reads `model` and `provider`.
+
+Worker models must be verified for **native tool calling** through the real
+stack (Ollama `/v1` → pi) before use: qwen2.5-coder was retired because
+[ollama#12174](https://github.com/ollama/ollama/issues/12174) made it emit
+tool calls as plain text — the worker could not write files or run tests, so
+every issue degenerated into tool-call JSON narration. Any new worker must
+also be registered in pi's user catalog (`~/.pi/agent/models.json`) with its
+true context window: pi's custom-model-id fallback silently clones another
+model's metadata (glm's 1M window), which disables correct compaction.
 
 ### pi invocation contract (`pipeline/pi.py`)
 
@@ -485,10 +494,11 @@ rules the pipeline depends on:
   turn" order from runs #3/#4.
 - **Thinking pinning** (`_safe_thinking()`): pi without an explicit
   `--thinking` sends a level Ollama rejects for non-thinking models
-  (qwen2.5-coder 400s "does not support thinking"). The requested level is
-  forwarded only for known thinking models (glm); everything else is pinned
-  to `off` — so a misrouted deep-diagnosis call (`thinking="high"` on qwen)
-  can no longer 400. Never call `pi` without an explicit `--thinking`.
+  (the retired qwen2.5-coder worker 400s "does not support thinking"). The
+  requested level is forwarded only for known thinking models (glm); everything
+  else is pinned to `off` — so a misrouted deep-diagnosis call
+  (`thinking="high"` on a non-thinking model) can no longer 400. Never call
+  `pi` without an explicit `--thinking`.
 
 ### Timeouts
 

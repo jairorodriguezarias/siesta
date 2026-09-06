@@ -42,11 +42,15 @@ You:  Come back. Working code. Git history. KB of decisions. 🎉
 | Model | Roles | When |
 |-------|-------|------|
 | **GLM 5.2** (via `pi`, Ollama Cloud) | Planner, consultant, human-proxy — the roles that must hold the text protocol | Phases 0–2, consultations, proxy decisions |
-| **Qwen 2.5 Coder** (100% local, Ollama) | Worker — the one that writes code, reviews, verifies and learns | Phases 3–5 and 7 |
+| **Gemma4 8B** (100% local, Ollama) | Worker — the one that writes code, reviews, verifies and learns | Phases 3–5 and 7 |
 
 The split is deliberate: the protocol phases need a model that answers with markers
 (`INTENT_FINALIZED:`, `VERIFY_PASSED:`…) instead of tool-call JSON — live runs showed
-the local coder model alone cannot hold that contract.
+the local coder model alone cannot hold that contract. The worker is picked for
+reliable **native tool calling** through Ollama: qwen2.5-coder was retired after
+[ollama#12174](https://github.com/ollama/ollama/issues/12174) made it return tool
+calls as plain text, so it could not write files or run tests at all; gemma4 was
+verified end-to-end (real `tool_calls` via `/v1`, tools executed by pi) before adoption.
 
 Model routing is configured in [`factory/config/models.json`](factory/config/models.json).
 
@@ -57,7 +61,7 @@ that enforces two rules the pipeline depends on:
   pi 0.84.3 stopped delivering `--append-system-prompt` content, so the old shape
   showed the model the format but not the subject.
 - **Thinking pinning** — the requested `--thinking` level is forwarded only for known
-  thinking models (GLM); non-thinking models (Qwen) are pinned to `off`, so a
+  thinking models (GLM); every other model is pinned to `off`, so a
   misrouted call can never 400 with "does not support thinking".
 
 ### Pipeline (7 Phases)
@@ -96,7 +100,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 
 | Skill | What it does |
 |-------|-------------|
-| [`issue-executor`](factory/skills/issue-executor/SKILL.md) | Qwen's playbook for executing a single issue (TDD, stuck detection, KB logging) |
+| [`issue-executor`](factory/skills/issue-executor/SKILL.md) | The worker's playbook for executing a single issue (TDD, stuck detection, KB logging) |
 | [`consultant-protocol`](factory/skills/consultant-protocol/SKILL.md) | The consultant's playbook for resolving doubts when the worker gets stuck |
 | [`human-proxy`](factory/skills/human-proxy/SKILL.md) | Replaces human approval using KB context (evaluates against original intent) |
 | [`kb-manager`](factory/skills/kb-manager/SKILL.md) | Read/write/query the JSON KB graph with progressive disclosure |
@@ -124,7 +128,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 
 ### Self-Improvement Loop
 
-After **every issue**, Qwen 2.5 analyzes what happened and learns:
+After **every issue**, the worker analyzes what happened and learns:
 
 ```
 Issue executed
@@ -147,15 +151,19 @@ Skills improve. Next project is smarter.
 
 - [Ollama](https://ollama.ai) running locally
 - [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent (`npm install -g pi`)
-- Models: `glm-5.2:cloud` (planner/consultant, via `pi`) and `qwen2.5-coder:latest` (worker)
+- Models: `glm-5.2:cloud` (planner/consultant, via `pi`) and `gemma4:latest` (worker)
 
 ```bash
 # Install the local worker model
-ollama pull qwen2.5-coder
+ollama pull gemma4
 
 # Install Pi
 npm install -g pi
 ```
+
+> **Note:** also register the worker in pi's user catalog (`~/.pi/agent/models.json`)
+> with its real context window — pi's custom-model-id fallback silently clones
+> another model's metadata (glm's 1M window), which disables correct compaction.
 
 All 15 skills (10 from addyosmani + 5 factory) are tracked in this repository,
 so cloning brings them — no separate skill install step is needed.
@@ -201,7 +209,7 @@ ls factory/projects/
 #     ├── .git/          (full commit history)
 #     ├── spec.md         (the spec the planner wrote)
 #     ├── issues.md       (the issues the planner generated)
-#     ├── src/            (the code Qwen wrote)
+#     ├── src/            (the code the worker wrote)
 #     ├── tests/          (the tests)
 #     └── kb/graph.json   (decisions, blockers, learnings)
 ```
