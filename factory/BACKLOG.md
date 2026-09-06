@@ -178,17 +178,29 @@ model as protocol-compliant, which is why these survived it.
 
 ## Related hardening ideas (from walkthroughs, not yet findings)
 
-- [ ] run_pi() concatenates stdout+stderr into the parsed text. Provider noise in
+- [x] run_pi() concatenates stdout+stderr into the parsed text. Provider noise in
   stderr can corrupt marker parsing. Consider tagging/filtering stderr before
   parse, or logging stderr separately from the artifact. Evidence: pomodoro
   `verify_output.txt` contains `Warning: Model "qwen2.5-coder:latest" not
   found for provider "ollama". Using custom model id.` — pi stderr noise inside
   the parsed artifact; it also flags that calls may not run the intended model.
-- [ ] Marker parsers (`REVIEW_*`, `VERIFY_*`, `CONSULT`, `PROXY`) accept markers
+  ✅ fixed in a918325 (round-7): `run_pi()` parses stdout only; non-empty
+  stderr is warned (head) and persisted in the artifact below a
+  `PROVIDER_LOG:` separator — evidence stays in one file, below the parsed
+  region, so a stderr `VERIFY_PASSED:` can never falsify a verdict. The
+  "not found for provider" warning still surfaces as a loud warn.
+- [x] Marker parsers (`REVIEW_*`, `VERIFY_*`, `CONSULT`, `PROXY`) accept markers
   inside fenced code blocks the model quotes as examples (false positives) —
   fence content sits at column 0 so the `^` anchor doesn't help. `spec_doc()`
   already solves this for spec/plan by cutting code-fence regions (#36);
   reuse that approach (ignore code-fence regions before matching).
+  ✅ fixed in 59d6b64 (round-7): new `text.without_fences()` cuts EVERY fenced
+  region (bare or tagged, unclosed cuts to end) — quoted content is never a
+  protocol signal. The worker gates (CONSULT/PROXY in execute + `_escalate`,
+  including every fed-back retry), review/verify marker checks, and the
+  learner parses (LEARN/SKILL_UPDATE — a quoted block can no longer rewrite
+  a factory skill) all match fence-free. Integration scenario `verify_fenced`:
+  a fenced VERIFY_PASSED no longer certifies.
 
 ## Round-5 findings (2026-09-05 — full code walkthrough, fixes same day)
 
@@ -221,11 +233,22 @@ model as protocol-compliant, which is why these survived it.
 
 Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
 
-- [ ] **#34 `--resume` reports 0 blocked issues** — `blocked = []` is set by
+- [x] **#34 `--resume` reports 0 blocked issues** — `blocked = []` is set by
   definition when phase-3 is done; the summary lies. Rebuild from KB blocker
   nodes.
-- [ ] **#35 The interactive interview has no timeout** — the #10 fix only
+  ✅ fixed in 707d336 (round-7): `_blocked_from_kb()` rebuilds the list from
+  blocker nodes on resume — issue numbers from summaries ("Issue #N …",
+  "Regression failure before issue #N"), minus issues that later completed
+  (completion outranks a stale blocker, mirroring #9's idempotency);
+  run-level blockers without a number stay out of the count. Integration
+  test: a blocked run resumed reports the same "2 blocked".
+- [x] **#35 The interactive interview has no timeout** — the #10 fix only
   covers the non-interactive path (`Popen` + `p.wait()` without a limit).
+  ✅ fixed in f7b5e19 (round-7): `p.wait(timeout=PI_TIMEOUT)` on the
+  interactive path; on expiry the child is killed, the partial transcript
+  is kept and returned as the (degenerate) answer — phase 0 flows into the
+  #45 close-out path. EOF/Ctrl-D abandonment unchanged. Unit tests with a
+  hang-Popen fake.
 - [x] **#36 `_strip_indented_fences` rejects any spec containing one tagged
   fence** (```python etc.) — trades the run-4 false negatives for false
   positives: a legit spec showing one CLI example dies whole. Consider a
@@ -245,11 +268,22 @@ Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
   ✅ fixed via #46 (round-6): the pomodoro run reproduced the parse problems
   (verbose unparseable LEARNING blocks), and `learn_issue()`/`learn_project()`
   now call the consultant role (GLM 5.2).
-- [ ] **#38 Artifacts pollute generated repos** — `pre_issue_*.json`,
+- [x] **#38 Artifacts pollute generated repos** — `pre_issue_*.json`,
   `*_output.txt`, `regression_*.log` land in project commits via `add -A`;
   extend the generated .gitignore or move them under `.pipeline/`.
-- [ ] **#39 `gather()` has no total budget** — 500 lines per file × every
+  ✅ fixed in 0cb50e9 (round-7): the hygiene .gitignore written at project
+  init now also ignores `*_output.txt`, `interview_closeout.txt`,
+  `regression_*.log`, `pre_issue_*.json`, `learning_issue_*.txt`,
+  `project_learning.*`. Files stay on disk (learn.py reads them as
+  inputs) — only the commits are clean. Integration test asserts
+  `git ls-files` is artifact-free and the inputs still exist.
+- [x] **#39 `gather()` has no total budget** — 500 lines per file × every
   source file per call; the worker prompt grows unbounded. Cap the aggregate.
+  ✅ fixed in bee7724 (round-7): `GATHER_BUDGET = 120_000` chars (~30k
+  tokens); files added in deterministic order until the budget is spent, a
+  partial file keeps the head that fits with a "(file cut mid-way)" marker,
+  and a `TRUNCATED: N further source files not shown` notice ends the
+  gather. Small projects: byte-identical behavior (no notice, full files).
 - [x] **#40 `shares_content` passes on one shared word** ("python" alone
   validates any Python spec). Require ≥2 shared words or a ratio.
   ✅ fixed: `shares_content()` now requires at least TWO shared content words,
@@ -258,11 +292,23 @@ Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
   vacuously (`min(2, len(intent words))`); phase1's warn reworded to "shares
   too little content". Four new unit tests in test_text (ContentRelevance);
   the old 1-word fixture moved to the 2-word contract. 139 tests green.
-- [ ] **#41 `review()` skips the degenerate guard** — the only "silence =
+- [x] **#41 `review()` skips the degenerate guard** — the only "silence =
   success" phase without it (marker absence only warns, then proxy decides).
-- [ ] **#42 Dead code/UX**: `PY_PORTS` unused since #19; `phase2`'s return value
+  ✅ fixed in ec27caf (round-7): degenerate review output (no marker +
+  tool-speak/asks-human) never reaches the proxy — the #16 fix pass runs
+  with write tools instead, a KB blocker records the unusable verdict, and
+  the fixes are committed. Marker-less but non-degenerate output keeps the
+  fail-closed proxy gate. Integration scenario `review_degenerate`.
+- [x] **#42 Dead code/UX**: `PY_PORTS` unused since #19; `phase2`'s return value
   ignored; duplicated skills tuples; `verify`/`_verify` merge; the duplicate
   BACKLOG entry (removed in this round).
+  ✅ fixed in 1b49a01 (round-7): `PY_PORTS` deleted (CLI smokes need no port
+  list — runtime_smoke computes its own); `_verify` merged into `verify()`
+  (one function, verdict persisted at the end, public name unchanged);
+  per-phase skill sets are named constants (`EXECUTE_SKILLS`, `REVIEW_SKILLS`,
+  `REPAIR_SKILLS`, `VERIFY_SKILLS`) next to `RETRY_SKILLS`; phase2's issue
+  count is now logged by the orchestrator ("Planned N issues") and pinned by
+  a unit test.
 - [x] **#43 `Graph.edge()` validates nothing** (carried over from the hardening
   list) — any from/to/kind passes, even dangling node ids.
   ✅ fixed: `edge()` now raises ValueError when `kind` is not in the schema's
@@ -340,6 +386,23 @@ Round-6 observations (all three fixed in the same round):
   issue includes at least one smoke test, NEVER an empty test file. Unit-
   tested (test_phases: prompt forbids zero-test scaffolds). Belt-and-braces
   with #44: even if the planner disobeys, the gate no longer arms on empty.
+
+## Round-7 findings (2026-09-06 — backlog close-out, TDD per item)
+
+Walkthrough-driven round (no live run): executed every open code item one at
+a time, spec + issues in `tasks/round7/`, one commit per issue, suite green
+before each. Items closed this round — #34, #35, #38, #39, #41, #42 and both
+hardening ideas (stderr noise; fenced markers) — each marked ✅ in its
+original section above with its commit:
+707d336 f7b5e19 0cb50e9 bee7724 ec27caf 1b49a01 a918325 59d6b64.
+
+Still open after round-7 (live-run items, pending the pomodoro relaunch):
+
+- [ ] **#8 Learners emit 0 parseable learnings** — root causes fixed in
+  rounds 2-6 (#14 parser, #17 stale skill CLI, #46 GLM routing); closes only
+  when a live e2e run produces parseable learnings.
+- [ ] **#25 Relaunch run-4 after #23 is green** — wordcount idea, then
+  confirm #8 with that run too.
 
 ## Round-4 findings (2026-09-04 — external toolchain regressions, e2e relaunch pending)
 

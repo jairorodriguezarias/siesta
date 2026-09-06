@@ -224,7 +224,10 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
 - **Call timeout** (`pi.PI_TIMEOUT`, env `SIESTA_PI_TIMEOUT`, 1200s default):
   a hung `pi`/Ollama call returns empty and counts as a failed attempt —
   the degenerate guards already handle it. `stop.md` only works between
-  issues, so a timeout is the only defense against a frozen call.
+  issues, so a timeout is the only defense against a frozen call. The
+  INTERACTIVE interview gets the same timeout (#35): the child is killed
+  on expiry, the partial transcript is kept, and phase 0 flows into the
+  autonomous close-out (#45).
 - **Explicit approval marker** (`text.APPROVED`): anchored to line start
   (optional `PROXY_DECISION:` prefix). Both proxy gates are fail-closed —
   explicit `APPROVED` continues, `REJECTED` retries with a different
@@ -233,10 +236,26 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   `NEEDS_REVISION` inside prose cannot trigger a revision.
 - **Review-fix with write tools**: the proxy-requested fix pass runs with
   write tools (like the execute phase) so fixes actually land in files and
-  are committed afterwards; degenerate fix output only warns.
+  are committed afterwards; degenerate fix output only warns. A DEGENERATE
+  review output (no marker + tool-speak/asks-human) never reaches the proxy
+  (#41): the fix pass runs instead and a KB blocker records the unusable
+  verdict.
+- **Fence-free marker gates** (`text.without_fences()`): a protocol marker
+  the model quotes inside a code fence is an example, never a signal. The
+  worker CONSULT/PROXY gates (including fed-back retries), the review and
+  verify marker checks, and the learner's LEARN/SKILL_UPDATE parses all
+  match against the text with every fenced region cut — a quoted
+  `SKILL_UPDATE` block can never rewrite a factory skill.
 - **Per-issue idempotent resume**: `execute()` skips issues whose
   "Issue #N completed" decision node is already on disk; blocked issues
-  have no node, so they naturally retry on resume.
+  have no node, so they naturally retry on resume. The final summary
+  rebuilds the blocked list from KB blocker nodes (#34) — a resumed run
+  never reports "0 blocked" while the KB holds blockers; an issue that
+  later completed outranks its stale blocker node.
+- **Context budget** (`phases.GATHER_BUDGET`, 120k chars): `gather()` caps
+  the TOTAL source shown to any model call — a partial file keeps the head
+  that fits, and a `TRUNCATED: N further source files not shown` notice
+  says what was cut (#39). Small projects gather byte-identically.
 - **Spec relevance guard** (`text.shares_content()`): a spec sharing zero
   content words with the interview intent is rejected as a template
   hallucination — one `SPEC_RETRY_DIRECTIVE` retry, then abort.
@@ -255,8 +274,14 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   still rejected); bare fenced prose blocks and ```markdown-style wrappers
   are kept as illustration.
 - **Generated hygiene**: project init writes a standard `.gitignore`
-  (`.DS_Store`, `__pycache__/`, `*.pyc`, checkpoint, `verify_verdict.txt`)
-  before the first `git add -A`.
+  (`.DS_Store`, `__pycache__/`, `*.pyc`, checkpoint, `verify_verdict.txt`,
+  and all run evidence — `*_output.txt`, `regression_*.log`,
+  `pre_issue_*.json`, `learning_issue_*.txt`, `project_learning.*`) before
+  the first `git add -A` (#7/#38). The evidence stays on disk (the learner
+  reads it) but never lands in a commit.
+- **stdout-only parsing**: `run_pi()` returns the model's stdout; provider
+  noise on stderr is warned and persisted in the artifact below a
+  `PROVIDER_LOG:` separator — a stderr marker can never falsify a verdict.
 
 ### Worker Gets Stuck
 
