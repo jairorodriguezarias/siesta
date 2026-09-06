@@ -109,6 +109,23 @@ When you have enough clarity, output:
 INTENT_FINALIZED: <one paragraph summarizing what the human wants>"""
 
 
+CLOSEOUT_PROMPT = """You are an interviewer closing an unfinished session. Follow the interview-me skill.
+A human wanted to build: {idea}
+
+You asked questions, the human left without answering. No one will answer
+more questions. Decide autonomously with sensible defaults.
+
+Original idea:
+{idea}
+
+Interview so far:
+{transcript}
+
+Output ONLY:
+INTENT_FINALIZED: <one paragraph stating what to build, with your chosen
+defaults made explicit>"""
+
+
 def phase0(proj: Path, name: str, idea: str, auto: bool,
            kb: Graph) -> tuple[str, str]:
     """Interview (or auto-fill) the idea. Returns (intent, kb node id)."""
@@ -126,8 +143,20 @@ def phase0(proj: Path, name: str, idea: str, auto: bool,
         ok("Interactive phase complete. Human is leaving.")
     interview_out = out.read_text()
     if not text.INTENT.search(interview_out):
-        # #12: the raw idea is a fallback, not a success — say it loudly.
-        warn("Interview ended without INTENT_FINALIZED — falling back to the raw idea")
+        # #45: the human leaving mid-interview must not collapse the intent
+        # to the raw one-liner — the planner closes it out autonomously once.
+        warn("Interview ended without INTENT_FINALIZED — closing it out autonomously...")
+        closeout = run_pi("planner",
+                          CLOSEOUT_PROMPT.format(idea=idea, transcript=text.head(interview_out, 100)),
+                          "Close out the interview now", skills=(SKILLS / "interview-me",),
+                          cwd=proj, tools="no", artifact=proj / "interview_closeout.txt")
+        if text.INTENT.search(closeout):
+            interview_out = closeout
+            out.write_text(interview_out)
+            ok("Interview closed out autonomously — intent finalized with defaults")
+        else:
+            # #12: the raw idea is a fallback, not a success — say it loudly.
+            warn("Close-out gave no INTENT_FINALIZED — falling back to the raw idea")
     intent = text.intent_from(interview_out, idea)
     intent_node = kb.node("intent", f"Human intent for {name}", intent)
     _commit(proj, "Intent captured")
@@ -253,7 +282,12 @@ your answer is stated in the final message below.
 Each issue: a '## Issue #N: Title' header, then description, acceptance
 criteria, dependencies. Every issue header must match exactly '## Issue #N: '
 (N counting from 1) — no priority groupings, no other numbering styles.
-Keep issues small and atomic. Do NOT write code — output the plan document only."""
+Keep issues small and atomic. Do NOT write code — output the plan document only.
+
+The plan runs under TDD with a regression gate: every issue must leave the
+test suite non-empty and green. A scaffold/setup issue must include at least
+one smoke test (e.g. a trivial passing test) — NEVER an empty test file or
+"collects zero tests" as acceptance criteria."""
 
 PLAN_DIRECTIVE = ("This is not a code review request — it is a planning task. "
                   "You have NO TOOLS. Output ONLY the complete content of "

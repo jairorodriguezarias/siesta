@@ -40,10 +40,24 @@ case "$model" in
           repair_fails_forever_3) printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n\n## Issue #3: Add more\nWrite more.\n' ;;
           *) printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n' ;;
         esac ;;
+      *"Close out the interview now"*)
+        # #45: autonomous close-out after the human left mid-interview
+        echo "INTENT_FINALIZED: a tiny todo cli with sensible defaults" ;;
+      *"interview-me"*)
+        case "$FAKE_PI_SCENARIO" in
+          abandoned_interview) echo "What kind of user interface do you want?" ;;
+          *) echo "INTENT_FINALIZED: a tiny todo cli" ;;
+        esac ;;
       *) echo "INTENT_FINALIZED: a tiny todo cli" ;;
     esac ;;
   consultant-model)
     case "$*" in
+      *"You are the factory-learner"*)
+        # #46: learning routes to the consultant — GLM owns the strict format
+        echo "PROJECT_LEARNING:
+  Project: stub
+  Actions:
+    LEARNING: stub learning — detail" ;;
       *"Evaluate if this review meets"*)
         case "$FAKE_PI_SCENARIO" in
           review_needs_revision) echo "NEEDS_REVISION: the CLI lacks input validation" ;;
@@ -75,11 +89,6 @@ APPROACH: take the simplest path" ;;
           *) echo "VERIFY_PASSED: static verification complete" ;;
         esac ;;
       *"code-reviewer"*) echo "REVIEW_PASSED: no issues found" ;;
-      *"You are the factory-learner"*)
-        echo "PROJECT_LEARNING:
-  Project: stub
-  Actions:
-    LEARNING: stub learning — detail" ;;
       *)
         case "$FAKE_PI_SCENARIO" in
           consult_once)
@@ -212,8 +221,13 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("RUNTIME_CHECK: SKIPPED", verify)  # no runnable entry point
         self.assertEqual((proj / ".pipeline-checkpoint").read_text().strip(),
                          "complete")
-        # 2 issues + 2 per-issue learnings + review + verify + project learning
-        self.assertEqual(self.log_count("--model worker-model"), 7)
+        # 2 issues + review + verify = 4 worker calls; the learner runs on
+        # the consultant (#46) — 2 per-issue + 1 project learning
+        self.assertEqual(self.log_count("--model worker-model"), 4)
+        log = (self.tmp / "pi_calls.log").read_text().splitlines()
+        learner_calls = [l for l in log if "factory-learner/" in l]
+        self.assertEqual(len(learner_calls), 3)
+        self.assertTrue(all("--model consultant-model" in l for l in learner_calls))
 
     def test_happy_path_kb_and_git(self):
         result = self.siesta("--auto", self.idea)
@@ -255,11 +269,13 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("Issue #2 blocked after diagnosis", blockers)
         # Per issue: initial + 2 resolution retries + 1 diagnosis-feedback
         # retry = 4 worker calls; learn hooks skipped when blocked.
-        # Phases 4 + 5 + project learning add 3 → 11 worker calls.
-        self.assertEqual(self.log_count("--model worker-model"), 11)
+        # Phases 4 + 5 add 2 → 10 worker calls (project learning is a
+        # consultant call since #46, and blocked issues skip it anyway).
+        self.assertEqual(self.log_count("--model worker-model"), 10)
         # Per issue: 2 resolutions + 1 diagnosis = 3 consultant calls,
-        # plus the review proxy → 7.
-        self.assertEqual(self.log_count("--model consultant-model"), 7)
+        # plus the review proxy → 7; the per-issue learn hooks never ran
+        # (blocked) and project learning adds 1 → 8.
+        self.assertEqual(self.log_count("--model consultant-model"), 8)
         self.assertIn("2 blocked", result.stdout)
         self.assertFalse((proj / "learning_issue_1.txt").exists())
 
@@ -273,10 +289,12 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("Issue #2 skipped after diagnosis", blockers)
         self.assertFalse((proj / "stop.md").exists())  # SKIP, not CRITICAL
         # Per issue: initial + 2 resolution retries = 3 worker calls (no
-        # diagnosis feedback for a skip); review + verify + project
-        # learning add 3 → 9.
-        self.assertEqual(self.log_count("--model worker-model"), 9)
-        self.assertEqual(self.log_count("--model consultant-model"), 7)
+        # diagnosis feedback for a skip) → 6, + review + verify = 8
+        # (project learning is a consultant call since #46).
+        self.assertEqual(self.log_count("--model worker-model"), 8)
+        # 2 resolutions + 1 diagnosis per issue + the review proxy = 7,
+        # plus project learning (consultant) → 8.
+        self.assertEqual(self.log_count("--model consultant-model"), 8)
         self.assertIn("2 blocked", result.stdout)
 
     def test_single_consultation_recovers_issue(self):
@@ -290,11 +308,13 @@ class PipelineRun(unittest.TestCase):
         self.assertFalse((proj / "diagnosis_1_output.txt").exists())
         self.assertEqual(len(self.types(self.kb(), "decision")), 3)
         self.assertIn("0 blocked", result.stdout)
-        # Per issue: initial + 1 fed-back retry + the learning hook = 3
-        # worker calls; review, verify and project learning add 3 → 9.
-        self.assertEqual(self.log_count("--model worker-model"), 9)
-        # 1 resolution per issue + the review proxy = 3.
-        self.assertEqual(self.log_count("--model consultant-model"), 3)
+        # Per issue: initial + 1 fed-back retry = 2 worker calls; review and
+        # verify add 2 → 6 total (the 2 learn hooks are consultant calls
+        # since #46).
+        self.assertEqual(self.log_count("--model worker-model"), 6)
+        # 1 resolution per issue + the review proxy = 3; per-issue learning
+        # ×2 + project learning = 3 more → 6.
+        self.assertEqual(self.log_count("--model consultant-model"), 6)
         # recovered issues DO get the per-issue learning hook
         self.assertTrue((proj / "learning_issue_1.txt").exists())
 
@@ -338,8 +358,9 @@ class PipelineRun(unittest.TestCase):
         self.assertFalse((self.proj() / "learning_issue_1.txt").exists())
         self.assertIn("2 blocked", result.stdout)
         # per issue: initial + 1 degenerate feedback retry = 2 worker calls,
-        # no learn hooks when blocked; review + verify + project learning = 3
-        self.assertEqual(self.log_count("--model worker-model"), 7)
+        # no learn hooks when blocked → 4, + review + verify = 6 (project
+        # learning is a consultant call since #46)
+        self.assertEqual(self.log_count("--model worker-model"), 6)
 
     def test_degenerate_once_recovers_with_feedback(self):
         result = self.siesta("--auto", self.idea, scenario="degenerate_once")
@@ -443,11 +464,12 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         self.assertIn("Issue #1 completed", self.decisions())
         self.assertNotIn("did not approve", result.stderr)  # recovered quietly
-        # per issue: PROXY attempt + 1 feedback retry + learn hook; then
-        # review + verify + project learning
-        self.assertEqual(self.log_count("--model worker-model"), 9)
-        # 2 issue-level proxies + 1 review proxy
-        self.assertEqual(self.log_count("--model consultant-model"), 3)
+        # per issue: PROXY attempt + 1 feedback retry = 2 worker calls; then
+        # review + verify = 2 (learn hooks are consultant calls since #46)
+        self.assertEqual(self.log_count("--model worker-model"), 6)
+        # 2 issue-level proxies + 1 review proxy + 2 per-issue learnings
+        # + 1 project learning = 6
+        self.assertEqual(self.log_count("--model consultant-model"), 6)
 
     def test_proxy_rejection_retries_with_different_approach(self):
         result = self.siesta("--auto", self.idea, scenario="proxy_rejected")
@@ -455,7 +477,7 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("REJECTED", (self.proj() / "proxy_1_output.txt").read_text())
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         self.assertIn("Issue #1 completed", self.decisions())
-        self.assertEqual(self.log_count("--model consultant-model"), 3)
+        self.assertEqual(self.log_count("--model consultant-model"), 6)
 
     # ─── review revision now applies fixes (#16/#18) ─────────────────────
 
@@ -501,8 +523,8 @@ class PipelineRun(unittest.TestCase):
         # no issue-executor skill calls: both completed issues were skipped
         # (the path form only — the learner prompts also list the name)
         self.assertEqual(self.log_count("skills/issue-executor/"), 0)
-        # only the review proxy ran on the consultant side
-        self.assertEqual(self.log_count("consultant-model"), 1)
+        # consultant side: review proxy + project learning = 2
+        self.assertEqual(self.log_count("consultant-model"), 2)
         self.assertIn("0 blocked", result.stdout)
         self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
                          "complete")

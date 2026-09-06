@@ -21,18 +21,18 @@
       "code-review-and-quality",
       "code-simplification",
       "issue-executor",
-      "kb-manager",
-      "factory-learner"
+      "kb-manager"
     ]
   },
   "consultant": {
     "model": "glm-5.2:cloud",
     "provider": "ollama",
-    "role": "Resolves doubts when worker is stuck",
+    "role": "Resolves doubts when worker is stuck. Also owns the learner's strict output format (#46).",
     "skills": [
       "consultant-protocol",
       "human-proxy",
-      "kb-manager"
+      "kb-manager",
+      "factory-learner"
     ]
   },
   "fallback": {

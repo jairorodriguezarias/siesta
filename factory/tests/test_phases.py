@@ -54,6 +54,21 @@ class PhaseSlots(unittest.TestCase):
         self.assertIn("issues.md", captured["user"])
         self.assertNotIn("caesar cipher CLI", captured["user"])
 
+    def test_phase2_plan_prompt_forbids_zero_test_scaffolds(self):
+        # #47: the pomodoro plan's scaffold issue demanded "collects zero
+        # tests" — under TDD that arms the regression gate. The planner
+        # prompt must demand at least one smoke test per issue.
+        captured = {}
+
+        def fake(role, body, user, **kw):
+            captured.update(body=body)
+            return "## Issue #1: Add encode\n\nImplement shift encoding.\n"
+
+        with patch.object(phases, "run_pi", fake):
+            phases.phase2(self.proj, "caesar", "n1", self.kb)
+        self.assertIn("NEVER an empty test file", captured["body"])
+        self.assertIn("smoke test", captured["body"])
+
     def test_phase2_issues_saved_from_model_text(self):
         out = "## Issue #1: Add encode\n\nImplement shift encoding.\n"
         with patch.object(phases, "run_pi", lambda *a, **k: out):
@@ -204,6 +219,47 @@ class SingleFileCLIDetection(unittest.TestCase):
                  "def helper():\n    pass\n"}
         cmd, _ = self.runnable(files)
         self.assertIsNotNone(cmd)
+
+
+class AbandonedInterview(unittest.TestCase):
+    """#45: the human leaving mid-interview gets an autonomous close-out."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = Path(self.tmp.name)
+        self.kb = Graph(self.proj / "kb" / "graph.json")
+        (self.proj / "interview_output.txt").write_text(
+            "What UI do you want for this pomodoro app?\n")
+
+    def test_closeout_finalizes_intent_with_defaults(self):
+        calls = []
+
+        def fake(role, body, user, **kw):
+            calls.append(user)
+            if len(calls) == 1:
+                return "What UI do you want?\n"  # abandoned interview
+            return "INTENT_FINALIZED: a tiny pomodoro cli with 25/5 defaults"
+
+        with patch.object(phases, "run_pi", fake):
+            intent, _ = phases.phase0(self.proj, "pomodoro",
+                                      "build a pomodoro app", False, self.kb)
+        self.assertEqual(len(calls), 2)  # interview + one close-out call
+        self.assertIn("Close out the interview now", calls[1])
+        self.assertIn("pomodoro cli", intent)
+        # the finalized close-out replaced the raw transcript on disk
+        self.assertIn("INTENT_FINALIZED",
+                      (self.proj / "interview_output.txt").read_text())
+
+    def test_closeout_failure_falls_back_loudly(self):
+        def fake(role, body, user, **kw):
+            return "What UI do you want?\n"  # never converges
+
+        with patch.object(phases, "run_pi", fake):
+            intent, _ = phases.phase0(self.proj, "pomodoro",
+                                      "build a pomodoro app", False, self.kb)
+        # raw idea is the honest fallback, not a silent success
+        self.assertEqual(intent, "build a pomodoro app")
 
 
 if __name__ == "__main__":
