@@ -300,6 +300,34 @@
       "summary": "Worker model switched qwen2.5-coder -> gemma4: Ollama tool-calling bug made the worker unable to execute tools",
       "detail": "WHY: qwen2.5-coder:latest through Ollama returns tool calls as plain text content instead of native tool_calls (ollama/ollama#12174: the chat template demands <tool_call> wrappers but the model emits bare JSON; fix PR #14162 still unmerged in Ollama 0.33.3, reproduced locally via /v1/chat/completions). The worker implements issues through pi's read/write/edit/bash tools; with tool calls unparsed, every issue degenerated into tool-call JSON narration \u2014 3 issues blocked, 4 'executed' as chat essays, and the pomodoro-rust project was delivered UNVERIFIED with zero code written on disk.\nHOW: (1) factory/config/models.json worker.model -> gemma4:latest, verified end-to-end through pi (native tool_calls via Ollama; write tool executed, file created on disk). (2) Registered gemma4:latest in pi's user catalog (~/.pi/agent/models.json) with its true 131072-token context window, so pi stops using the custom-model-id fallback that cloned glm-5.2's metadata (1M context window \u2014 wrong for gemma4 and disables compaction logic). (3) Updated siesta.sh banner/comments and tests.\nWHY IMPORTANT: (1) Ollama's 'tools' capability flag is NOT proof that tool calling works end-to-end \u2014 any worker model MUST be verified to return native tool_calls through the real stack (Ollama -> pi) before a pipeline run; a one-minute curl test with a toy tool catches this. (2) pi's custom-model-id fallback silently clones another model's metadata \u2014 register every factory model in pi's catalog with its real context window. (3) Alternatives rejected: keeping qwen2.5-coder (cannot execute any tool, every run degenerates), waiting for PR #14162 (open since Feb, no ETA), pulling qwen3 (working per upstream reports but untested locally and a new download).",
       "created_at": "2026-09-06T06:26:36Z"
+    },
+    {
+      "id": "n1788676702_4050",
+      "type": "decision",
+      "summary": "Skill improvement: factory-learner (issue #1)",
+      "detail": "Upon identifying a \"Worker RETRIED\" state, the first task must be to locate and analyze the specific error traceback or missed criterion from the *first* attempt's output. A generic failure summary is insufficient.",
+      "created_at": "2026-09-06T06:38:22Z"
+    },
+    {
+      "id": "n1788676702_813728",
+      "type": "learning",
+      "summary": "process_improvement",
+      "detail": "When tracking skill learning, if a failure leads to a retry, the failure analysis must require the root cause of Attempt 1, rather than simply accepting the success of Attempt 2.",
+      "created_at": "2026-09-06T06:38:22Z"
+    },
+    {
+      "id": "n1788678235_532256",
+      "type": "learning",
+      "summary": "System Stability Focus",
+      "detail": "When a high number of cumulative blockers (e.g., >5) are logged, the next project sprint must allocate time for a dedicated 'Environment Health Check' task, focusing solely on stabilizing the core dependencies and the working directory structure before attempting feature implementation.",
+      "created_at": "2026-09-06T07:03:55Z"
+    },
+    {
+      "id": "n1788678235_155767",
+      "type": "decision",
+      "summary": "Skill improvement: factory-learner (project level)",
+      "detail": "Add a mandatory phase in the workflow that, upon detecting a worker failure and subsequent retry, explicitly captures a summary of the original failed execution state (e.g., specific error traceback, file listing at failure point, or the specific CR criteria that failed) before allowing the retry attempt.",
+      "created_at": "2026-09-06T07:03:55Z"
     }
   ],
   "edges": []
