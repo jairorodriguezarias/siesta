@@ -56,6 +56,46 @@ class GraphNodes(unittest.TestCase):
         self.assertIn("created_at", edge)
 
 
+class GraphEdges(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.graph = Graph(Path(self.tmp.name) / "graph.json")
+        self.a = self.graph.node("decision", "a")
+        self.b = self.graph.node("decision", "b")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_schema(self, edge_types):
+        Path(self.graph.path.parent, "schema.json").write_text(
+            json.dumps({"node_types": {"decision": {}}, "edge_types": edge_types}))
+
+    def test_valid_edge_created_with_schema_present(self):
+        self._write_schema({"applied_to": {}})
+        self.graph.edge(self.a, self.b, "applied_to")
+        (edge,) = json.loads(self.graph.path.read_text())["edges"]
+        self.assertEqual((edge["from"], edge["to"]), (self.a, self.b))
+
+    def test_dangling_from_rejected(self):
+        with self.assertRaises(ValueError):
+            self.graph.edge("missing", self.b, "applied_to")
+        self.assertEqual(json.loads(self.graph.path.read_text())["edges"], [])
+
+    def test_dangling_to_rejected(self):
+        with self.assertRaises(ValueError):
+            self.graph.edge(self.a, "missing", "applied_to")
+        self.assertEqual(json.loads(self.graph.path.read_text())["edges"], [])
+
+    def test_invalid_kind_rejected_when_schema_present(self):
+        self._write_schema({"applied_to": {}})
+        with self.assertRaises(ValueError):
+            self.graph.edge(self.a, self.b, "not-a-kind")
+
+    def test_any_kind_allowed_without_schema(self):
+        self.graph.edge(self.a, self.b, "anything-goes")
+        self.assertEqual(len(json.loads(self.graph.path.read_text())["edges"]), 1)
+
+
 class SharedPathInstances(unittest.TestCase):
     """round-5: __main__ and phases each held a Graph over the global KB —
     the stale instance's save wiped the fresh one's nodes (per-issue

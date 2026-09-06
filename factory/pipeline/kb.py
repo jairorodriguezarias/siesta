@@ -65,6 +65,15 @@ class Graph:
 
     def edge(self, frm: str, to: str, kind: str) -> str:
         self._reload()
+        schema = self.path.parent / "schema.json"
+        if schema.exists():
+            valid = json.loads(schema.read_text()).get("edge_types", {})
+            if kind not in valid:
+                raise ValueError(f"Invalid edge type '{kind}'")
+        ids = {n["id"] for n in self.data["nodes"]}
+        for end, node_id in (("from", frm), ("to", to)):
+            if node_id not in ids:
+                raise ValueError(f"Edge {end} node '{node_id}' not in graph")
         self.data["edges"].append(
             {"from": frm, "to": to, "type": kind, "created_at": _now()})
         _save(self.path, self.data)
@@ -105,7 +114,11 @@ def _main(argv: list[str]) -> None:
             print(e, file=sys.stderr)
             raise SystemExit(1)
     elif cmd == "append-edge":
-        print(g.edge(argv[3], argv[4], argv[5]))
+        try:
+            print(g.edge(argv[3], argv[4], argv[5]))
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            raise SystemExit(1)
     elif cmd == "get-node":
         node = g.get(argv[3])
         print(json.dumps(node, indent=2) if node else "", end="")

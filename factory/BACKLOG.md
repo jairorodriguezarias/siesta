@@ -248,8 +248,14 @@ Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
 - [ ] **#42 Dead code/UX**: `PY_PORTS` unused since #19; `phase2`'s return value
   ignored; duplicated skills tuples; `verify`/`_verify` merge; the duplicate
   BACKLOG entry (removed in this round).
-- [ ] **#43 `Graph.edge()` validates nothing** (carried over from the hardening
+- [x] **#43 `Graph.edge()` validates nothing** (carried over from the hardening
   list) — any from/to/kind passes, even dangling node ids.
+  ✅ fixed: `edge()` now raises ValueError when `kind` is not in the schema's
+  `edge_types` (mirroring `node()`'s convention) or when either endpoint id
+  is not a node in the graph; the CLI `append-edge` shim prints the error and
+  exits 1 like `append-node`. Unit tests in test_kb (GraphEdges); the
+  test_phases fixtures used synthetic dangling ids ("n1") and now create a
+  real intent node. 135 tests green.
 
 ## Round-6 findings (2026-09-06 — first gemma4 e2e: the pomodoro run)
 

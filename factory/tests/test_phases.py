@@ -26,6 +26,8 @@ class PhaseSlots(unittest.TestCase):
         self.proj = Path(self.tmp.name)
         (self.proj / "spec.md").write_text(SPEC_TEXT)
         self.kb = Graph(self.proj / "kb" / "graph.json")
+        # edge() now rejects dangling ids — fixture must use a real node id
+        self.n1 = self.kb.node("intent", "fixture intent node")
 
     def test_phase1_intent_lives_in_body_user_is_output_directive(self):
         captured = {}
@@ -36,7 +38,7 @@ class PhaseSlots(unittest.TestCase):
 
         with patch.object(phases, "run_pi", fake):
             phases.phase1(self.proj, "caesar", "a tiny caesar cipher cli",
-                          "n1", self.kb)
+                          self.n1, self.kb)
         self.assertIn("a tiny caesar cipher cli", captured["body"])
         self.assertIn("spec.md", captured["user"])
         self.assertNotIn("caesar", captured["user"])
@@ -49,7 +51,7 @@ class PhaseSlots(unittest.TestCase):
             return "## Issue #1: Add encode\n\nImplement shift encoding.\n"
 
         with patch.object(phases, "run_pi", fake):
-            phases.phase2(self.proj, "caesar", "n1", self.kb)
+            phases.phase2(self.proj, "caesar", self.n1, self.kb)
         self.assertIn("caesar cipher CLI", captured["body"])
         self.assertIn("issues.md", captured["user"])
         self.assertNotIn("caesar cipher CLI", captured["user"])
@@ -65,14 +67,14 @@ class PhaseSlots(unittest.TestCase):
             return "## Issue #1: Add encode\n\nImplement shift encoding.\n"
 
         with patch.object(phases, "run_pi", fake):
-            phases.phase2(self.proj, "caesar", "n1", self.kb)
+            phases.phase2(self.proj, "caesar", self.n1, self.kb)
         self.assertIn("NEVER an empty test file", captured["body"])
         self.assertIn("smoke test", captured["body"])
 
     def test_phase2_issues_saved_from_model_text(self):
         out = "## Issue #1: Add encode\n\nImplement shift encoding.\n"
         with patch.object(phases, "run_pi", lambda *a, **k: out):
-            n = phases.phase2(self.proj, "caesar", "n1", self.kb)
+            n = phases.phase2(self.proj, "caesar", self.n1, self.kb)
         self.assertEqual(n, 1)
         self.assertTrue((self.proj / "issues.md").read_text().startswith("## Issue #1"))
 
@@ -90,7 +92,7 @@ class PhaseSlots(unittest.TestCase):
 
         with patch.object(phases, "run_pi", fake):
             phases.phase1(self.proj, "caesar", "a tiny caesar cipher cli",
-                          "n1", self.kb)
+                          self.n1, self.kb)
         self.assertEqual(len(calls), 2)
         self.assertIn("rejected", calls[1])
         self.assertIn("caesar cipher CLI", (self.proj / "spec.md").read_text())
@@ -101,7 +103,7 @@ class PhaseSlots(unittest.TestCase):
         with patch.object(phases, "run_pi", lambda *a, **k: template):
             with self.assertRaises(SystemExit):
                 phases.phase1(self.proj, "caesar", "a tiny caesar cipher cli",
-                              "n1", self.kb)
+                              self.n1, self.kb)
 
     def test_phase2_wrong_header_format_gets_one_feedback_retry(self):
         # round-3: '### 1.' priority sections don't parse — retry demands
@@ -116,7 +118,7 @@ class PhaseSlots(unittest.TestCase):
             return drifted if len(calls) == 1 else good
 
         with patch.object(phases, "run_pi", fake):
-            phases.phase2(self.proj, "caesar", "n1", self.kb)
+            phases.phase2(self.proj, "caesar", self.n1, self.kb)
         self.assertEqual(len(calls), 2)
         self.assertIn("'## Issue #N: Title'", calls[1])
         self.assertTrue((self.proj / "issues.md").read_text()
