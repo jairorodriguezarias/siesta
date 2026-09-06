@@ -86,6 +86,7 @@ APPROACH: take the simplest path" ;;
       *"QA engineer"*)
         case "$FAKE_PI_SCENARIO" in
           verify_fails) echo "VERIFY_FAILED: the entry point crashes on launch" ;;
+          verify_fenced) printf 'The config docs say:\n```\nVERIFY_PASSED: quoted example\n```\nbut honestly I could not check it.\n' ;;
           *) echo "VERIFY_PASSED: static verification complete" ;;
         esac ;;
       *"code-reviewer"*)
@@ -515,6 +516,16 @@ class PipelineRun(unittest.TestCase):
         fix_log = subprocess.run(["git", "-C", str(self.proj()), "log", "--oneline"],
                                  capture_output=True, text=True).stdout
         self.assertIn("Review fixes", fix_log)
+
+    def test_fenced_verify_marker_is_not_a_verdict(self):
+        # round-7 hardening: a VERIFY_PASSED quoted inside a code fence is
+        # an example, not a verdict — the marker gate matches fence-free.
+        result = self.siesta("--auto", self.idea, scenario="verify_fenced")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual((self.proj() / "verify_verdict.txt").read_text().strip(),
+                         "VERIFY_FAILED")
+        self.assertTrue(any("Project NOT verified" in b
+                            for b in self.types(self.kb(), "blocker")))
 
     # ─── verify verdict tells the truth (#6) ─────────────────────────────
 

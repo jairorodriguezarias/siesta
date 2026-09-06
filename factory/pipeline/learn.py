@@ -205,8 +205,12 @@ def learn_issue(proj: Path, n: int, issue_text: str, kb: Graph, gkb: Graph) -> s
                  skills=(FACTORY_SKILLS / "factory-learner", FACTORY_SKILLS / "kb-manager"),
                  cwd=proj, tools="no", artifact=proj / f"learning_issue_{n}.txt")
 
-    counts = act_on_learnings(out, gkb, n)
-    applied = apply_skill_updates(out, FACTORY_SKILLS)
+    # Fence-free parse (round-7 hardening): a SKILL_UPDATE/LEARNING block
+    # quoted as a code example is not the learner speaking — it can never
+    # rewrite a factory skill or log a phantom learning.
+    spoken = text.without_fences(out)
+    counts = act_on_learnings(spoken, gkb, n)
+    applied = apply_skill_updates(spoken, FACTORY_SKILLS)
     if applied:
         log(f"Applied skill updates: {', '.join(applied)}")
     transcript = "\n".join([
@@ -305,8 +309,10 @@ def learn_project(proj: Path, name: str, kb: Graph, gkb: Graph) -> str:
                  skills=(FACTORY_SKILLS / "factory-learner", FACTORY_SKILLS / "kb-manager"),
                  cwd=proj, tools="no", artifact=proj / "project_learning_output.txt")
 
-    counts = act_on_learnings(out, gkb, None)
-    applied = apply_skill_updates(out, FACTORY_SKILLS)
+    # Fence-free parse (round-7 hardening) — same as the per-issue learner.
+    spoken = text.without_fences(out)
+    counts = act_on_learnings(spoken, gkb, None)
+    applied = apply_skill_updates(spoken, FACTORY_SKILLS)
     if applied:
         log(f"Applied project-level skill updates: {', '.join(applied)}")
     transcript = "\n".join([

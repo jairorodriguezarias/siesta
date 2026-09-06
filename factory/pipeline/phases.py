@@ -633,8 +633,11 @@ def execute(proj: Path, kb: Graph) -> list[int]:
             issue_text, artifact=proj / f"issue_{num}_output.txt")
         # #2: a degenerate first answer (tool JSON, questions to the absent
         # human, truncation) is not an execution — unless the worker is
-        # speaking protocol (CONSULT/PROXY), which _escalate handles.
-        if not (text.CONSULT.search(output) or text.PROXY.search(output)):
+        # speaking protocol (CONSULT/PROXY), which _escalate handles. The
+        # protocol check is fence-free: a marker quoted as an example is
+        # not the worker speaking (round-7 hardening).
+        spoken = text.without_fences(output)
+        if not (text.CONSULT.search(spoken) or text.PROXY.search(spoken)):
             reason = text.degenerate(output)
             if reason:
                 warn(f"Issue #{num}: degenerate worker output ({reason}). "
@@ -667,6 +670,10 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
               source: str, kb: Graph, fails: dict, history: dict,
               blocked: list[int]) -> bool:
     """Walk the stuck protocol. Returns True if the issue needs no post-work."""
+    # Marker gates match fence-free: a CONSULT:/PROXY_REQUEST: the worker
+    # quotes as a code example is not the worker speaking (round-7).
+    output = text.without_fences(output)
+
     def _retry(feedback: str) -> str:
         return _worker(proj, RETRY_SKILLS, feedback, issue_text,
                        artifact=proj / f"issue_{num}_retry_output.txt")
@@ -695,7 +702,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
 
     # Escalation ladder: 2 resolution-guided retries, then the fail-3 deep
     # diagnosis (documented in README/AGENTS.md; unreachable in bash).
-    stuck_at = text.CONSULT.search(output)
+    stuck_at = text.CONSULT.search(text.without_fences(output))
     while stuck_at:
         fails[num] = fails.get(num, 0) + 1
         fail = fails[num]
@@ -729,7 +736,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                 f"A senior engineer did a deep diagnosis and provided this plan:\n\n"
                 f"{diagnosis}\n\nExisting source files:\n{source}\n\n"
                 f"Now implement the issue:\n{issue_text}")
-            if text.CONSULT.search(output):
+            if text.CONSULT.search(text.without_fences(output)):
                 err(f"Issue #{num} blocked after diagnosis")
                 blocked.append(num)
                 kb.node("blocker", f"Issue #{num} blocked after diagnosis",
@@ -748,7 +755,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
             f"Existing source files:\n{source}\n\n"
             f"Now implement the issue:\n{issue_text}")
         # still CONSULT → the loop escalates (fail 2, then the fail-3 diagnosis)
-        stuck_at = text.CONSULT.search(output)
+        stuck_at = text.CONSULT.search(text.without_fences(output))
     # A stuck round that recovered still gets the post hooks.
     return False
 
@@ -785,8 +792,8 @@ def review(proj: Path, kb: Graph) -> None:
                         "Review the code in this project",
                         skills=REVIEW_SKILLS,
                         artifact=proj / "review_output.txt", cwd=proj)
-    if not (text.REVIEW_PASSED.search(review_out)
-            or text.REVIEW_FAILED.search(review_out)):
+    if not (text.REVIEW_PASSED.search(text.without_fences(review_out))
+            or text.REVIEW_FAILED.search(text.without_fences(review_out))):
         warn("Review output has no REVIEW_PASSED/REVIEW_FAILED marker")
         # #41: degenerate output is not a verdict — the proxy must never
         # judge on tool-speak or questions to the absent human. The #16 fix
@@ -969,15 +976,17 @@ def verify(proj: Path) -> str:
         f.write(f"\nRUNTIME_CHECK: {status} — {detail}\n")
     # #11: with no protocol marker, a degenerate body (tool JSON / questions
     # to the absent human) is not a verdict — only the mechanical checks may
-    # decide then. An explicit marker stays the primary signal.
-    has_marker = bool(text.VERIFY_PASSED.search(out) or text.VERIFY_FAILED.search(out))
+    # decide then. An explicit marker stays the primary signal. Markers are
+    # matched fence-free: a quoted example is not a verdict (round-7).
+    spoken = text.without_fences(out)
+    has_marker = bool(text.VERIFY_PASSED.search(spoken) or text.VERIFY_FAILED.search(spoken))
     reason = None if has_marker else text.degenerate(out)
     if reason:
         warn(f"Verify output is degenerate ({reason}) — using the mechanical fallback only")
     if has_marker:
         # Primary signal: the protocol marker (and smoke must not have failed).
         verdict = "VERIFY_PASSED" if (
-            text.VERIFY_PASSED.search(out) and status != "FAILED") else "VERIFY_FAILED"
+            text.VERIFY_PASSED.search(spoken) and status != "FAILED") else "VERIFY_FAILED"
     else:
         # Model drifted (no marker, or degenerate — tool-speak in the live run):
         # decide from the regression suite if there is one, else fail.

@@ -196,6 +196,29 @@ def _strip_code_fences(doc: str) -> str:
     return "\n".join(lines)
 
 
+def without_fences(out: str) -> str:
+    """Cut EVERY fenced region (bare or tagged) — for marker gates.
+
+    Hardening (round-7): markers the model quotes as examples inside code
+    blocks sit at column 0, so the ^ anchor doesn't help — quoted content
+    is never a protocol signal. Unlike _strip_code_fences (spec parsing,
+    where bare fences are legit prose), marker gates cut all fences: a
+    CONSULT:/VERIFY_PASSED:/SKILL_UPDATE_START inside a fence is an
+    example, not a decision. An unclosed fence cuts to the end.
+    """
+    lines, cutting = [], False
+    for line in out.splitlines():
+        if cutting:
+            if BARE_FENCE.match(line):
+                cutting = False
+            continue
+        if BARE_FENCE.match(line) or _fence_tag(line) is not None:
+            cutting = True
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def spec_doc(out: str) -> str | None:
     """Model output -> spec.md content; None if it is not a plain document.
 

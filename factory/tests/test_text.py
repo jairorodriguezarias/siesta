@@ -365,5 +365,37 @@ class DocExtraction(unittest.TestCase):
         self.assertNotIn("print('hi')", doc)
 
 
+class WithoutFences(unittest.TestCase):
+    """Hardening: quoted content is never a protocol signal — marker gates
+    match against the text with ALL fenced regions (bare or tagged) cut."""
+
+    def test_bare_fence_cut(self):
+        out = text.without_fences("real answer\n```\nVERIFY_PASSED: quoted\n```\n")
+        self.assertNotIn("VERIFY_PASSED", out)
+        self.assertIn("real answer", out)
+
+    def test_tagged_fence_cut(self):
+        out = text.without_fences("intro\n```python\nCONSULT: example\n```\noutro")
+        self.assertNotIn("CONSULT", out)
+        self.assertIn("intro", out)
+        self.assertIn("outro", out)
+
+    def test_unfenced_markers_survive(self):
+        out = text.without_fences("work done\nCONSULT: actually stuck\nCONTEXT: x")
+        self.assertIn("CONSULT: actually stuck", out)
+
+    def test_unclosed_fence_cut_to_end(self):
+        out = text.without_fences("answer\n```\nVERIFY_PASSED: dangling")
+        self.assertNotIn("VERIFY_PASSED", out)
+
+    def test_skill_block_inside_fence_is_not_an_update(self):
+        # a SKILL_UPDATE quoted as an example must never rewrite a skill
+        out = text.without_fences(
+            "explanation\n```\nSKILL_UPDATE_START: issue-executor\n"
+            "gutted body\nSKILL_UPDATE_END\n```\nrest")
+        self.assertNotIn("SKILL_UPDATE_START", out)
+        self.assertIn("rest", out)
+
+
 if __name__ == "__main__":
     unittest.main()
