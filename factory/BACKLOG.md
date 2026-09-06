@@ -230,9 +230,12 @@ Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
   fence** (```python etc.) — trades the run-4 false negatives for false
   positives: a legit spec showing one CLI example dies whole. Consider a
   fenced-lines ratio, or stripping instead of rejecting.
-- [ ] **#37 The learner runs as `worker` (qwen local, thinking off)** — the
+- [x] **#37 The learner runs as `worker` (qwen local, thinking off)** — the
   weakest model owns the strictest output format. Route learning calls to
   `consultant` (GLM) if #8-style parse problems return.
+  ✅ fixed via #46 (round-6): the pomodoro run reproduced the parse problems
+  (verbose unparseable LEARNING blocks), and `learn_issue()`/`learn_project()`
+  now call the consultant role (GLM 5.2).
 - [ ] **#38 Artifacts pollute generated repos** — `pre_issue_*.json`,
   `*_output.txt`, `regression_*.log` land in project commits via `add -A`;
   extend the generated .gitignore or move them under `.pipeline/`.
