@@ -549,6 +549,24 @@ class PipelineRun(unittest.TestCase):
                                capture_output=True, text=True).stdout
         self.assertNotIn(".pipeline-checkpoint", files)
 
+    def test_pipeline_artifacts_stay_out_of_project_commits(self):
+        # #38: run evidence (outputs, regression logs, pre-issue contexts,
+        # learning transcripts) is not product — `git add -A` must not
+        # commit it. The files stay on disk for the learner's inputs.
+        self.siesta("--auto", self.idea)
+        files = subprocess.run(["git", "-C", str(self.proj()), "ls-files"],
+                              capture_output=True, text=True).stdout
+        for evidence in ("_output.txt", "regression_", "pre_issue_",
+                         "learning_issue_", "project_learning"):
+            self.assertNotIn(evidence, files, f"committed artifact: {evidence}")
+        # the evidence is still on disk — learn.py reads these as inputs
+        proj = self.proj()
+        self.assertTrue((proj / "issue_1_output.txt").exists())
+        self.assertTrue((proj / "pre_issue_1.json").exists())
+        # the product itself stays committed
+        self.assertIn("spec.md", files)
+        self.assertIn("issues.md", files)
+
     def test_resume_from_phase_2_skips_interview_and_spec(self):
         self.siesta("--auto", self.idea)
         (self.proj() / ".pipeline-checkpoint").write_text("phase-2\n")

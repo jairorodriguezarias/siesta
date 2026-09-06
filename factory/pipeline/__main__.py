@@ -99,10 +99,16 @@ def _run(args) -> None:
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same
     # hygiene ignore list the factory itself uses, from the very first commit.
+    # #38: run evidence (model outputs, regression logs, pre-issue contexts,
+    # learning transcripts) stays on disk — learn.py reads these inputs —
+    # but is never product: keep it out of the commits.
     gitignore = proj / ".gitignore"
     if not gitignore.exists():
         gitignore.write_text(
-            ".DS_Store\n__pycache__/\n*.pyc\n.pipeline-checkpoint\nverify_verdict.txt\n")
+            ".DS_Store\n__pycache__/\n*.pyc\n.pipeline-checkpoint\n"
+            "verify_verdict.txt\n"
+            "*_output.txt\ninterview_closeout.txt\nregression_*.log\n"
+            "pre_issue_*.json\nlearning_issue_*.txt\nproject_learning.*\n")
 
     # Seed the KB only when missing — --resume must not wipe a project's memory.
     kb = Graph(proj / "kb" / "graph.json")
