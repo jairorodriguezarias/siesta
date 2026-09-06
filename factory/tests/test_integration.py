@@ -88,7 +88,11 @@ APPROACH: take the simplest path" ;;
           verify_fails) echo "VERIFY_FAILED: the entry point crashes on launch" ;;
           *) echo "VERIFY_PASSED: static verification complete" ;;
         esac ;;
-      *"code-reviewer"*) echo "REVIEW_PASSED: no issues found" ;;
+      *"code-reviewer"*)
+        case "$FAKE_PI_SCENARIO" in
+          review_degenerate) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
+          *) echo "REVIEW_PASSED: no issues found" ;;
+        esac ;;
       *)
         case "$FAKE_PI_SCENARIO" in
           consult_once)
@@ -493,6 +497,24 @@ class PipelineRun(unittest.TestCase):
                              capture_output=True, text=True).stdout
         self.assertIn("Review fixes", log)
         self.assertIn("NEEDS_REVISION", (self.proj() / "proxy_review_output.txt").read_text())
+
+    def test_degenerate_review_never_reaches_the_proxy(self):
+        # #41: tool-JSON review output is not a verdict — the proxy must
+        # never judge on it. The #16 fix pass runs instead, with tools.
+        result = self.siesta("--auto", self.idea, scenario="review_degenerate")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        # the proxy was never consulted for review approval
+        self.assertFalse((self.proj() / "proxy_review_output.txt").exists())
+        log = (self.tmp / "pi_calls.log").read_text().splitlines()
+        self.assertEqual(len([l for l in log
+                               if "Evaluate if this review meets" in l]), 0)
+        # one degenerate review + one fix pass with write tools
+        review_calls = [l for l in log if "Fix review issues" in l]
+        self.assertEqual(len(review_calls), 1)
+        self.assertNotIn("--no-tools", review_calls[0])
+        fix_log = subprocess.run(["git", "-C", str(self.proj()), "log", "--oneline"],
+                                 capture_output=True, text=True).stdout
+        self.assertIn("Review fixes", fix_log)
 
     # ─── verify verdict tells the truth (#6) ─────────────────────────────
 

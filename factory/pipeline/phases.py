@@ -777,6 +777,27 @@ def review(proj: Path, kb: Graph) -> None:
     if not (text.REVIEW_PASSED.search(review_out)
             or text.REVIEW_FAILED.search(review_out)):
         warn("Review output has no REVIEW_PASSED/REVIEW_FAILED marker")
+        # #41: degenerate output is not a verdict — the proxy must never
+        # judge on tool-speak or questions to the absent human. The #16 fix
+        # pass runs instead, with write tools, and is committed.
+        if text.degenerate(review_out):
+            warn("Review output is degenerate — running the fix pass instead "
+                 "of consulting the proxy")
+            kb.node("blocker", "Review output degenerate",
+                    "The reviewer never produced a usable verdict; a fix "
+                    "pass ran with write tools instead of a proxy decision.")
+            fixes = run_pi("worker",
+                           f"Review attempt was unusable.\n\nSource files:\n{source}\n\n"
+                           "Review and fix issues now. Output the corrected file contents.",
+                           "Fix review issues",
+                           skills=(SKILLS / "code-review-and-quality",
+                                   SKILLS / "code-simplification"),
+                           artifact=proj / "review_fixes_output.txt", cwd=proj)
+            if text.degenerate(fixes):
+                warn("Review-fix output looks degenerate — fixes may not have been applied")
+            _commit(proj, "🔧 Review fixes: apply proxy-requested revisions")
+            ok("Review complete")
+            return
     proxy_out = run_pi("consultant",
                        PROXY_REVIEW_PROMPT.format(review=review_out, kb=kb_summaries),
                        review_out, skills=(FACTORY_SKILLS / "human-proxy",),
