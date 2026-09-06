@@ -221,8 +221,6 @@ model as protocol-compliant, which is why these survived it.
 
 Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
 
-- [ ] **#33 `_detect_runnable` misses single-file CLIs** (a root-level
-  `wordcount.py` — exactly the run-4/5 idea layout — is SKIPPED by the smoke).
 - [ ] **#34 `--resume` reports 0 blocked issues** — `blocked = []` is set by
   definition when phase-3 is done; the summary lies. Rebuild from KB blocker
   nodes.
@@ -249,6 +247,62 @@ Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
   BACKLOG entry (removed in this round).
 - [ ] **#43 `Graph.edge()` validates nothing** (carried over from the hardening
   list) — any from/to/kind passes, even dangling node ids.
+
+## Round-6 findings (2026-09-06 — first gemma4 e2e: the pomodoro run)
+
+Run: `./factory/bin/siesta.sh "Build a POMODORO app toe xecute in my Mac"`.
+Result: 12 issues, **11 skipped** by the regression gate, app delivered as a
+`pass` stub, UNVERIFIED — from a single scaffold stub. Evidence:
+`factory/projects/build-a-pomodoro-app-toe-xecute-in-my/` (all 11
+`regression_N.log` files identical: "collected 0 items", pytest exit 5).
+
+- [x] **#44 The regression gate cannot tell "red" from "empty" — and skips
+  instead of repairing.** Issue #1 (scaffold) legitimately created an empty
+  `tests/test_macpomodoro.py` — its own acceptance criteria said "pytest
+  collects zero tests without error". pytest exits **5** on "no tests
+  collected"; `run_regression()` treated any non-zero exit as FAILED, so the
+  gate armed itself on an *empty* suite and skipped every remaining issue —
+  11 skips, zero repair attempts, no halting, review/verify on a stub.
+  Two defects, both fixed:
+  1. `run_regression()` now treats pytest exit 5 as `skipped` (absence, not
+     breakage — same family as #13).
+  2. A genuinely red suite now gets ONE worker-driven repair attempt
+     (`_repair_regression`, same treatment as a stuck worker), then an honest
+     skip-with-blocker; **two consecutive unrepairable suites halt phase 3**
+     (exit 1) instead of skipping the whole plan on a broken base. Only a
+     green (`passed`) suite resets the streak — "fixed by deleting the
+     tests" cannot disarm the breaker.
+  ✅ fixed: unit tests (test_phases) + 3 integration scenarios
+     (repair_regression / repair_fails_forever) — 125 tests green.
+- [x] **#33 `_detect_runnable` misses single-file CLIs** — the pomodoro app
+  (`macpomodoro/macpomodoro.py`, the planner's own scaffold layout) was
+  SKIPPED by the smoke check ("no runnable entry point"). Fixed together with
+  #44: detection now covers `<dir>/<dir>.py` and root-level scripts, but only
+  when the `__main__` guard body is real work — a scaffold stub (`pass` /
+  `...` / comment-only) stays non-runnable, so issue #1 layouts don't count
+  as "runs locally" before the app exists.
+  ✅ fixed: 4 detection unit tests in test_phases.
+- [x] **Race in `gather()` → `FileNotFoundError` mid-run** (found while testing
+  #44): `proj.rglob("*")` descends into `.git` while git's auto-gc deletes
+  loose objects — iteration crashes the whole phase. `gather()` now prunes
+  `.git`/`kb`/`.pytest_cache`/`__pycache__` via `os.walk` (topdown) instead.
+  ✅ fixed with the #44 batch; no test repro needed (flaky-by-nature, prune
+  is structural).
+
+Round-6 observations (not fixed — candidate ideas, see run artifacts):
+
+- [ ] **#45 The interview model never converges.** The interview asked one
+  question, the human left (by design), GLM got no answer — and the pipeline
+  fell back to the raw idea (`INTENT_FINALIZED` never emitted; #12 warned).
+  Idea: feed the model the "human is leaving" fact in-band, or run phase 0
+  with a short auto-answer loop when stdin is not a TTY.
+- [ ] **#46 Learner still routes to `worker`** (gemma4 local) — see #37; this
+  run's learner produced verbose unparseable blocks again (rejected skill
+  updates, "process_improvement" learning with no detail).
+- [ ] **#47 Issue #1's plan baked in the trap**: "pytest collects zero tests
+  without error" as acceptance criteria conflicts with the TDD skill's "tests
+  first" — the planner needs a prompt nudge that scaffold issues must ship at
+  least one smoke test (or the regression gate must special-case issue #1).
 
 ## Round-4 findings (2026-09-04 — external toolchain regressions, e2e relaunch pending)
 

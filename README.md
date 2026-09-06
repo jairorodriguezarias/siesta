@@ -111,7 +111,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | Feature | How it works |
 |---------|-------------|
 | `stop.md` | Any agent can create `stop.md` in the project dir to halt the pipeline cleanly |
-| Regression suite | All previous tests re-run before each new issue — a red suite **gates** the next one (skipped, logged, never built on a broken base) |
+| Regression suite | All previous tests re-run before each new issue — a red suite gets one worker-driven repair attempt, then gates the next one (skipped, logged, never built on a broken base); two consecutive unrepairable suites halt the run. An empty suite (pytest "no tests collected") is absence — never a failure |
 | Degenerate-output guard | Tool-call JSON, questions to the absent human, or truncated output are treated as failed attempts — never as success; a degenerate worker answer gets one feedback retry, then the issue is blocked |
 | Call timeout | Every `pi`/Ollama call is capped by `SIESTA_PI_TIMEOUT` (1200s default) — a hung call returns empty and counts as a failed attempt instead of freezing the pipeline (`stop.md` only works between issues) |
 | Explicit approval signal | Proxy gates are fail-closed: only a line-start `APPROVED` marker continues the pipeline. `NEEDS_REVISION`, hesitation, or garbage retry with feedback — unmarked output can never count as approval |

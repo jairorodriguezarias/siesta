@@ -212,8 +212,11 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   execution. It gets one feedback retry; if it stays degenerate the issue is
   blocked and logged to the KB — never recorded as completed.
 - **Regression gating**: the suite re-runs before each new issue. A red suite
-  skips the next issue (blocked) instead of building on a broken base, and
-  "no tests at all" is reported as `skipped` — never as green.
+  gets one worker-driven repair attempt before anything is skipped; an
+  unrepairable suite skips the issue (blocked) with an honest blocker, and
+  two consecutive unrepairable suites halt phase 3 — never build on a broken
+  base. An empty suite (pytest "no tests collected", exit 5) is absence:
+  `skipped`, never a failure, never green.
 - **Verify fallback**: with no usable VERIFY marker, only the mechanical
   checks decide (regression suite + runtime smoke); no tests means failed.
 - **Call timeout** (`pi.PI_TIMEOUT`, env `SIESTA_PI_TIMEOUT`, 1200s default):
