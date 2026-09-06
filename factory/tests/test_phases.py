@@ -124,6 +124,19 @@ class PhaseSlots(unittest.TestCase):
         self.assertTrue((self.proj / "issues.md").read_text()
                         .startswith("## Issue #1"))
 
+    def test_phase2_returns_the_issue_count(self):
+        # #42: the count is phase2's contract with its callers — the
+        # orchestrator logs it instead of ignoring the return value.
+        good = ("## Issue #1: Add encode\n\nImplement shift encoding.\n\n"
+                "## Issue #2: Add decode\n\nImplement shift decoding.\n")
+
+        def fake(role, body, user, **kw):
+            return good
+
+        with patch.object(phases, "run_pi", fake):
+            count = phases.phase2(self.proj, "caesar", self.n1, self.kb)
+        self.assertEqual(count, 2)
+
 
 class RegressionTriState(unittest.TestCase):
     """#13: 'no tests' is 'skipped', a distinct state — not a silent green."""

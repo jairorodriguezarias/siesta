@@ -166,7 +166,10 @@ def _run(args) -> None:
     else:
         phase(2, "PLAN — Generate issues.md")
         spec_node = spec_node or _latest(kb, "spec")
-        phases.phase2(proj, name, spec_node, kb)
+        # #42: phase2's issue count is phase2's contract — log it, don't
+        # discard the return value.
+        count = phases.phase2(proj, name, spec_node, kb)
+        log(f"Planned {count} issues")
     mark("phase-2")
 
     # ─── PHASE 3: EXECUTE (per-issue loop) ───────────────────────────────

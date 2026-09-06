@@ -498,8 +498,23 @@ DETAILED_PLAN: <step-by-step fix, or 'SKIP: log blocker and continue'>
 CODE: <if code fix needed>"""
 
 
+# #42: named per-phase skill sets — the tuples were duplicated inline and
+# the overlap (incremental-implementation + test-driven-development) was
+# invisible. Named constants keep them greppable; RETRY_SKILLS is the
+# shared pair the worker gets on every fed-back retry.
 RETRY_SKILLS = (SKILLS / "incremental-implementation",
                 SKILLS / "test-driven-development")
+EXECUTE_SKILLS = (SKILLS / "incremental-implementation",
+                  SKILLS / "test-driven-development",
+                  SKILLS / "debugging-and-error-recovery",
+                  FACTORY_SKILLS / "issue-executor",
+                  FACTORY_SKILLS / "kb-manager")
+REVIEW_SKILLS = (SKILLS / "code-review-and-quality",
+                 SKILLS / "code-simplification")
+REPAIR_SKILLS = (SKILLS / "debugging-and-error-recovery",
+                 SKILLS / "test-driven-development")
+VERIFY_SKILLS = (SKILLS / "test-driven-development",
+                 SKILLS / "debugging-and-error-recovery")
 
 
 def _worker(proj: Path, skills, body, issue_text, artifact: Path | None = None):
@@ -534,8 +549,7 @@ def _repair_regression(proj: Path, n: int, issue_text: str, source: str) -> bool
                                       suite=text.head(suite_out, 80),
                                       source=source),
                  f"Repair the failing regression suite before issue #{n}",
-                 skills=(SKILLS / "debugging-and-error-recovery",
-                         SKILLS / "test-driven-development"),
+                 skills=REPAIR_SKILLS,
                  thinking=WORKER_THINKING, cwd=proj,
                  artifact=proj / f"regression_repair_{n}.txt")
     if text.degenerate(fix):
@@ -613,9 +627,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         source = gather(proj)
         output = _worker(
             proj,
-            (SKILLS / "incremental-implementation", SKILLS / "test-driven-development",
-             SKILLS / "debugging-and-error-recovery", FACTORY_SKILLS / "issue-executor",
-             FACTORY_SKILLS / "kb-manager"),
+            EXECUTE_SKILLS,
             EXECUTE_PROMPT.format(issue=issue_text, kb=kb_summaries,
                                   principles=principles, source=source),
             issue_text, artifact=proj / f"issue_{num}_output.txt")
@@ -771,8 +783,7 @@ def review(proj: Path, kb: Graph) -> None:
     source = gather(proj)
     review_out = run_pi("worker", REVIEW_PROMPT.format(kb=kb_summaries, source=source),
                         "Review the code in this project",
-                        skills=(SKILLS / "code-review-and-quality",
-                                SKILLS / "code-simplification"),
+                        skills=REVIEW_SKILLS,
                         artifact=proj / "review_output.txt", cwd=proj)
     if not (text.REVIEW_PASSED.search(review_out)
             or text.REVIEW_FAILED.search(review_out)):
@@ -790,8 +801,7 @@ def review(proj: Path, kb: Graph) -> None:
                            f"Review attempt was unusable.\n\nSource files:\n{source}\n\n"
                            "Review and fix issues now. Output the corrected file contents.",
                            "Fix review issues",
-                           skills=(SKILLS / "code-review-and-quality",
-                                   SKILLS / "code-simplification"),
+                           skills=REVIEW_SKILLS,
                            artifact=proj / "review_fixes_output.txt", cwd=proj)
             if text.degenerate(fixes):
                 warn("Review-fix output looks degenerate — fixes may not have been applied")
@@ -812,7 +822,7 @@ def review(proj: Path, kb: Graph) -> None:
         fixes = run_pi("worker", f"Proxy requested: {proxy_out}.\n\nSource files:\n{source}\n\n"
                        "Fix the issues now. Output the corrected file contents.",
                        "Fix review issues",
-                       skills=(SKILLS / "code-review-and-quality", SKILLS / "code-simplification"),
+                       skills=REVIEW_SKILLS,
                        artifact=proj / "review_fixes_output.txt", cwd=proj)
         if text.degenerate(fixes):
             warn("Review-fix output looks degenerate — fixes may not have been applied")
@@ -834,7 +844,6 @@ Source files:
 {source}"""
 
 WEB_PORTS = [3000, 5173, 8000, 8080, 4000]
-PY_PORTS = [5000, 8000, 3000, 8080]
 
 
 def _free_port() -> int:
@@ -844,11 +853,14 @@ def _free_port() -> int:
 
 
 def _detect_runnable(proj: Path):
+    """(command, web_ports) — ports only for HTTP entry points; a CLI smoke
+    needs no port (#42: the dead PY_PORTS list is gone, runtime_smoke
+    computes its own free port)."""
     if (proj / "package.json").exists():
         return ["npm", "start"], WEB_PORTS
     for name in ("main.py", "app.py"):
         if (proj / name).exists():
-            return [sys.executable, str(proj / name)], PY_PORTS
+            return [sys.executable, str(proj / name)], None
     # #33: single-file CLIs the bash-era detection never saw — a root-level
     # script (wordcount.py) or the planner's favorite scaffold layout
     # (<dir>/<dir>.py with a __main__ guard, macpomodoro/macpomodoro.py).
@@ -857,16 +869,16 @@ def _detect_runnable(proj: Path):
     for d in sorted(p for p in proj.iterdir() if p.is_dir() and p.name != "tests"):
         script = d / f"{d.name}.py"
         if script.exists() and _is_entry_point(script.read_text(errors="replace")):
-            return [sys.executable, str(script)], PY_PORTS
+            return [sys.executable, str(script)], None
     for f in sorted(proj.glob("*.py")):
         if f.name not in ("main.py", "app.py") and \
                 _is_entry_point(f.read_text(errors="replace")):
-            return [sys.executable, str(f)], PY_PORTS
+            return [sys.executable, str(f)], None
     # #4: a package with __main__.py runs as `python -m <pkg>` — the layout
     # this pipeline itself generates for modern Python projects.
     for d in sorted(p for p in proj.iterdir() if p.is_dir()):
         if (d / "__main__.py").exists():
-            return [sys.executable, "-m", d.name], PY_PORTS
+            return [sys.executable, "-m", d.name], None
     if (proj / "index.html").exists():
         return [sys.executable, "-m", "http.server", "{PORT}"], None
     return None, None
@@ -943,17 +955,10 @@ def runtime_smoke(proj: Path) -> tuple[str, str]:
 
 def verify(proj: Path) -> str:
     """Run the verify checks; persist the verdict for --resume (#6)."""
-    verdict = _verify(proj)
-    (proj / "verify_verdict.txt").write_text(verdict + "\n")
-    return verdict
-
-
-def _verify(proj: Path) -> str:
     source = gather(proj)
     out = run_pi("worker", VERIFY_PROMPT.format(source=source),
                  "Verify this project runs locally",
-                 skills=(SKILLS / "test-driven-development",
-                         SKILLS / "debugging-and-error-recovery"),
+                 skills=VERIFY_SKILLS,
                  artifact=proj / "verify_output.txt", cwd=proj, tools="no")
     try:
         status, detail = runtime_smoke(proj)
@@ -971,12 +976,16 @@ def _verify(proj: Path) -> str:
         warn(f"Verify output is degenerate ({reason}) — using the mechanical fallback only")
     if has_marker:
         # Primary signal: the protocol marker (and smoke must not have failed).
-        return "VERIFY_PASSED" if (
+        verdict = "VERIFY_PASSED" if (
             text.VERIFY_PASSED.search(out) and status != "FAILED") else "VERIFY_FAILED"
-    # Model drifted (no marker, or degenerate — tool-speak in the live run):
-    # decide from the regression suite if there is one, else fail.
-    log("No usable VERIFY signal — falling back to the regression suite")
-    if not (proj / "tests").is_dir():
-        return "VERIFY_FAILED"
-    return "VERIFY_PASSED" if (run_regression(proj, 0) == "passed"
-                               and status != "FAILED") else "VERIFY_FAILED"
+    else:
+        # Model drifted (no marker, or degenerate — tool-speak in the live run):
+        # decide from the regression suite if there is one, else fail.
+        log("No usable VERIFY signal — falling back to the regression suite")
+        if not (proj / "tests").is_dir():
+            verdict = "VERIFY_FAILED"
+        else:
+            verdict = "VERIFY_PASSED" if (run_regression(proj, 0) == "passed"
+                                          and status != "FAILED") else "VERIFY_FAILED"
+    (proj / "verify_verdict.txt").write_text(verdict + "\n")
+    return verdict
