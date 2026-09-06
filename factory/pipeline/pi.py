@@ -118,13 +118,24 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
     env = _child_env()
     if interactive:
         # Phase 0 conversation: stream to the human while recording (tee).
+        # #35: the interactive path gets the same #10 timeout — a hung
+        # pi/Ollama call must not freeze phase 0 forever. The human can
+        # still leave naturally (EOF ends the stream; wait returns fast).
         chunks: list[str] = []
         with subprocess.Popen(args, stdout=subprocess.PIPE, text=True,
                               cwd=where, env=env) as p:
             for line in p.stdout:
                 print(line, end="")
                 chunks.append(line)
-            p.wait()
+            try:
+                p.wait(timeout=PI_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                err(f"interactive pi call timed out after {PI_TIMEOUT}s "
+                    f"— treating as no answer")
+                text_out = "".join(chunks)
+                _maybe_write(artifact, text_out)
+                return text_out
         text_out = "".join(chunks)
         _maybe_write(artifact, text_out)
         return text_out
