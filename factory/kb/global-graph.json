@@ -209,6 +209,90 @@
       "summary": "\"Checking output format: The output of the function Needs to be displayed in a specific format.\"",
       "detail": "Emphasize the importance of checking the format of the output.",
       "created_at": "2026-09-05T17:47:08Z"
+    },
+    {
+      "id": "n1788672020_954872",
+      "type": "decision",
+      "summary": "Skill improvement: **issue-executor** (issue #4)",
+      "detail": "Add guidance on how to handle command-line arguments and ensure the display function correctly updates and handles different phases.",
+      "created_at": "2026-09-06T05:20:20Z"
+    },
+    {
+      "id": "n1788672020_377470",
+      "type": "learning",
+      "summary": "Running commands with arguments",
+      "detail": "It's crucial to provide the correct arguments when running a program to ensure it functions as expected.",
+      "created_at": "2026-09-06T05:20:20Z"
+    },
+    {
+      "id": "n1788672020_294997",
+      "type": "learning",
+      "summary": "Display Function Issues",
+      "detail": "The display function should update the remaining time and correctly handle different phases.",
+      "created_at": "2026-09-06T05:20:20Z"
+    },
+    {
+      "id": "n1788672519_130254",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #5)",
+      "detail": "Add detailed documentation on integrating countdown loops with the main function",
+      "created_at": "2026-09-06T05:28:39Z"
+    },
+    {
+      "id": "n1788672519_652116",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #5)",
+      "detail": "Include a checklist for verifying all acceptance criteria are met",
+      "created_at": "2026-09-06T05:28:39Z"
+    },
+    {
+      "id": "n1788672519_457538",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #5)",
+      "detail": "Document the use of breakpoints during development",
+      "created_at": "2026-09-06T05:28:39Z"
+    },
+    {
+      "id": "n1788672519_981002",
+      "type": "learning",
+      "summary": "Phase Transition Implementation",
+      "detail": "Provide an example of how to implement phase transitions in a countdown loop",
+      "created_at": "2026-09-06T05:28:39Z"
+    },
+    {
+      "id": "n1788672519_77184",
+      "type": "learning",
+      "summary": "Command-Line Argument Handling",
+      "detail": "Provide guidance on best practices for handling command-line arguments in Rust applications",
+      "created_at": "2026-09-06T05:28:39Z"
+    },
+    {
+      "id": "n1788674431_853183",
+      "type": "learning",
+      "summary": "Debugging specific sections of code",
+      "detail": "Added a step-by-step debugging approach in the factory's knowledge bank to improve issue resolution.",
+      "created_at": "2026-09-06T06:00:31Z"
+    },
+    {
+      "id": "n1788674431_601401",
+      "type": "learning",
+      "summary": "Testing each phase separately",
+      "detail": "Implemented a section in the factory's knowledge bank on how to test individual phases of a project isolated from others.",
+      "created_at": "2026-09-06T06:00:31Z"
+    },
+    {
+      "id": "n1788674431_194380",
+      "type": "decision",
+      "summary": "Skill improvement: factory-learner (project level)",
+      "detail": "Restructured the factory's knowledge bank to cover proper phase transitions, integration with the main function, round management, bell character usage, and command-line argument handling.",
+      "created_at": "2026-09-06T06:00:31Z"
+    },
+    {
+      "id": "n1788674431_813129",
+      "type": "decision",
+      "summary": "New skill proposed: Rust Countdown Timer Implementation (project level)",
+      "detail": "Created a new skill to guide the factory in implementing countdown timers in Rust with specific features like phase transitions and bell notifications.",
+      "created_at": "2026-09-06T06:00:31Z"
     }
   ],
   "edges": []
