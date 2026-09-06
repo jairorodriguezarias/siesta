@@ -41,8 +41,8 @@ You:  Come back. Working code. Git history. KB of decisions. 🎉
 
 | Model | Roles | When |
 |-------|-------|------|
-| **GLM 5.2** (via `pi`, Ollama Cloud) | Planner, consultant, human-proxy — the roles that must hold the text protocol | Phases 0–2, consultations, proxy decisions |
-| **Gemma4 8B** (100% local, Ollama) | Worker — the one that writes code, reviews, verifies and learns | Phases 3–5 and 7 |
+| **GLM 5.2** (via `pi`, Ollama Cloud) | Planner, consultant, human-proxy, learner — the roles that must hold the text protocol | Phases 0–2, consultations, proxy decisions, per-issue + project learning |
+| **Gemma4 8B** (100% local, Ollama) | Worker — the one that writes code, reviews and verifies | Phases 3–5 |
 
 The split is deliberate: the protocol phases need a model that answers with markers
 (`INTENT_FINALIZED:`, `VERIFY_PASSED:`…) instead of tool-call JSON — live runs showed
@@ -128,7 +128,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 
 ### Self-Improvement Loop
 
-After **every issue**, the worker analyzes what happened and learns:
+After **every issue**, the learner (GLM 5.2 via the consultant role, #46) analyzes what happened and learns:
 
 ```
 Issue executed

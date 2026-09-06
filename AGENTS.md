@@ -35,7 +35,7 @@ Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) play
 │                             ▼                               │
 │                    ┌──────────────┐                         │
 │                    │  Learner     │                         │
-│                    │  (Gemma 4)   │                         │
+│                    │  (GLM 5.2)   │                         │
 │                    │              │                         │
 │                    │ • Per-issue  │                         │
 │                    │   learning   │                         │
@@ -151,9 +151,11 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 
 ---
 
-### 5. Learner — Gemma4
+### 5. Learner — GLM 5.2 (via consultant role)
 
 **When:** After every issue (Phase 3 hook), and at project end (Phase 7)
+
+The learner runs through the consultant role on GLM 5.2 (#46): the strict `LEARNING` / `SKILL_UPDATE` output format is the most rigid text protocol in the pipeline, and the local gemma4 worker kept emitting unparseable verbose blocks.
 
 **Responsibilities:**
 

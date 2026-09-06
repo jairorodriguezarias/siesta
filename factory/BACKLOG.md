@@ -289,20 +289,33 @@ Result: 12 issues, **11 skipped** by the regression gate, app delivered as a
   ✅ fixed with the #44 batch; no test repro needed (flaky-by-nature, prune
   is structural).
 
-Round-6 observations (not fixed — candidate ideas, see run artifacts):
+Round-6 observations (all three fixed in the same round):
 
-- [ ] **#45 The interview model never converges.** The interview asked one
+- [x] **#45 The interview model never converges.** The interview asked one
   question, the human left (by design), GLM got no answer — and the pipeline
   fell back to the raw idea (`INTENT_FINALIZED` never emitted; #12 warned).
-  Idea: feed the model the "human is leaving" fact in-band, or run phase 0
-  with a short auto-answer loop when stdin is not a TTY.
-- [ ] **#46 Learner still routes to `worker`** (gemma4 local) — see #37; this
+  ✅ fixed: phase 0 now runs ONE autonomous close-out call when the interview
+  ends without `INTENT_FINALIZED` — the planner finalizes the intent with
+  explicit defaults instead of collapsing to the raw one-liner. Raw idea
+  stays the loud fallback only if the close-out also fails. Unit-tested
+  (test_phases.AbandonedInterview).
+- [x] **#46 Learner still routes to `worker`** (gemma4 local) — see #37; this
   run's learner produced verbose unparseable blocks again (rejected skill
   updates, "process_improvement" learning with no detail).
-- [ ] **#47 Issue #1's plan baked in the trap**: "pytest collects zero tests
+  ✅ fixed: `learn_issue()` / `learn_project()` now call the `consultant`
+  role (GLM) — the strictest output format in the pipeline belongs to the
+  model that holds the text protocol. models.json skill lists updated,
+  integration call-count assertions adjusted (worker calls drop by the
+  learning hooks, consultant calls gain them).
+- [x] **#47 Issue #1's plan baked in the trap**: "pytest collects zero tests
   without error" as acceptance criteria conflicts with the TDD skill's "tests
   first" — the planner needs a prompt nudge that scaffold issues must ship at
-  least one smoke test (or the regression gate must special-case issue #1).
+  least one smoke test.
+  ✅ fixed: PLAN_PROMPT now states the plan runs under TDD with a regression
+  gate — every issue must leave the suite non-empty and green; a scaffold
+  issue includes at least one smoke test, NEVER an empty test file. Unit-
+  tested (test_phases: prompt forbids zero-test scaffolds). Belt-and-braces
+  with #44: even if the planner disobeys, the gate no longer arms on empty.
 
 ## Round-4 findings (2026-09-04 — external toolchain regressions, e2e relaunch pending)
 
