@@ -139,6 +139,72 @@ class RegressionTriState(unittest.TestCase):
             "tests/test_ok.py": "def test_ok():\n    assert True\n",
         }), "passed")
 
+    def test_zero_collected_suite_is_skipped_not_failed(self):
+        # #44: pytest exits 5 on "no tests ran" — a scaffold issue's empty
+        # test stub must not arm the regression gate (pomodoro run, 2026-09-06)
+        self.assertEqual(self.regression({
+            "pyproject.toml": "[project]\nname = 'stub'\n",
+            "tests/test_empty.py": "",
+        }), "skipped")
+
+
+class SingleFileCLIDetection(unittest.TestCase):
+    """#33: the planner's scaffold layouts must be runnable for the smoke."""
+
+    def runnable(self, files: dict):
+        with TemporaryDirectory() as d:
+            for name, content in files.items():
+                p = Path(d, name)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content)
+            return phases._detect_runnable(Path(d))
+
+    def test_dir_dot_py_with_real_guard_is_runnable(self):
+        # the pomodoro layout: macpomodoro/macpomodoro.py with real work
+        files = {"macpomodoro/macpomodoro.py":
+                 "def main():\n    print('tick')\n\n"
+                 "if __name__ == \"__main__\":\n    main()\n"}
+        cmd, _ = self.runnable(files)
+        self.assertIsNotNone(cmd)
+        self.assertIn("macpomodoro/macpomodoro.py", cmd[1])
+
+    def test_dir_dot_py_stub_guard_is_not_runnable(self):
+        # issue-#1 scaffold: guard with a bare pass → not a runnable app
+        files = {"macpomodoro/macpomodoro.py":
+                 "if __name__ == \"__main__\":\n"
+                 "    # Application entry point will go here in subsequent issues.\n"
+                 "    pass\n"}
+        cmd, _ = self.runnable(files)
+        self.assertIsNone(cmd)
+
+    def test_root_level_cli_script_is_runnable(self):
+        # the wordcount layout: a root-level wordcount.py with a real guard
+        files = {"wordcount.py":
+                 "if __name__ == \"__main__\":\n    print('counting')\n"}
+        cmd, _ = self.runnable(files)
+        self.assertIsNotNone(cmd)
+        self.assertIn("wordcount.py", cmd[1])
+
+    def test_ellipsis_stub_is_not_runnable(self):
+        files = {"tool.py": "if __name__ == \"__main__\":\n    ...\n"}
+        self.assertIsNone(self.runnable(files)[0])
+
+    def test_stub_guard_with_later_functions_is_not_runnable(self):
+        # the guard body ends at the first dedented line — a `pass` stub
+        # with functions defined below is still a scaffold, not an app
+        files = {"macpomodoro/macpomodoro.py":
+                 "if __name__ == \"__main__\":\n    pass\n\n"
+                 "def later():\n    print('not part of the guard')\n"}
+        self.assertIsNone(self.runnable(files)[0])
+
+    def test_guard_with_real_work_and_later_functions_is_runnable(self):
+        files = {"macpomodoro/macpomodoro.py":
+                 "def main():\n    print('tick')\n\n"
+                 "if __name__ == \"__main__\":\n    main()\n\n"
+                 "def helper():\n    pass\n"}
+        cmd, _ = self.runnable(files)
+        self.assertIsNotNone(cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

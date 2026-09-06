@@ -7,6 +7,7 @@ issue count. See also pipeline/text.py for the parser side.
 """
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -31,12 +32,16 @@ SOURCE_EXTS = {"html", "css", "js", "ts", "py", "go", "rs", "json", "md",
 # ─── Context gathering ───────────────────────────────────────────────────
 
 def _project_files(proj: Path):
-    for f in sorted(proj.rglob("*")):
-        parts = set(f.relative_to(proj).parts)
-        if ".git" in parts or "kb" in parts or f.name in (
-                ".DS_Store", ".pipeline-checkpoint"):
-            continue
-        if f.is_file():
+    # os.walk (topdown, with pruned dirs) instead of rglob: git's auto-gc
+    # can delete .git/objects/* while a walk is inside them — rglob then
+    # raises FileNotFoundError mid-iteration (live flake in test runs).
+    pruned = {".git", "kb", ".pytest_cache", "__pycache__"}
+    for root, dirs, files in os.walk(proj):
+        dirs[:] = [d for d in dirs if d not in pruned]
+        for name in sorted(files):
+            f = Path(root) / name
+            if f.name in (".DS_Store", ".pipeline-checkpoint"):
+                continue
             yield f
 
 
@@ -318,19 +323,38 @@ RUNNERS = [("package.json", ["npm", "test"]),
            ("go.mod", ["go", "test", "./..."])]
 
 
+# pytest exits 5 when the suite exists but collects zero tests (exit 4 is
+# usage error) — a scaffold issue legitimately ships empty test stubs, and
+# the pomodoro run (#44) had every later issue skipped for that alone.
+PYTEST_NO_TESTS = 5
+
+
+def _regression_command(proj: Path):
+    """(command, is_pytest) for the first matching runner, else None."""
+    for manifest, cmd in RUNNERS:
+        if (proj / manifest).exists():
+            return cmd, "pytest" in cmd
+    return None
+
+
 def run_regression(proj: Path, n: int) -> str:
     """'passed' | 'failed' | 'skipped'. Skipped (no tests, no runner) is a
     distinct state — #13: absence of tests must not read as 'green'."""
     if not (proj / "tests").is_dir():
         return "skipped"
-    runner = next(((m, c) for m, c in RUNNERS if (proj / m).exists()), None)
+    runner = _regression_command(proj)
     if runner is None:
         log("No known test runner found, skipping regression")
         return "skipped"
-    cmd = runner[1]
+    cmd, is_pytest = runner
     log("Running regression suite (all previous tests)...")
     proc = subprocess.run(cmd, cwd=proj, capture_output=True, text=True)
     (proj / f"regression_{n}.log").write_text(proc.stdout + proc.stderr)
+    if proc.returncode == PYTEST_NO_TESTS and is_pytest:
+        # #44: "no tests collected" is absence, not breakage — a stub
+        # test file must not arm the regression gate.
+        log("Regression suite collected zero tests — nothing to guard")
+        return "skipped"
     if proc.returncode != 0:
         err(f"Regression suite FAILED before issue #{n}.")
         return "failed"
@@ -426,6 +450,42 @@ def _worker(proj: Path, skills, body, issue_text, artifact: Path | None = None):
                   thinking=WORKER_THINKING, cwd=proj, artifact=artifact)
 
 
+REPAIR_PROMPT = """You are a developer. The regression suite is RED.
+
+Issue #{n} was about to execute, but the previous issues left failing tests:
+
+Issue #{n} (NOT started yet, for context):
+{issue}
+
+Failing suite output:
+{suite}
+
+Existing source files in the project:
+{source}
+
+Fix the failing tests so the suite is green again. Run the tests and verify
+they pass. Do NOT implement issue #{n} — only repair the regression."""
+
+
+def _repair_regression(proj: Path, n: int, issue_text: str, source: str) -> bool:
+    """One worker-driven repair of a red suite. Returns True if green after."""
+    suite_log = proj / f"regression_{n}.log"
+    suite_out = suite_log.read_text(errors="replace") if suite_log.exists() else ""
+    log(f"Regression is red before issue #{n} — one repair attempt...")
+    fix = run_pi("worker",
+                 REPAIR_PROMPT.format(n=n, issue=text.head(issue_text, 40),
+                                      suite=text.head(suite_out, 80),
+                                      source=source),
+                 f"Repair the failing regression suite before issue #{n}",
+                 skills=(SKILLS / "debugging-and-error-recovery",
+                         SKILLS / "test-driven-development"),
+                 thinking=WORKER_THINKING, cwd=proj,
+                 artifact=proj / f"regression_repair_{n}.txt")
+    if text.degenerate(fix):
+        warn("Regression repair output degenerate — attempting re-run anyway")
+    return run_regression(proj, n) == "passed"
+
+
 def execute(proj: Path, kb: Graph) -> list[int]:
     """Run every issue; return the numbers that stayed blocked."""
     issues = dict(text.split_issues((proj / "issues.md").read_text()))
@@ -433,6 +493,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
     gkb = Graph(GLOBAL_KB)
     blocked, fails, history = [], {}, {}
     warned_no_tests = False
+    red_streak = 0  # consecutive red suites that stayed red after repair
     # #9: per-issue idempotency — a resume skips issues whose completion node
     # is already on disk (post_issue writes "Issue #N completed" decisions).
     # Blocked issues have no node, so they naturally get retried.
@@ -452,15 +513,40 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         if num > 1:
             status = run_regression(proj, num)
             if status == "failed":
-                # #15: the regression suite is a guard, not a witness —
-                # never build the next issue on a broken base.
-                kb.node("blocker", f"Regression failure before issue #{num}",
-                        f"Previous issue broke existing tests. "
-                        f"See regression_{num}.log")
-                warn(f"Regression failed before issue #{num}: skipping it.")
-                blocked.append(num)
-                continue
-            if status == "skipped" and not warned_no_tests:
+                # #44: a red suite gets the same treatment as a stuck worker
+                # — one resolution-guided repair attempt, not an instant skip.
+                # The pomodoro run skipped 11 issues on a stub-empty suite.
+                source_now = gather(proj)
+                if _repair_regression(proj, num, issue_text, source_now):
+                    ok("Regression repaired — continuing with the issue")
+                    red_streak = 0
+                else:
+                    red_streak += 1
+                    kb.node("blocker", f"Regression failure before issue #{num}",
+                            f"Previous issues left failing tests and the "
+                            f"repair attempt did not fix them. "
+                            f"See regression_{num}.log and "
+                            f"regression_repair_{num}.txt")
+                    if red_streak >= 2:
+                        # The base is broken and one guided repair could not
+                        # fix it — more issue attempts on a red base produce
+                        # only more red bases (pomodoro run, 2026-09-06).
+                        err(f"Regression stayed red after repair (streak "
+                            f"{red_streak}) — halting phase 3. Manual "
+                            f"intervention needed.")
+                        kb.node("blocker", "Phase 3 halted: unrepairable suite",
+                                "Two consecutive red suites survived their "
+                                "repair attempt. Continuing would build "
+                                "every remaining issue on a broken base.")
+                        _commit(proj, f"🚧 Phase 3 halted: unrepairable suite")
+                        raise SystemExit(1)
+                    warn(f"Regression stayed red before issue #{num}: "
+                         f"skipping it.")
+                    blocked.append(num)
+                    continue
+            elif status == "passed":
+                red_streak = 0
+            elif status == "skipped" and not warned_no_tests:
                 warned_no_tests = True
                 warn("No test suite in project — nothing guards previous issues.")
 
@@ -685,6 +771,19 @@ def _detect_runnable(proj: Path):
     for name in ("main.py", "app.py"):
         if (proj / name).exists():
             return [sys.executable, str(proj / name)], PY_PORTS
+    # #33: single-file CLIs the bash-era detection never saw — a root-level
+    # script (wordcount.py) or the planner's favorite scaffold layout
+    # (<dir>/<dir>.py with a __main__ guard, macpomodoro/macpomodoro.py).
+    # Only scripts that RUN something count: the guard must be non-trivial
+    # (not a bare `pass`/`...` stub from a scaffold-only issue).
+    for d in sorted(p for p in proj.iterdir() if p.is_dir() and p.name != "tests"):
+        script = d / f"{d.name}.py"
+        if script.exists() and _is_entry_point(script.read_text(errors="replace")):
+            return [sys.executable, str(script)], PY_PORTS
+    for f in sorted(proj.glob("*.py")):
+        if f.name not in ("main.py", "app.py") and \
+                _is_entry_point(f.read_text(errors="replace")):
+            return [sys.executable, str(f)], PY_PORTS
     # #4: a package with __main__.py runs as `python -m <pkg>` — the layout
     # this pipeline itself generates for modern Python projects.
     for d in sorted(p for p in proj.iterdir() if p.is_dir()):
@@ -693,6 +792,28 @@ def _detect_runnable(proj: Path):
     if (proj / "index.html").exists():
         return [sys.executable, "-m", "http.server", "{PORT}"], None
     return None, None
+
+
+def _is_entry_point(source: str) -> bool:
+    """True for a real entry point: a __main__ guard whose body does work.
+
+    The body ends at the first dedented line — a `pass`-only guard with
+    functions defined later in the file is still a scaffold stub.
+    """
+    lines = source.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r'^if __name__\s*==\s*["\']__main__["\']\s*:\s*$', line):
+            body = []
+            for l in lines[i + 1:]:
+                if not l.strip():
+                    continue
+                if len(l) - len(l.lstrip()) == 0:
+                    break  # dedented: the guard block ended
+                if not l.lstrip().startswith("#"):
+                    body.append(l.strip())
+            real = "".join(body)
+            return bool(real) and real not in ("pass", "...")
+    return False
 
 
 def runtime_smoke(proj: Path) -> tuple[str, str]:

@@ -36,7 +36,10 @@ case "$model" in
           *) printf '# Spec\n\nA tiny todo CLI in Python.\nStores tasks in memory, runs offline.\n' ;;
         esac ;;
       *"planning-and-task-breakdown"*)
-        printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n' ;;
+        case "$FAKE_PI_SCENARIO" in
+          repair_fails_forever_3) printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n\n## Issue #3: Add more\nWrite more.\n' ;;
+          *) printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n' ;;
+        esac ;;
       *) echo "INTENT_FINALIZED: a tiny todo cli" ;;
     esac ;;
   consultant-model)
@@ -104,6 +107,20 @@ Justification: the change requires it." ;;
               *) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
             esac ;;
           degenerate_always) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
+          repair_regression)
+            case "$*" in
+              *"egression suite is RED"*)
+                # a repair that works: rewrite the broken test to pass
+                echo "REPAIR_DONE: fixed the failing tests"
+                printf 'def test_broken():\n    assert True, "repaired"\n' \
+                  > tests/test_broken.py ;;
+              *) echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
+            esac ;;
+          repair_fails_forever|repair_fails_forever_3)
+            case "$*" in
+              *"egression suite is RED"*) echo "REPAIR_DONE: tried to fix the tests but they stay broken" ;;
+              *) echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
+            esac ;;
           *) echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
         esac ;;
     esac ;;
@@ -350,6 +367,72 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("1 blocked", result.stdout)
         self.assertFalse((proj / "issue_2_output.txt").exists())
         self.assertNotIn("Issue #2 completed", self.decisions())
+
+    # ─── regression repair ladder (#44) ─────────────────────────────────
+
+    def test_red_suite_gets_one_worker_repair_then_continues(self):
+        # #44: a red suite is repaired by the worker when it can be —
+        # the repair pass runs BEFORE the issue, and the issue still executes
+        self.siesta_hybrid_repair_project()
+        result = self.siesta("--auto", self.idea, scenario="repair_regression")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        proj = self.proj()
+        self.assertTrue((proj / "regression_repair_2.txt").exists())
+        self.assertIn("Regression repaired", result.stderr)
+        # the gated issue still executed (not skipped)
+        self.assertIn("Issue #2 completed", self.decisions())
+        self.assertIn("0 blocked", result.stdout)
+        self.assertEqual(self.types(self.kb(), "blocker"), [])
+        # repair call carried the debugging skill and the red suite output
+        repair_calls = [l for l in (self.tmp / "pi_calls.log").read_text()
+                        .splitlines() if "egression suite is RED" in l]
+        self.assertEqual(len(repair_calls), 1)
+
+    def test_unrepairable_suite_skips_issue_with_honest_blocker(self):
+        # the repair worker cannot fix the suite (stub never writes files)
+        self.siesta_hybrid_repair_project()
+        result = self.siesta("--auto", self.idea, scenario="repair_fails_forever")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        proj = self.proj()
+        self.assertTrue((proj / "regression_repair_2.txt").exists())
+        blockers = self.types(self.kb(), "blocker")
+        self.assertIn("Regression failure before issue #2", blockers)
+        # honest blocker: names the repair artifacts, not just the log
+        blocker = next(b for b in self.kb()["nodes"]
+                       if b["summary"] == "Regression failure before issue #2")
+        self.assertIn("repair attempt", blocker["detail"])
+        self.assertIn("1 blocked", result.stdout)
+        self.assertNotIn("Issue #2 completed", self.decisions())
+
+    def test_two_unrepairable_suites_halt_phase3(self):
+        # circuit breaker: two consecutive unrepairable red suites stop the
+        # pipeline honestly instead of skipping every remaining issue
+        self.siesta_hybrid_repair_project()
+        result = self.siesta("--auto", self.idea,
+                             scenario="repair_fails_forever_3")
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assertIn("halting phase 3", result.stderr)
+        blockers = self.types(self.kb(), "blocker")
+        self.assertIn("Phase 3 halted: unrepairable suite", blockers)
+        # global KB also learns the failure (the failure trap)
+        self.assertEqual(len(self.global_learnings(
+            f"Pipeline failure: {self.name}")), 1)
+
+    def siesta_hybrid_repair_project(self):
+        """Project with a red pytest suite the stub cannot repair.
+
+        The fake pi never writes files, so the repair attempt cannot turn
+        the suite green — exactly the unrepairable case the breaker guards.
+        For the repair-success case the suite is fixed between the gate and
+        the re-run via FAKE_PI_SCENARIO=repair_regression writing the fix.
+        """
+        proj = self.proj()
+        proj.mkdir(parents=True)
+        (proj / "pyproject.toml").write_text("[project]\nname = 'stub'\n")
+        tests = proj / "tests"
+        tests.mkdir()
+        (tests / "test_broken.py").write_text(
+            "def test_broken():\n    assert False, 'previous issue broke me'\n")
 
     # ─── explicit-approval gates (#3) ─────────────────────────────────────
 
