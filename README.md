@@ -118,7 +118,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | Honest verify verdict | `verify()` persists its verdict to `verify_verdict.txt`; resume reads it (never invents a pass), and a failed verify produces a blocker node + an `UNVERIFIED` commit instead of "Project verified" |
 | Idempotent resume | Issues with an "Issue #N completed" KB decision node are skipped on `--resume`; blocked issues have no node and naturally retry |
 | Spec relevance guard | A spec sharing zero content words with the interview intent is rejected as a template hallucination — one retry with feedback, then abort |
-| Fence-aware spec parsing | A language-tagged code fence in a spec answer means the model dumped code — rejected; bare fenced prose blocks are kept as illustration |
+| Fence-aware spec parsing | Language-tagged fence regions are cut before parsing — a spec with a small code example parses, but fenced lines never reach spec.md (a fenced `###` can't pose as a section; an answer fenced whole as code is a dump); bare fenced prose blocks are kept as illustration |
 | Planner retries | A spec/plan answer that is unusable (generic template, no `## Issue #N:` headers) gets one directive retry demanding the exact format before the honest fallbacks |
 | Generated hygiene | Project init writes a standard `.gitignore` (`.DS_Store`, `__pycache__/`, checkpoints) before the first `git add -A` |
 | Thinking escalation | Two consultant-guided retries before escalation on a failing issue |

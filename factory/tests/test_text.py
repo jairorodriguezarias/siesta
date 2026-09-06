@@ -305,14 +305,46 @@ class DocExtraction(unittest.TestCase):
         self.assertIsNone(text.issues_doc("# Spec but no issues here"))
         self.assertIsNone(text.issues_doc(""))
 
-    def test_spec_doc_rejects_document_containing_code_fences(self):
-        # Live run #4: GLM answered the idea with the whole program as text;
-        # the "### How to use it:" heading inside the ```python fence defeated
-        # the heading check and the code dump was saved as spec.md.
+    def test_spec_doc_strips_smuggled_code_fences(self):
+        # Live run #4: GLM answered the idea with a whole program as text.
+        # The fenced code must never reach spec.md — but (#36) the answer
+        # no longer dies whole: only the tagged fence regions are cut.
         dump = ("Here is a tiny CLI. Save this in caesar.py.\n\n"
                 "```python\nimport argparse\n\ndef main():\n    print('hi')\n```\n\n"
                 "### How to use it:\n\n```bash\npython caesar.py\n```")
+        doc = text.spec_doc(dump)
+        self.assertIsNotNone(doc)
+        self.assertNotIn("import argparse", doc)
+        self.assertNotIn("print('hi')", doc)
+        self.assertNotIn("python caesar.py", doc)
+        self.assertIn("How to use it", doc)
+
+    def test_spec_doc_rejects_answer_fenced_whole_as_code(self):
+        # run-4's raw form: the entire answer is one ```python program whose
+        # body contains a '###' heading — the program must not be unwrapped
+        # into spec.md, and the fenced heading must not count as a heading.
+        dump = "```python\nimport argparse\n\n### How to use it:\nprint('hi')\n```"
         self.assertIsNone(text.spec_doc(dump))
+
+    def test_spec_doc_fenced_heading_never_counts_as_a_heading(self):
+        # Without a heading outside the fence the answer is not a spec doc —
+        # a '###' inside a tagged fence must not satisfy the heading check.
+        dump = "Here is a tiny CLI.\n\n```python\n### Not a section\nprint('hi')\n```"
+        self.assertIsNone(text.spec_doc(dump))
+
+    def test_spec_doc_keeps_spec_with_small_tagged_example(self):
+        # #36: a legit spec showing one code example must parse; the example
+        # code is cut from the saved doc, the spec structure survives.
+        spec = ("# Spec: wordcount\n\n## Usage\nRun it from the terminal.\n\n"
+                "```python\nfrom wordcount import count\n### internal note\n"
+                "count('a b a')\n```\n\n"
+                "## Acceptance Criteria\n- prints:\n  ```\n  the: 3\n  ```")
+        doc = text.spec_doc(spec)
+        self.assertIsNotNone(doc)
+        self.assertIn("## Usage", doc)
+        self.assertIn("the: 3", doc)
+        self.assertNotIn("count('a b a')", doc)
+        self.assertNotIn("internal note", doc)
 
     def test_spec_doc_keeps_bare_fenced_prose_blocks(self):
         # Live run-4 (2026-09-04): valid GLM specs fence the Structure tree and
@@ -324,10 +356,13 @@ class DocExtraction(unittest.TestCase):
         self.assertIn("wordcount.py", doc)
         self.assertIn("the: 3", doc)
 
-    def test_spec_doc_still_rejects_indented_tagged_fences(self):
-        dump = ("# Spec\n\n## Acceptance Criteria\n- prints:\n  ```python\n"
+    def test_spec_doc_strips_indented_tagged_fences(self):
+        spec = ("# Spec\n\n## Acceptance Criteria\n- prints:\n  ```python\n"
                 "  print('hi')\n  ```")
-        self.assertIsNone(text.spec_doc(dump))
+        doc = text.spec_doc(spec)
+        self.assertIsNotNone(doc)
+        self.assertIn("# Spec", doc)
+        self.assertNotIn("print('hi')", doc)
 
 
 if __name__ == "__main__":

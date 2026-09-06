@@ -187,8 +187,8 @@ model as protocol-compliant, which is why these survived it.
 - [ ] Marker parsers (`REVIEW_*`, `VERIFY_*`, `CONSULT`, `PROXY`) accept markers
   inside fenced code blocks the model quotes as examples (false positives) —
   fence content sits at column 0 so the `^` anchor doesn't help. `spec_doc()`
-  already solves this for spec/plan by rejecting live fences; reuse that
-  approach (ignore code-fence regions before matching).
+  already solves this for spec/plan by cutting code-fence regions (#36);
+  reuse that approach (ignore code-fence regions before matching).
 
 ## Round-5 findings (2026-09-05 — full code walkthrough, fixes same day)
 
@@ -226,10 +226,19 @@ Remaining round-5 walkthrough findings (not yet fixed, candidates for round-6):
   nodes.
 - [ ] **#35 The interactive interview has no timeout** — the #10 fix only
   covers the non-interactive path (`Popen` + `p.wait()` without a limit).
-- [ ] **#36 `_strip_indented_fences` rejects any spec containing one tagged
+- [x] **#36 `_strip_indented_fences` rejects any spec containing one tagged
   fence** (```python etc.) — trades the run-4 false negatives for false
   positives: a legit spec showing one CLI example dies whole. Consider a
   fenced-lines ratio, or stripping instead of rejecting.
+  ✅ fixed: `spec_doc()` now CUTS language-tagged fence regions (marker +
+  content) before the heading check instead of rejecting the whole spec —
+  a spec with a small ```python example parses, but fenced lines never
+  reach spec.md, so a fenced '###' can no longer pose as a spec heading
+  (run-4's smuggle dies at the fence, and an answer fenced whole as code
+  is still rejected as a dump). Bare ``` fences and ```markdown-style
+  wrappers stay content/illustration. Plan parsing (`issues_doc`) never
+  shared the reject logic, so no false positives there. Unit tests in
+  test_text (DocExtraction) updated: 139 tests green.
 - [x] **#37 The learner runs as `worker` (qwen local, thinking off)** — the
   weakest model owns the strictest output format. Route learning calls to
   `consultant` (GLM) if #8-style parse problems return.

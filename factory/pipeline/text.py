@@ -150,6 +150,12 @@ def shares_content(a: str, b: str) -> bool:
 # document or add a prologue — both are stripped here.
 
 HEADING = re.compile(r"^#{1,6}[ \t]+\S", re.M)
+BARE_FENCE = re.compile(r"^[ \t]*```[ \t]*$")
+TAGGED_FENCE = re.compile(r"^[ \t]*```(\w[\w+-]*)[ \t]*$")
+# Fence tags that mean "the fenced region is a document, not code": kept as
+# content (an enclosing ```markdown wrapper is narration, handled by
+# unwrap_fences). Any other tag means a code example — cut before parsing.
+DOC_FENCE_TAGS = {"markdown", "md", "text"}
 
 
 def unwrap_fences(out: str) -> str:
@@ -162,31 +168,44 @@ def unwrap_fences(out: str) -> str:
     return s
 
 
-def _strip_indented_fences(doc: str) -> str:
-    """Remove fenced blocks of any indentation, keeping inner lines.
+def _fence_tag(line: str) -> str | None:
+    """Language tag of a tagged fence line, lowercased; None if not one."""
+    m = TAGGED_FENCE.match(line)
+    return m.group(1).lower() if m else None
 
-    run-4 (2026-09-04): GLM specs legitimately fence small blocks — a
-    Structure tree, expected CLI output under Acceptance Criteria. Blanket
-    "any fence = code dump" rejected two format-valid specs and killed the
-    run. What we actually must keep out is fence content that *looks like
-    code* (run #4's smuggled ```python program). Real code fences carry a
-    language tag on the opening fence; prose examples are bare ```.
+
+def _strip_code_fences(doc: str) -> str:
+    """Cut language-tagged fence regions (marker + content); keep bare fences.
+
+    run-4 + #36: a fenced '###' must never pose as a spec heading (run #4
+    smuggled a whole program whose ```python body contained one), but a
+    legit spec with a small ```python example must still parse. Bare ```
+    fences and ```markdown-style wrappers are prose, not code — kept.
     """
-    FENCE = re.compile(r"^[ \t]*```(\w[\w+-]*)[ \t]*$", re.M)
-    if not FENCE.search(doc):
-        return re.sub(r"^[ \t]*```[ \t]*$", "", doc, flags=re.M)
-    return ""
+    lines, cutting = [], False
+    for line in doc.splitlines():
+        if cutting:
+            if BARE_FENCE.match(line):
+                cutting = False
+            continue
+        tag = _fence_tag(line)
+        if tag is not None and tag not in DOC_FENCE_TAGS:
+            cutting = True
+            continue
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def spec_doc(out: str) -> str | None:
     """Model output -> spec.md content; None if it is not a plain document.
 
-    A bare fence is prose illustration and is dropped; a language-tagged
-    fence (```python, ```bash …) means the model dumped code — reject
-    (run #4 smuggled a whole program whose ```python body contained a '###'
-    heading). After unwrapping the outer fence, of course.
+    Tagged code-fence regions are cut before the heading check (#36): a
+    spec with a small ```python example parses, but fenced lines never
+    reach the saved doc. An answer fenced whole as code is a dump — the
+    cut leaves nothing, so it is rejected. Bare fenced prose blocks and
+    ```markdown-style wrappers are kept as illustration.
     """
-    doc = _strip_indented_fences(unwrap_fences(out).strip())
+    doc = unwrap_fences(_strip_code_fences(out)).strip()
     if not doc:
         return None
     return doc if HEADING.search(doc) else None

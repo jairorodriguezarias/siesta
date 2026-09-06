@@ -247,10 +247,13 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   `verify_verdict.txt`; resume reads it instead of hardcoding
   `VERIFY_PASSED`, and phase 6 ties the decision node + commit message to
   the real verdict (failed verify → blocker node + `UNVERIFIED` commit).
-- **Fence-aware spec parsing** (`text.spec_doc()`): a language-tagged code
-  fence in a spec answer means the model dumped code — rejected (run #4
-  smuggled a whole program whose ```python body contained a `###` heading);
-  bare fenced prose blocks are kept as illustration.
+- **Fence-aware spec parsing** (`text.spec_doc()`): language-tagged fence
+  regions are CUT before the heading check — a spec with a small code
+  example parses, but fenced lines never reach spec.md (run #4's smuggled
+  ```python program with a `###` heading inside the fence can no longer
+  pose as a spec section; an answer fenced whole as code is a dump and
+  still rejected); bare fenced prose blocks and ```markdown-style wrappers
+  are kept as illustration.
 - **Generated hygiene**: project init writes a standard `.gitignore`
   (`.DS_Store`, `__pycache__/`, `*.pyc`, checkpoint, `verify_verdict.txt`)
   before the first `git add -A`.
