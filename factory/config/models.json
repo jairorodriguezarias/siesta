@@ -11,7 +11,7 @@
     ]
   },
   "worker": {
-    "model": "qwen2.5-coder:latest",
+    "model": "gemma4:latest",
     "provider": "ollama",
     "role": "Executes issues, writes code, runs tests. The coder.",
     "skills": [

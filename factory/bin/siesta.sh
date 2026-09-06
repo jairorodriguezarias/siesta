@@ -7,7 +7,7 @@
 #   2. Interviews you (human interactive)
 #   3. You leave. Go take a siesta. 💤
 #   4. The planner (GLM-5.2) generates spec + plan
-#   5. The worker (Qwen 2.5, local) executes issues autonomously
+#   5. The worker (Gemma4, local) executes issues autonomously
 #   6. If stuck → the consultant resolves → if 3 fails → deep diagnosis
 #   7. Reviews code, verifies it runs, git commits
 #   8. Learns from every issue to improve for next time
@@ -40,7 +40,7 @@ echo "║                                                            ║"
 echo "║  \"Give me an idea, go take a siesta, come back to code\"    ║"
 echo "║                                                            ║"
 echo "║  Models:   GLM-5.2 (planner/consultant) via pi             ║"
-echo "║  Worker:    Qwen 2.5 Coder — local (Ollama), writes code   ║"
+echo "║  Worker:    Gemma4 8B — local (Ollama), writes code       ║"
 echo "║  Guard:     Degenerate-output guard + regression gating     ║"
 echo "║  Fallback:    Deep diagnosis + skip (from Ralph)           ║"
 echo "║  Skills:      10 addyosmani + 5 factory custom            ║"

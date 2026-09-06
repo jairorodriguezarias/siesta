@@ -293,6 +293,13 @@
       "summary": "New skill proposed: Rust Countdown Timer Implementation (project level)",
       "detail": "Created a new skill to guide the factory in implementing countdown timers in Rust with specific features like phase transitions and bell notifications.",
       "created_at": "2026-09-06T06:00:31Z"
+    },
+    {
+      "id": "n1788675996_922808",
+      "type": "decision",
+      "summary": "Worker model switched qwen2.5-coder -> gemma4: Ollama tool-calling bug made the worker unable to execute tools",
+      "detail": "WHY: qwen2.5-coder:latest through Ollama returns tool calls as plain text content instead of native tool_calls (ollama/ollama#12174: the chat template demands <tool_call> wrappers but the model emits bare JSON; fix PR #14162 still unmerged in Ollama 0.33.3, reproduced locally via /v1/chat/completions). The worker implements issues through pi's read/write/edit/bash tools; with tool calls unparsed, every issue degenerated into tool-call JSON narration \u2014 3 issues blocked, 4 'executed' as chat essays, and the pomodoro-rust project was delivered UNVERIFIED with zero code written on disk.\nHOW: (1) factory/config/models.json worker.model -> gemma4:latest, verified end-to-end through pi (native tool_calls via Ollama; write tool executed, file created on disk). (2) Registered gemma4:latest in pi's user catalog (~/.pi/agent/models.json) with its true 131072-token context window, so pi stops using the custom-model-id fallback that cloned glm-5.2's metadata (1M context window \u2014 wrong for gemma4 and disables compaction logic). (3) Updated siesta.sh banner/comments and tests.\nWHY IMPORTANT: (1) Ollama's 'tools' capability flag is NOT proof that tool calling works end-to-end \u2014 any worker model MUST be verified to return native tool_calls through the real stack (Ollama -> pi) before a pipeline run; a one-minute curl test with a toy tool catches this. (2) pi's custom-model-id fallback silently clones another model's metadata \u2014 register every factory model in pi's catalog with its real context window. (3) Alternatives rejected: keeping qwen2.5-coder (cannot execute any tool, every run degenerates), waiting for PR #14162 (open since Feb, no ETA), pulling qwen3 (working per upstream reports but untested locally and a new download).",
+      "created_at": "2026-09-06T06:26:36Z"
     }
   ],
   "edges": []

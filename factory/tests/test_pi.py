@@ -7,11 +7,14 @@ from pipeline.pi import ROLE, build_args
 
 class ModelConfig(unittest.TestCase):
     def test_roles_loaded_from_models_json(self):
-        # Design routing: GLM-5.2 plans/consults (text protocol), local qwen codes.
+        # Design routing: GLM-5.2 plans/consults (text protocol), local gemma4
+        # codes. qwen2.5-coder was retired as worker: Ollama returns its tool
+        # calls as text content instead of native tool_calls (ollama#12174,
+        # fix PR #14162 unmerged), so the worker could not execute tools.
         # GLM obeying the last human message (runs #3/#4) is fixed by the
         # directive-last prompt shape in phases.py, not by the model choice.
         self.assertEqual(ROLE["planner"]["model"], "glm-5.2:cloud")
-        self.assertEqual(ROLE["worker"]["model"], "qwen2.5-coder:latest")
+        self.assertEqual(ROLE["worker"]["model"], "gemma4:latest")
         self.assertEqual(ROLE["consultant"]["model"], "glm-5.2:cloud")
         self.assertEqual(ROLE["consultant"]["provider"], "ollama")
 
@@ -48,7 +51,7 @@ class BuildArgs(unittest.TestCase):
         pi_bin, i = pi.PI_BIN, args
         self.assertEqual(i[0], pi_bin)
         self.assertEqual(i[1], "-p")                      # non-interactive
-        self.assertEqual(i[i.index("--model") + 1], "qwen2.5-coder:latest")
+        self.assertEqual(i[i.index("--model") + 1], "gemma4:latest")
         self.assertEqual(i[i.index("--provider") + 1], "ollama")
         self.assertEqual(i[i.index("--thinking") + 1], "off")
         self.assertEqual(i[i.index("--skill") + 1],
