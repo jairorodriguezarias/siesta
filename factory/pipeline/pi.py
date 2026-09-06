@@ -142,17 +142,27 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
     try:
         result = subprocess.run(args, capture_output=True, text=True, cwd=where,
                                 env=env, timeout=PI_TIMEOUT)
-        # Bash piped everything through 2>&1; models sometimes narrate on stderr.
-        text_out = (result.stdout or "") + (result.stderr or "")
+        # Hardening (round-7): stdout is the model's answer; stderr is
+        # provider noise (pi warnings polluted the pomodoro run's parsed
+        # artifacts — and could falsify markers). Parse stdout only; keep
+        # stderr as evidence below a PROVIDER_LOG: separator.
+        text_out = result.stdout or ""
+        stderr_out = (result.stderr or "").strip()
+        if stderr_out:
+            warn("pi stderr: " + " / ".join(stderr_out.splitlines()[:3]))
     except subprocess.TimeoutExpired:
         # #10: a timed-out call is "no answer" — the empty return flows into
         # the degenerate-output guards, which treat it as a failed attempt.
         err(f"pi call timed out after {PI_TIMEOUT}s — treating as no answer")
-        text_out = ""
-    _maybe_write(artifact, text_out)
+        text_out, stderr_out = "", ""
+    _maybe_write(artifact, text_out, stderr_out)
     return text_out
 
 
-def _maybe_write(artifact: Path | None, text_out: str) -> None:
-    if artifact is not None:
-        artifact.write_text(text_out)
+def _maybe_write(artifact: Path | None, text_out: str, stderr_out: str = "") -> None:
+    if artifact is None:
+        return
+    content = text_out
+    if stderr_out:
+        content += f"\nPROVIDER_LOG: {stderr_out}\n"
+    artifact.write_text(content)

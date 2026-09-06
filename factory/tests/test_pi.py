@@ -91,6 +91,46 @@ class InteractiveTimeout(unittest.TestCase):
         self.assertEqual(seen["timeout"], 0.2)
 
 
+class StderrSeparation(unittest.TestCase):
+    """Hardening: stderr is provider noise, not model answer — the pomodoro
+    run's verify_output.txt carried a pi warning inside the parsed text."""
+
+    def _result(self, stdout: str, stderr: str):
+        from types import SimpleNamespace
+        return SimpleNamespace(stdout=stdout, stderr=stderr, returncode=0)
+
+    def test_only_stdout_is_parsed(self):
+        import subprocess as sp
+        from unittest.mock import patch
+        with patch.object(sp, "run", return_value=self._result(
+                "VERIFY_PASSED: fine", "Warning: Model not found, using custom id")):
+            out = pi.run_pi("worker", "b", "u", thinking="off")
+        self.assertEqual(out, "VERIFY_PASSED: fine")
+
+    def test_stderr_marker_cannot_falsify_the_verdict(self):
+        import subprocess as sp
+        from unittest.mock import patch
+        with patch.object(sp, "run", return_value=self._result(
+                "I am not sure this runs.", "VERIFY_PASSED: noise from pi")):
+            out = pi.run_pi("worker", "b", "u", thinking="off")
+        self.assertEqual(out, "I am not sure this runs.")
+
+    def test_stderr_persisted_below_separator(self):
+        import subprocess as sp
+        from unittest.mock import patch
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            artifact = Path(d) / "out.txt"
+            with patch.object(sp, "run", return_value=self._result(
+                    "real answer", "provider chatter")):
+                pi.run_pi("worker", "b", "u", thinking="off", artifact=artifact)
+            saved = artifact.read_text()
+        self.assertTrue(saved.startswith("real answer"))
+        self.assertIn("PROVIDER_LOG:", saved)
+        self.assertIn("provider chatter", saved)
+
+
 class BuildArgs(unittest.TestCase):
     def test_non_interactively_flags_skills_and_prompt_shape(self):
         args = build_args(
