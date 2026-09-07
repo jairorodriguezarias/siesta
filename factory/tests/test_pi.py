@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from pipeline import pi
 from pipeline.pi import ROLE, build_args
@@ -129,6 +130,118 @@ class StderrSeparation(unittest.TestCase):
         self.assertTrue(saved.startswith("real answer"))
         self.assertIn("PROVIDER_LOG:", saved)
         self.assertIn("provider chatter", saved)
+
+
+class ServedContext(unittest.TestCase):
+    """Round-8: pi's catalog window vs Ollama's real served context —
+    a silent mismatch truncated long worker prompts (#3/#4 blocked)."""
+
+    def _ps(self, models_json):
+        """Fake /api/ps response: a context manager whose read() gives bytes."""
+        raw = models_json.encode()
+
+        class _Body:
+            def read(self):
+                return raw
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        return _Body()
+
+    def test_probe_reads_served_context_for_the_routed_model(self):
+        import urllib.request
+        from unittest.mock import patch
+        body = self._ps('{"models": [{"name": "gemma4:latest",'
+                        ' "context_length": 8192}]}')
+        with patch.object(urllib.request, "urlopen", return_value=body):
+            self.assertEqual(pi._served_context("gemma4:latest"), 8192)
+
+    def test_probe_accepts_bare_list_shape(self):
+        import urllib.request
+        from unittest.mock import patch
+        body = self._ps('[{"name": "gemma4:latest", "context_length": 4096}]')
+        with patch.object(urllib.request, "urlopen", return_value=body):
+            self.assertEqual(pi._served_context("gemma4:latest"), 4096)
+
+    def test_probe_returns_none_when_model_not_loaded(self):
+        import urllib.request
+        from unittest.mock import patch
+        body = self._ps('{"models": [{"name": "glm-5.2:cloud",'
+                        ' "context_length": 1000000}]}')
+        with patch.object(urllib.request, "urlopen", return_value=body):
+            self.assertIsNone(pi._served_context("gemma4:latest"))
+
+    def test_probe_returns_none_on_unreadable_output(self):
+        import urllib.request
+        from unittest.mock import patch
+        with patch.object(urllib.request, "urlopen",
+                          return_value=self._ps("not json")):
+            self.assertIsNone(pi._served_context("gemma4:latest"))
+        with patch.object(urllib.request, "urlopen",
+                          return_value=self._ps('{"models": [{"name": "gemma4"}]}')):
+            self.assertIsNone(pi._served_context("gemma4:latest"))
+
+    def test_probe_returns_none_when_ollama_absent(self):
+        import urllib.error
+        import urllib.request
+        from unittest.mock import patch
+        with patch.object(urllib.request, "urlopen",
+                          side_effect=urllib.error.URLError("refused")):
+            self.assertIsNone(pi._served_context("gemma4:latest"))
+
+    def test_declared_context_reads_the_pi_catalog(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            catalog = Path(d) / "models.json"
+            catalog.write_text('{"providers": {"ollama": {"models": ['
+                               '{"id": "gemma4:latest", "contextWindow": 8192}]}}}')
+            with patch.object(pi, "PI_CATALOG", catalog):
+                self.assertEqual(pi._declared_context("gemma4:latest"), 8192)
+
+    def test_declared_context_none_when_catalog_or_model_missing(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            with patch.object(pi, "PI_CATALOG", Path(d) / "nope.json"):
+                self.assertIsNone(pi._declared_context("gemma4:latest"))
+            catalog = Path(d) / "models.json"
+            catalog.write_text('{"providers": {"ollama": {"models": []}}}')
+            with patch.object(pi, "PI_CATALOG", catalog):
+                self.assertIsNone(pi._declared_context("anything"))
+
+    def test_mismatch_warns_when_served_smaller_than_declared(self):
+        from unittest.mock import patch
+        with patch.object(pi, "_served_context", return_value=8192), \
+                patch.object(pi, "warn") as w:
+            warned = pi.warn_if_context_mismatch("gemma4:latest", 131072)
+        self.assertTrue(warned)
+        w.assert_called_once()
+        self.assertIn("gemma4:latest", w.call_args[0][0])
+        self.assertIn("8192", w.call_args[0][0])
+
+    def test_match_stays_silent(self):
+        from unittest.mock import patch
+        with patch.object(pi, "_served_context", return_value=8192), \
+                patch.object(pi, "warn") as w:
+            warned = pi.warn_if_context_mismatch("gemma4:latest", 8192)
+        self.assertFalse(warned)
+        w.assert_not_called()
+
+    def test_unprobeable_stays_silent(self):
+        from unittest.mock import patch
+        with patch.object(pi, "_served_context", return_value=None), \
+                patch.object(pi, "warn") as w:
+            self.assertFalse(pi.warn_if_context_mismatch("gemma4:latest", 131072))
+        w.assert_not_called()
+        with patch.object(pi, "_served_context", return_value=8192), \
+                patch.object(pi, "warn") as w:
+            self.assertFalse(pi.warn_if_context_mismatch("gemma4:latest", None))
+        w.assert_not_called()
 
 
 class BuildArgs(unittest.TestCase):

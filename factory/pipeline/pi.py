@@ -8,6 +8,8 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 PI_BIN = "pi"
@@ -36,12 +38,73 @@ ROLE = {r: {"model": _config[r]["model"], "provider": _config[r]["provider"]}
 # for others pin "off", which every provider accepts.
 THINKING_MODELS = ("glm",)
 
+# Round-8: pi's catalog (~/.pi/agent/models.json) declared gemma4 with a
+# 131072 window while Ollama served 8192 — pi never compacted, worker prompts
+# overflowed, --context-shift silently cut the head (skills + closing
+# directive), and the model ended its turn on a tool call with empty stdout
+# (issues #3/#4 "degenerate"). The catalog must state the TRUE served window.
+PI_CATALOG = Path.home() / ".pi" / "agent" / "models.json"
+
 
 def _safe_thinking(model: str, thinking: str) -> str:
     lowered = model.lower()
     if any(family in lowered for family in THINKING_MODELS):
         return thinking
     return "off"
+
+
+def _served_context(model: str) -> int | None:
+    """Ollama's actually-served context for a loaded model, None if unknown.
+
+    `/api/ps` (the JSON behind `ollama ps`'s CONTEXT column) is the truth
+    the catalog must match; a None probe (Ollama absent, unreadable, model
+    idle) must never warn. `ollama ps` has no --format flag (0.33.3), and
+    its table output is locale-unstable — parse the API, not the table.
+    """
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/ps",
+                                    timeout=10) as resp:
+            entries = json.loads(resp.read().decode() or "")
+            if isinstance(entries, dict):        # {"models": [...]} shape
+                entries = entries.get("models", [])
+            for entry in entries:
+                if entry.get("name") == model:
+                    length = entry.get("context_length")
+                    if isinstance(length, int) and length > 0:
+                        return length
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
+    return None
+
+
+def _declared_context(model: str) -> int | None:
+    """pi's catalog window for the model, None when not registered."""
+    try:
+        catalog = json.loads(PI_CATALOG.read_text())
+        for entry in (catalog.get("providers", {}).get("ollama", {})
+                      .get("models", [])):
+            if entry.get("id") == model:
+                window = entry.get("contextWindow")
+                if isinstance(window, int) and window > 0:
+                    return window
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def warn_if_context_mismatch(model: str, declared: int | None) -> bool:
+    """Advisory guard: warn when the served window is smaller than declared.
+
+    pi compacts to the catalog window, so a bigger declared window silently
+    truncates real context (pomodoro run: 131072 declared vs 8192 served).
+    """
+    served = _served_context(model)
+    if served is None or declared is None or served >= declared:
+        return False
+    warn(f"pi catalog says {model} has {declared} context but Ollama serves "
+         f"{served} — pi will not compact; long prompts get silently "
+         f"truncated (worker turns can lose the closing directive)")
+    return True
 
 # ANSI colors for the log helpers
 _CYAN, _GREEN, _YELLOW, _RED, _NC = ("\033[0;36m", "\033[0;32m", "\033[0;33m",
