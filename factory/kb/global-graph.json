@@ -328,6 +328,20 @@
       "summary": "Skill improvement: factory-learner (project level)",
       "detail": "Add a mandatory phase in the workflow that, upon detecting a worker failure and subsequent retry, explicitly captures a summary of the original failed execution state (e.g., specific error traceback, file listing at failure point, or the specific CR criteria that failed) before allowing the retry attempt.",
       "created_at": "2026-09-06T07:03:55Z"
+    },
+    {
+      "id": "n1788721967_942870",
+      "type": "learning",
+      "summary": "Successful scaffold execution",
+      "detail": "The worker cleanly set up the project structure, ran tests, and verified execution without crashing, meeting all acceptance criteria perfectly.",
+      "created_at": "2026-09-06T19:12:47Z"
+    },
+    {
+      "id": "n1788722566_427951",
+      "type": "learning",
+      "summary": "Successful clean execution of helper function issue",
+      "detail": "Worker implemented format_time and correctly matched AC to test cases (0, 59, 60, 1500), verifying with pytest.",
+      "created_at": "2026-09-06T19:22:46Z"
     }
   ],
   "edges": []
