@@ -282,6 +282,14 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
 - **stdout-only parsing**: `run_pi()` returns the model's stdout; provider
   noise on stderr is warned and persisted in the artifact below a
   `PROVIDER_LOG:` separator — a stderr marker can never falsify a verdict.
+- **Served-context mismatch guard** (advisory, round-8): at startup, before
+  phase 0, `_warn_context_mismatches()` probes Ollama's actually-served
+  context (`GET /api/ps`) for every routed model and warns once when the
+  served window is smaller than pi's catalog window (`pi.py
+  warn_if_context_mismatch`) — pi compacts to the catalog, so a bigger
+  declared window silently truncates worker prompts (the pomodoro run's
+  issues #3/#4 "degenerated" on empty stdout this way). Advisory by design:
+  a broken probe (Ollama absent, model idle) is silence, never a halt.
 
 ### Worker Gets Stuck
 
@@ -512,8 +520,14 @@ stack (Ollama `/v1` → pi) before use: qwen2.5-coder was retired because
 tool calls as plain text — the worker could not write files or run tests, so
 every issue degenerated into tool-call JSON narration. Any new worker must
 also be registered in pi's user catalog (`~/.pi/agent/models.json`) with its
-true context window: pi's custom-model-id fallback silently clones another
-model's metadata (glm's 1M window), which disables correct compaction.
+**true served context window** — `ollama ps`'s CONTEXT column (backed by
+`GET /api/ps`) is the source of truth: pi's custom-model-id fallback silently
+clones another model's metadata (glm's 1M window), which disables correct
+compaction. A declared window bigger than the served one means pi never
+compacts, long prompts overflow, `--context-shift` silently drops the head
+(skills + closing directive), and the worker ends its turn on a tool call
+with empty stdout — the degenerate guard blocks the issue (round-8, the
+pomodoro run's #3/#4). The startup mismatch guard warns about exactly this.
 
 ### pi invocation contract (`pipeline/pi.py`)
 

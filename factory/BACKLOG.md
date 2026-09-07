@@ -398,11 +398,71 @@ original section above with its commit:
 
 Still open after round-7 (live-run items, pending the pomodoro relaunch):
 
-- [ ] **#8 Learners emit 0 parseable learnings** — root causes fixed in
+- [x] **#8 Learners emit 0 parseable learnings** — root causes fixed in
   rounds 2-6 (#14 parser, #17 stale skill CLI, #46 GLM routing); closes only
   when a live e2e run produces parseable learnings.
+  ✅ confirmed by the pomodoro relaunch (2026-09-06/07): the per-issue
+  learner (consultant role, GLM) logged 2 parseable, honest learning nodes
+  to the global KB ("Successful scaffold execution", "Successful clean
+  execution of helper function issue") — the first live-run learnings since
+  the failures. Phase 7 (project-level) never ran in that dead run; #25's
+  wordcount run will confirm the full path end-to-end.
 - [ ] **#25 Relaunch run-4 after #23 is green** — wordcount idea, then
   confirm #8 with that run too.
+
+## Round-8 findings (2026-09-07 — pomodoro relaunch: the gemma4 context incident)
+
+Relaunch of `build-a-pomodoro-app-to-execute-in-my` (2026-09-06 → 09-07).
+Issues #1 (scaffold+smoke) and #2 (format_time) completed with real TDD —
+8/8 tests, honest KB nodes (a first: parseable per-issue learnings, see #8).
+Then #3/#4/#5 all blocked as "degenerate" (empty stdout; #5 on call
+timeout). Root cause, found by hand after the run died: **pi's catalog
+declared gemma4 with a 131072-token window while Ollama served it at 8192**
+(`/api/ps` `context_length`). pi never compacted, worker prompts overflowed
+the real window, `--context-shift` silently dropped the head (skills +
+closing directive), and the model ended its turn on a tool call with empty
+stdout — exactly what the degenerate guard blocks. Decision: **gemma4 stays
+at its real 8K served context** — the fix is honesty, not size.
+
+- [x] **#48 pi catalog lied about the worker's context window.**
+  `~/.pi/agent/models.json` said 131072; Ollama served 8192. pi compacts to
+  the catalog window, so the lie disabled compaction and silently truncated
+  every long worker prompt. Fixes: catalog updated in place (contextWindow
+  8192), and a new advisory startup guard — `_warn_context_mismatches()`
+  in `__main__.py` probes `GET /api/ps` (the JSON behind `ollama ps`'s
+  CONTEXT column — `ollama ps` has no `--format` flag in 0.33.3) for every
+  distinct routed model and warns when served < declared. Advisory by
+  design: Ollama absent / model idle / catalog unreadable = silence, never
+  a halt; verified live both ways (mismatch warn with the old catalog,
+  silent after the fix). AGENTS.md documents the true-window registration
+  rule and the guard.
+  ✅ fixed this round: pi.py (`_served_context`, `_declared_context`,
+  `warn_if_context_mismatch`), `__main__._warn_context_mismatches`, catalog.
+- [ ] **#49 The degenerate guard judges text, not artifacts — blocked
+  issues leave real work behind, and the residue can break the committed
+  base.** Issues #3/#4 were blocked on degenerate stdout, but the worker
+  HAD done real work: `git status` in the project shows `M
+  pomodoro_app.py` (+24/-12 — a real partial phase-machine). Worse, the
+  residue deleted `format_time` (issue #2's committed, tested work) while
+  `test_pomodoro_app.py` still imports it — the tree today fails pytest
+  collection (`ImportError`). Two defects: (a) a blocked issue never
+  commits or reverts its tree changes, so resume runs against a dirty,
+  possibly contradictory base; (b) no check that the working tree is
+  consistent with the committed base + tests before the next issue.
+  Fix sketch: on block, either `git restore` the project tree (honest:
+  the issue did not complete) or commit as WIP with an explicit marker;
+  plus a pre-issue tree-cleanliness check.
+- [ ] **#50 Root-level tests are invisible to the regression gate.** The
+  pomodoro planner's layout puts `test_pomodoro_app.py` at the project
+  root (no `tests/` dir, no requirements/setup/pyproject manifest).
+  `run_regression()` hardcodes `tests/` as the suite dir and
+  `_regression_command()` requires a manifest — so the gate said "No test
+  suite in project" while 8 real pytest tests sat at the root. Issues #2+
+  ran unguarded; the scaffold's smoke tests never re-ran. Fix sketch:
+  detect the suite dynamically (root `test_*.py` / `*_test.py` count as
+  pytest suites when pytest is importable; any dir with matching files),
+  and fall back to plain `python -m pytest` when no manifest exists —
+  stdlib-only projects are the pipeline's own default layout.
 
 ## Round-4 findings (2026-09-04 — external toolchain regressions, e2e relaunch pending)
 
