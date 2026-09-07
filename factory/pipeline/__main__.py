@@ -13,7 +13,8 @@ from pathlib import Path
 
 from pipeline import learn, phases, text
 from pipeline.kb import Graph
-from pipeline.pi import FACTORY, GLOBAL_KB, err, log, ok, phase, warn
+from pipeline.pi import (FACTORY, GLOBAL_KB, ROLE, _declared_context,
+                         warn_if_context_mismatch, err, log, ok, phase, warn)
 
 PHASE_ORDER = ["phase-0", "phase-1", "phase-2", "phase-3",
                "phase-4", "phase-5", "complete"]
@@ -49,6 +50,23 @@ def _blocked_from_kb(kb: Graph) -> list[int]:
         if f"Issue #{num} completed" not in completed and num not in blocked:
             blocked.append(num)
     return sorted(blocked)
+
+
+def _warn_context_mismatches() -> None:
+    """Round-8: advisory startup guard — pi compacts to its catalog window,
+    so a served window smaller than declared silently truncates the worker's
+    prompts (issues #3/#4 blocked on empty stdout in the pomodoro run).
+    Never crash the run: a broken probe is silence, not a halt."""
+    seen: set[str] = set()
+    for role in ("planner", "worker", "consultant"):
+        model = ROLE[role]["model"]
+        if model in seen:
+            continue          # planner and consultant share GLM — warn once
+        seen.add(model)
+        try:
+            warn_if_context_mismatch(model, _declared_context(model))
+        except Exception:
+            pass
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -96,6 +114,7 @@ def _run(args) -> None:
     proj = FACTORY / "projects" / name
     checkpoint = proj / ".pipeline-checkpoint"
     log(f"Creating project: {name}")
+    _warn_context_mismatches()
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same
     # hygiene ignore list the factory itself uses, from the very first commit.

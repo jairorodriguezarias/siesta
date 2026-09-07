@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from pipeline import __main__ as pipeline_main
 from pipeline import phases
 
 
@@ -44,6 +45,31 @@ class VerifyFallback(unittest.TestCase):
         proj = _proj("def test_bad():\n    assert False\n")
         with patch.object(phases, "run_pi", return_value="VERIFY_PASSED: runs fine"):
             self.assertEqual(phases.verify(proj), "VERIFY_PASSED")
+
+
+class StartupContextGuard(unittest.TestCase):
+    """Round-8: the startup guard warns on served < declared, once per
+    routed model, and a broken probe never blocks a run from starting."""
+
+    def test_guard_checks_each_distinct_routed_model_once(self):
+        calls = []
+        with patch.object(pipeline_main, "_declared_context",
+                          return_value=131072), \
+             patch.object(pipeline_main, "warn_if_context_mismatch",
+                          side_effect=lambda m, d: calls.append(m) or False):
+            pipeline_main._warn_context_mismatches()
+        # planner and consultant share GLM — dedupe leaves 2 distinct models
+        self.assertEqual(calls, ["glm-5.2:cloud", "gemma4:latest"])
+
+    def test_guard_silent_when_no_mismatch(self):
+        with patch.object(pipeline_main, "_declared_context", return_value=None):
+            pipeline_main._warn_context_mismatches()    # no probe, no warn
+
+    def test_guard_never_crashes_a_run(self):
+        def boom(model):
+            raise RuntimeError("probe exploded")
+        with patch.object(pipeline_main, "_declared_context", boom):
+            pipeline_main._warn_context_mismatches()    # must not raise
 
 
 if __name__ == "__main__":
