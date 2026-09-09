@@ -585,6 +585,27 @@ tests (raw `pi` calls, no pipeline involved):
   Web entry points keep DEVNULL. Verified against run #25's real
   wordcount.py: FAILED → SKIPPED('exited 1 asking for its argument
   (usage on stderr)'). Regression suites still fail verify on red.
+- [ ] **#54 The smoke proves liveness, not visibility — a macOS GUI
+  launched from Terminal opens its window BEHIND other windows, and the
+  run's first "verified delivery" looked broken to the human.** The
+  pomodoro relaunch (2026-09-09) closed VERIFY_PASSED with smoke
+  "still running after 12s (started cleanly)" — all true, but when the
+  human ran `python3 pomodoro_app.py`, "nothing happened": the Tk
+  window opened unfocused behind other windows (classic macOS quirk;
+  the app had been running correctly the whole time — `ps` showed it
+  alive minutes later). `runtime_smoke` can never see a window (no
+  assistive access, by design), so for GUI entry points "PASSED — still
+  running" means *the process lives*, not *the user sees it*. The same
+  trap caught the operator's assistant too: "verified" was reported on
+  liveness evidence alone — a two-layer lesson (factory honesty and
+  reporting honesty).
+  Fix sketch: (a) document the limitation in the smoke detail — for GUI
+  projects append "window visibility NOT checked" to the PASSED detail
+  so the honest verdict says what it does NOT know; (b) optional:
+  planner-level guidance in the spec template for GUI apps to
+  `root.lift()` / `-topmost` on launch (not pipeline code); (c) do NOT
+  chase screenshot tooling — assistive access grants are out of scope
+  for a personal pipeline. Found live 2026-09-09, pomodoro relaunch.
 
 Improvements already shipped this round (for the changelog):
 - [x] Orchestrator narration persisted: siesta.sh tees stdout+stderr to
