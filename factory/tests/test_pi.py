@@ -15,7 +15,10 @@ class ModelConfig(unittest.TestCase):
         # GLM obeying the last human message (runs #3/#4) is fixed by the
         # directive-last prompt shape in phases.py, not by the model choice.
         self.assertEqual(ROLE["planner"]["model"], "glm-5.2:cloud")
-        self.assertEqual(ROLE["worker"]["model"], "gemma4:latest")
+        # Worker model is routing policy (see config/models.json) — assert
+        # it is set and consistent with the config file, not frozen to a name.
+        from pipeline.pi import _config
+        self.assertEqual(ROLE["worker"]["model"], _config["worker"]["model"])
         self.assertEqual(ROLE["consultant"]["model"], "glm-5.2:cloud")
         self.assertEqual(ROLE["consultant"]["provider"], "ollama")
 
@@ -253,7 +256,7 @@ class BuildArgs(unittest.TestCase):
         pi_bin, i = pi.PI_BIN, args
         self.assertEqual(i[0], pi_bin)
         self.assertEqual(i[1], "-p")                      # non-interactive
-        self.assertEqual(i[i.index("--model") + 1], "gemma4:latest")
+        self.assertEqual(i[i.index("--model") + 1], ROLE["worker"]["model"])
         self.assertEqual(i[i.index("--provider") + 1], "ollama")
         self.assertEqual(i[i.index("--thinking") + 1], "off")
         self.assertEqual(i[i.index("--skill") + 1],

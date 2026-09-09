@@ -11,7 +11,7 @@
     ]
   },
   "worker": {
-    "model": "gemma4:latest",
+    "model": "gemma4:31b-cloud",
     "provider": "ollama",
     "role": "Executes issues, writes code, runs tests. The coder.",
     "skills": [

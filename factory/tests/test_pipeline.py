@@ -58,8 +58,11 @@ class StartupContextGuard(unittest.TestCase):
              patch.object(pipeline_main, "warn_if_context_mismatch",
                           side_effect=lambda m, d: calls.append(m) or False):
             pipeline_main._warn_context_mismatches()
-        # planner and consultant share GLM — dedupe leaves 2 distinct models
-        self.assertEqual(calls, ["glm-5.2:cloud", "gemma4:latest"])
+        # planner and consultant share a model — dedupe leaves the distinct
+        # routed models, in role order (config is the truth).
+        from pipeline.pi import ROLE
+        routed = [ROLE[r]["model"] for r in ("planner", "worker", "consultant")]
+        self.assertEqual(calls, list(dict.fromkeys(routed)))
 
     def test_guard_silent_when_no_mismatch(self):
         with patch.object(pipeline_main, "_declared_context", return_value=None):

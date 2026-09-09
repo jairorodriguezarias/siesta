@@ -6,7 +6,7 @@ This document describes the autonomous agent system that powers Siesta: the role
 
 ## Overview
 
-Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) plays the roles that must hold the text protocol — planner, consultant, human-proxy — while the fully local Gemma4 8B (Ollama) is the worker that writes, reviews and verifies code. A pipeline orchestrator (`python3 -m pipeline`) coordinates them across 7 phases, with per-issue context loading, post-issue logging, and per-issue learning.
+Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) plays the roles that must hold the text protocol — planner, consultant, human-proxy — while Gemma4 31B (Ollama Cloud) is the worker that writes, reviews and verifies code. A pipeline orchestrator (`python3 -m pipeline`) coordinates them across 7 phases, with per-issue context loading, post-issue logging, and per-issue learning. The local Ollama daemon acts as the proxy to Ollama Cloud; since round-9 all roles route to cloud models (the local 8B worker's 8K served window was the pomodoro run's bottleneck).
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -67,7 +67,7 @@ Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) play
 
 ---
 
-### 2. Worker — Gemma4 8B
+### 2. Worker — Gemma4 31B (cloud, since round-9; was local 8B)
 
 **When:** Phase 3 (Execute), Phase 4 (Review), Phase 5 (Verify)
 
@@ -504,7 +504,7 @@ The learner can modify factory skills (add Red Flags, Rationalizations, Process 
 ```json
 {
   "planner":    { "model": "glm-5.2:cloud",       "provider": "ollama" },
-  "worker":     { "model": "gemma4:latest",        "provider": "ollama" },
+  "worker":     { "model": "gemma4:31b-cloud",     "provider": "ollama" },
   "consultant": { "model": "glm-5.2:cloud",       "provider": "ollama" },
   "fallback":   { "method": "web-search",         "package": "npm:@ollama/pi-web-search" }
 }
@@ -520,8 +520,11 @@ stack (Ollama `/v1` → pi) before use: qwen2.5-coder was retired because
 tool calls as plain text — the worker could not write files or run tests, so
 every issue degenerated into tool-call JSON narration. Any new worker must
 also be registered in pi's user catalog (`~/.pi/agent/models.json`) with its
-**true served context window** — `ollama ps`'s CONTEXT column (backed by
-`GET /api/ps`) is the source of truth: pi's custom-model-id fallback silently
+**true served context window**. For local models the source of truth is
+`ollama ps`'s CONTEXT column (backed by `GET /api/ps`); for `:cloud` models
+the daemon is only a proxy — they never appear in `/api/ps`, so read the
+window from `POST /api/show` (`model_info` context lengths, e.g.
+gemma4:31b-cloud serves 262144). pi's custom-model-id fallback silently
 clones another model's metadata (glm's 1M window), which disables correct
 compaction. A declared window bigger than the served one means pi never
 compacts, long prompts overflow, `--context-shift` silently drops the head
