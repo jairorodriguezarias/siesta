@@ -380,42 +380,77 @@ RUNNERS = [("package.json", ["npm", "test"]),
            ("go.mod", ["go", "test", "./..."])]
 
 
+def _pytest_available() -> bool:
+    try:
+        import pytest  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _suite_dirs(proj: Path) -> list[str]:
+    """Where test files actually live — #50: the pomodoro layout puts
+    test_pomodoro_app.py at the root (no tests/ dir, no manifest); the
+    gate used to answer 'no suite' while 8 real tests sat there."""
+    dirs = []
+    if any(proj.glob("test_*.py")) or any(proj.glob("*_test.py")):
+        dirs.append(".")
+    if (proj / "tests").is_dir():
+        dirs.append("tests")
+    return dirs
+
+
+def _regression_command(proj: Path, suite_dir: str):
+    """(command, is_pytest) for the first matching runner, else None."""
+    for manifest, cmd in RUNNERS:
+        if (proj / manifest).exists():
+            if cmd[1:2] == ["test"] and "npm" in cmd:
+                return cmd, False
+            if "pytest" in cmd:
+                # #50: run the suite where it actually lives, not a
+                # hardcoded tests/ that the layout may not have.
+                return [cmd[0], cmd[1], cmd[2], suite_dir], True
+            return cmd, True
+    return None
+
+
 # pytest exits 5 when the suite exists but collects zero tests (exit 4 is
 # usage error) — a scaffold issue legitimately ships empty test stubs, and
 # the pomodoro run (#44) had every later issue skipped for that alone.
 PYTEST_NO_TESTS = 5
 
 
-def _regression_command(proj: Path):
-    """(command, is_pytest) for the first matching runner, else None."""
-    for manifest, cmd in RUNNERS:
-        if (proj / manifest).exists():
-            return cmd, "pytest" in cmd
-    return None
-
-
 def run_regression(proj: Path, n: int) -> str:
     """'passed' | 'failed' | 'skipped'. Skipped (no tests, no runner) is a
     distinct state — #13: absence of tests must not read as 'green'."""
-    if not (proj / "tests").is_dir():
+    dirs = _suite_dirs(proj)
+    if not dirs:
         return "skipped"
-    runner = _regression_command(proj)
-    if runner is None:
-        log("No known test runner found, skipping regression")
-        return "skipped"
-    cmd, is_pytest = runner
-    log("Running regression suite (all previous tests)...")
-    proc = subprocess.run(cmd, cwd=proj, capture_output=True, text=True)
-    (proj / f"regression_{n}.log").write_text(proc.stdout + proc.stderr)
-    if proc.returncode == PYTEST_NO_TESTS and is_pytest:
-        # #44: "no tests collected" is absence, not breakage — a stub
-        # test file must not arm the regression gate.
-        log("Regression suite collected zero tests — nothing to guard")
-        return "skipped"
-    if proc.returncode != 0:
-        err(f"Regression suite FAILED before issue #{n}.")
-        return "failed"
-    return "passed"
+    # #50: every dir that holds test files counts — a root-level suite with
+    # no manifest used to make the gate say 'no suite' (pomodoro layout).
+    verdict = "skipped"
+    for suite_dir in dirs:
+        runner = _regression_command(proj, suite_dir)
+        if runner is None:
+            if suite_dir == "." and _pytest_available():
+                runner = ([sys.executable, "-m", "pytest", "."], True)
+            else:
+                continue
+        cmd, is_pytest = runner
+        log(f"Running regression suite ({suite_dir})...")
+        proc = subprocess.run(cmd, cwd=proj, capture_output=True, text=True)
+        (proj / f"regression_{n}.log").write_text(proc.stdout + proc.stderr)
+        if proc.returncode == PYTEST_NO_TESTS and is_pytest:
+            # #44: "no tests collected" is absence, not breakage — a stub
+            # test file must not arm the regression gate.
+            log(f"Regression suite in {suite_dir} collected zero tests — "
+                "nothing to guard")
+            continue
+        if proc.returncode != 0:
+            err(f"Regression suite FAILED before issue #{n} ({suite_dir}).")
+            return "failed"
+        verdict = "passed"
+    return verdict
 
 
 # ─── Phase 3: EXECUTE ────────────────────────────────────────────────────
@@ -522,6 +557,44 @@ def _worker(proj: Path, skills, body, issue_text, artifact: Path | None = None):
                   thinking=WORKER_THINKING, cwd=proj, artifact=artifact)
 
 
+def _discard_residue(proj: Path, num: int, why: str) -> None:
+    """#49: a blocked issue leaves its uncommitted work behind — and the
+    residue can contradict the committed base (the pomodoro issue-#3
+    residue deleted format_time while the committed test still imported
+    it). Honest state: the issue did NOT complete, so tracked files go
+    back to the last commit and untracked product files are removed.
+    Ignored run evidence survives (clean without -x honors .gitignore);
+    the KB survives too — it is the run's bookkeeping, not product.
+    """
+    status = _git(proj, "status", "--porcelain")
+    dirty = [ln for ln in status.stdout.decode().splitlines()
+             if ln and not ln.startswith("??")]
+    if not dirty:
+        return
+    kb_dir = proj / "kb"
+    saved = {p.relative_to(kb_dir): p.read_bytes()
+             for p in kb_dir.rglob("*") if p.is_file()} \
+        if kb_dir.is_dir() else {}
+    _git(proj, "restore", "--", ".")
+    # No -x: clean honors .gitignore, so ignored run evidence survives and
+    # only the product residue dies (the -e list lived one pattern behind
+    # the .gitignore once already — regression_repair_*.txt, #38/#49).
+    _git(proj, "clean", "-fd")
+    for rel, data in saved.items():
+        target = kb_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    warn(f"Issue #{num} blocked with tree changes ({why}) — discarded "
+         "uncommitted residue so the base stays honest")
+
+
+def _tree_is_clean(proj: Path) -> bool:
+    status = _git(proj, "status", "--porcelain")
+    dirty = [ln for ln in status.stdout.decode().splitlines()
+             if ln and not ln.startswith("??")]
+    return not dirty
+
+
 REPAIR_PROMPT = """You are a developer. The regression suite is RED.
 
 Issue #{n} was about to execute, but the previous issues left failing tests:
@@ -581,6 +654,14 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         log(f"Executing issue #{num}...")
         issue_text = issues[num]
 
+        # #49 (b): never build on a tree that contradicts the committed base —
+        # residue from a blocked issue of a previous run gets restored, not
+        # silently inherited (untracked run evidence is not a contradiction).
+        if not _tree_is_clean(proj):
+            warn(f"Working tree is dirty before issue #{num} — restoring "
+                 "uncommitted changes to the last commit")
+            _discard_residue(proj, num, "dirty tree before issue")
+
         if num > 1:
             status = run_regression(proj, num)
             if status == "failed":
@@ -614,6 +695,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                     warn(f"Regression stayed red before issue #{num}: "
                          f"skipping it.")
                     blocked.append(num)
+                    _discard_residue(proj, num, "red regression repair failed")
                     continue
             elif status == "passed":
                 red_streak = 0
@@ -655,6 +737,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                     blocked.append(num)
                     kb.node("blocker", f"Issue #{num} degenerate output",
                             f"Worker never produced a usable answer: {reason}")
+                    _discard_residue(proj, num, "degenerate output")
                     continue
         stuck = _escalate(proj, num, output, issue_text, kb_summaries, source,
                           kb, fails, history, blocked)
@@ -724,6 +807,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                 err(f"Issue #{num} SKIPPED after deep diagnosis")
                 blocked.append(num)
                 kb.node("blocker", f"Issue #{num} skipped after diagnosis", diagnosis)
+                _discard_residue(proj, num, "deep diagnosis skipped")
                 if text.CRITICAL.search(diagnosis):
                     (proj / "stop.md").write_text(
                         f"Issue #{num} is critical and cannot be skipped. "
@@ -741,6 +825,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                 blocked.append(num)
                 kb.node("blocker", f"Issue #{num} blocked after diagnosis",
                         "Worker still stuck after deep diagnosis")
+                _discard_residue(proj, num, "still stuck after diagnosis")
                 return True
             break  # recovered after diagnosis
         resolution = run_pi(
@@ -991,10 +1076,7 @@ def verify(proj: Path) -> str:
         # Model drifted (no marker, or degenerate — tool-speak in the live run):
         # decide from the regression suite if there is one, else fail.
         log("No usable VERIFY signal — falling back to the regression suite")
-        if not (proj / "tests").is_dir():
-            verdict = "VERIFY_FAILED"
-        else:
-            verdict = "VERIFY_PASSED" if (run_regression(proj, 0) == "passed"
-                                          and status != "FAILED") else "VERIFY_FAILED"
+        verdict = "VERIFY_PASSED" if (run_regression(proj, 0) == "passed"
+                                      and status != "FAILED") else "VERIFY_FAILED"
     (proj / "verify_verdict.txt").write_text(verdict + "\n")
     return verdict

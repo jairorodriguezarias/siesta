@@ -219,6 +219,20 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   two consecutive unrepairable suites halt phase 3 — never build on a broken
   base. An empty suite (pytest "no tests collected", exit 5) is absence:
   `skipped`, never a failure, never green.
+- **Blocked-issue residue discard** (`phases._discard_residue`): a blocked
+  issue's uncommitted work would poison the committed base (pomodoro #3:
+  the residue deleted `format_time` while the committed test still imported
+  it). On every block (degenerate, diagnosis-skip, stuck-after-diagnosis,
+  red-regression skip) tracked files go back to the last commit and
+  untracked product files are removed — `git restore` + `clean -fd` without
+  `-x`, so ignored run evidence survives and the KB (the run's bookkeeping)
+  survives. A dirty tree at the top of the issue loop is restored before
+  any work starts — a resume never inherits a contradictory base.
+- **Root-level suites count** (`phases._suite_dirs`): the regression gate
+  detects test files where they live — root `test_*.py`/`*_test.py` count as
+  a suite (`.`) when pytest is importable, `tests/` still counts, and every
+  detected dir runs (a red one fails the gate). Verify's fallback uses the
+  same detection, not a `tests/`-dir blindspot.
 - **Verify fallback**: with no usable VERIFY marker, only the mechanical
   checks decide (regression suite + runtime smoke); no tests means failed.
 - **Call timeout** (`pi.PI_TIMEOUT`, env `SIESTA_PI_TIMEOUT`, 1200s default):

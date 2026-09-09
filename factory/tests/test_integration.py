@@ -87,6 +87,7 @@ APPROACH: take the simplest path" ;;
         case "$FAKE_PI_SCENARIO" in
           verify_fails) echo "VERIFY_FAILED: the entry point crashes on launch" ;;
           verify_fenced) printf 'The config docs say:\n```\nVERIFY_PASSED: quoted example\n```\nbut honestly I could not check it.\n' ;;
+          verify_degenerate) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
           *) echo "VERIFY_PASSED: static verification complete" ;;
         esac ;;
       *"code-reviewer"*)
@@ -366,6 +367,20 @@ class PipelineRun(unittest.TestCase):
         # no learn hooks when blocked → 4, + review + verify = 6 (project
         # learning is a consultant call since #46)
         self.assertEqual(self.log_count("--model worker-model"), 6)
+
+    def test_blocked_issue_leaves_no_tree_residue(self):
+        # #49: a blocked issue's uncommitted work is discarded — the tree
+        # must match the last commit (untracked run evidence excepted)
+        result = self.siesta("--auto", self.idea, scenario="degenerate_always")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        status = subprocess.run(["git", "-C", str(self.proj()),
+                                 "status", "--porcelain"],
+                                capture_output=True, text=True).stdout
+        dirty = [ln for ln in status.splitlines()
+                 if ln and not ln.startswith("??")]
+        self.assertEqual(dirty, [],
+                         "blocked issues must not leave committed-file "
+                         "residue (the pomodoro-#3 shape)")
 
     def test_degenerate_once_recovers_with_feedback(self):
         result = self.siesta("--auto", self.idea, scenario="degenerate_once")
@@ -668,6 +683,65 @@ class RuntimeSmoke(unittest.TestCase):
         status, detail = self.smoke({"main.py": "print('done')"})
         self.assertEqual(status, "PASSED", detail)
         self.assertIn("exited cleanly", detail)
+
+
+class RootLevelSuiteVerifyFallback(unittest.TestCase):
+    """#50: verify's regression fallback must see a root-level suite —
+    the pomodoro layout has no tests/ dir and no manifest."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="siesta-int-"))
+        self.idea = f"build a tiny root-tested cli {uuid4().hex[:6]}"
+        self.name = self.idea.replace(" ", "-")
+        for name in ("config", "kb", "skills"):
+            shutil.copytree(FACTORY / name, self.tmp / "factory" / name)
+        models = json.loads((self.tmp / "factory/config/models.json").read_text())
+        for role in ("planner", "worker", "consultant"):
+            models[role]["model"] = f"{role}-model"
+        (self.tmp / "factory/config/models.json").write_text(json.dumps(models))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def siesta(self, *args, scenario="ok", timeout=90):
+        bin_path = self.tmp / "bin"
+        bin_path.mkdir(exist_ok=True)
+        fake_pi = bin_path / "pi"
+        fake_pi.write_text(STUB)
+        fake_pi.chmod(0o755)
+        env = os.environ | {
+            "SIESTA_FACTORY": str(self.tmp / "factory"),
+            "PYTHONPATH": str(FACTORY),
+            "PATH": f"{bin_path}:{os.environ['PATH']}",
+            "FAKE_PI_SCENARIO": scenario,
+            "FAKE_PI_LOG": str(self.tmp / "pi_calls.log"),
+        }
+        return subprocess.run([sys.executable, "-m", "pipeline", *args],
+                              capture_output=True, text=True, env=env,
+                              cwd=self.tmp, stdin=subprocess.DEVNULL,
+                              timeout=timeout)
+
+    def proj(self) -> Path:
+        return self.tmp / "factory/projects" / self.name
+
+    def test_root_level_suite_drives_the_verify_fallback(self):
+        # pre-seed the pomodoro shape: tests at the root, no tests/ dir,
+        # no manifest — then degenerate verify output forces the fallback
+        proj = self.proj()
+        proj.mkdir(parents=True)
+        (proj / "app.py").write_text("def add(a, b):\n    return a + b\n")
+        (proj / "test_app.py").write_text(
+            "from app import add\n\ndef test_add():\n    assert add(1, 2) == 3\n")
+        # the stub's QA engineer answers VERIFY_PASSED unless told otherwise;
+        # scenario=verify_fails is the wrong direction, so drive the
+        # degenerate path with a QA-verbatim degenerate output instead
+        result = self.siesta("--auto", self.idea, scenario="verify_degenerate")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        verdict = (proj / "verify_verdict.txt").read_text().strip()
+        # a real passing root suite + no runnable smoke = VERIFY_PASSED
+        # (before #50: VERIFY_FAILED — the gate was blind to root tests)
+        self.assertEqual(verdict, "VERIFY_PASSED")
+        self.assertIn("Running regression suite (.)", result.stderr)
 
 
 if __name__ == "__main__":

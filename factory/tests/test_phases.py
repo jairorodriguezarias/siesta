@@ -6,6 +6,7 @@ instead of a spec, then reviewed its own code instead of planning. The data
 (intent, spec) must live inside the instruction body; the final human message
 must be the rigid output directive.
 """
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -275,6 +276,122 @@ class AbandonedInterview(unittest.TestCase):
                                       "build a pomodoro app", False, self.kb)
         # raw idea is the honest fallback, not a silent success
         self.assertEqual(intent, "build a pomodoro app")
+
+
+class RootLevelSuiteDetection(unittest.TestCase):
+    """#50: a root-level test suite (the pomodoro layout) is a suite — the
+    gate must not say 'no suite' while real tests sit at the root."""
+
+    def regression(self, files: dict) -> str:
+        with TemporaryDirectory() as d:
+            for name, content in files.items():
+                p = Path(d, name)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content)
+            return phases.run_regression(Path(d), 0)
+
+    def test_root_passing_suite_is_passed(self):
+        # pomodoro layout: test file at the root, no tests/ dir, no manifest
+        self.assertEqual(self.regression({
+            "app.py": "def add(a, b):\n    return a + b\n",
+            "test_app.py": "from app import add\n"
+                           "def test_add():\n    assert add(1, 2) == 3\n",
+        }), "passed")
+
+    def test_root_failing_suite_is_failed(self):
+        # the #49 evidence: residue deleted format_time while the root
+        # test still imports it — pytest collection fails, and that
+        # must read as a red suite, not as 'no suite'
+        self.assertEqual(self.regression({
+            "app.py": "def other():\n    pass\n",
+            "test_app.py": "from app import format_time\n"
+                           "def test_nothing():\n    assert True\n",
+        }), "failed")
+
+    def test_root_empty_suite_is_skipped(self):
+        # #44 preserved: a zero-collected suite is absence, never red
+        self.assertEqual(self.regression({
+            "app.py": "x = 1\n",
+            "test_empty.py": "",
+        }), "skipped")
+
+    def test_manifest_plus_root_tests_runs_both(self):
+        # both suites exist → both run; a red one fails the gate
+        self.assertEqual(self.regression({
+            "requirements.txt": "pytest\n",
+            "test_root.py": "def test_r():\n    assert True\n",
+            "tests/test_ok.py": "def test_ok():\n    assert True\n",
+        }), "passed")
+
+
+class BlockedIssueResidue(unittest.TestCase):
+    """#49: a blocked issue's uncommitted work is discarded so the base
+    stays honest — the residue of pomodoro #3 broke pytest collection."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = Path(self.tmp.name)
+        subprocess.run(["git", "init", "-q"], cwd=self.proj,
+                       capture_output=True)
+        subprocess.run(["git", "-C", str(self.proj), "config",
+                        "user.email", "t@t"], capture_output=True)
+        subprocess.run(["git", "-C", str(self.proj), "config",
+                        "user.name", "t"], capture_output=True)
+        (self.proj / "app.py").write_text("def format_time(s):\n    return s\n")
+        (self.proj / "test_app.py").write_text(
+            "from app import format_time\n"
+            "def test_fmt():\n    assert format_time('x') == 'x'\n")
+        subprocess.run(["git", "add", "-A"], cwd=self.proj, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "base"],
+                       cwd=self.proj, capture_output=True)
+
+    def residue(self):
+        # the pomodoro-#3 shape: modification that deletes committed work
+        (self.proj / "app.py").write_text("def phase_machine():\n    pass\n")
+
+    def test_discard_restores_the_committed_base(self):
+        self.residue()
+        phases._discard_residue(self.proj, 3, "degenerate output")
+        clean = (self.proj / "app.py").read_text()
+        self.assertIn("format_time", clean,
+                      "residue must be gone — the committed base wins")
+
+    def test_discard_keeps_ignored_evidence_and_kb(self):
+        self.residue()
+        (self.proj / ".gitignore").write_text(
+            "*_output.txt\nregression_*.log\nregression_repair_*.txt\n")
+        evidence = self.proj / "issue_3_output.txt"
+        evidence.write_text("degenerate stdout")
+        kb = self.proj / "kb" / "graph.json"
+        kb.parent.mkdir()
+        kb.write_text('{"nodes": [], "edges": []}')
+        phases._discard_residue(self.proj, 3, "degenerate output")
+        self.assertTrue(evidence.exists(),
+                        "ignored run evidence is not product — it survives")
+        self.assertTrue(kb.exists(),
+                        "the KB is the run's bookkeeping — it survives")
+
+    def test_discard_removes_untracked_product_residue(self):
+        # an untracked source file the worker added mid-issue is residue
+        # too — it must not sit in the tree pretending to be the base
+        self.residue()
+        (self.proj / "half_done_feature.py").write_text("x = 1\n")
+        phases._discard_residue(self.proj, 3, "degenerate output")
+        self.assertFalse((self.proj / "half_done_feature.py").exists())
+
+    def test_discard_is_a_noop_on_a_clean_tree(self):
+        # a blocked issue that wrote nothing must not touch the tree
+        before = (self.proj / "app.py").read_text()
+        phases._discard_residue(self.proj, 3, "degenerate output")
+        self.assertEqual((self.proj / "app.py").read_text(), before)
+
+    def test_tree_is_clean_ignores_untracked_evidence(self):
+        (self.proj / "issue_3_output.txt").write_text("evidence")
+        (self.proj / "regression_3.log").write_text("log")
+        self.assertTrue(phases._tree_is_clean(self.proj))
+        self.residue()
+        self.assertFalse(phases._tree_is_clean(self.proj))
 
 
 class GatherBudget(unittest.TestCase):

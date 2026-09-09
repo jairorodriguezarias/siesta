@@ -19,6 +19,16 @@ from pipeline.pi import (FACTORY, GLOBAL_KB, ROLE, _declared_context,
 PHASE_ORDER = ["phase-0", "phase-1", "phase-2", "phase-3",
                "phase-4", "phase-5", "complete"]
 
+# Run evidence stays on disk (learn.py reads these inputs) but is never
+# product — every pattern here is also what `git clean -fd` (no -x)
+# preserves, so the #49 residue discard never destroys evidence.
+GITIGNORE = (
+    ".DS_Store\n__pycache__/\n*.pyc\n.pipeline-checkpoint\n"
+    "verify_verdict.txt\n"
+    "*_output.txt\ninterview_closeout.txt\nregression_*.log\n"
+    "regression_repair_*.txt\n"
+    "pre_issue_*.json\nlearning_issue_*.txt\nproject_learning.*\n")
+
 
 def slug(idea: str) -> str:
     """Lowercase-hyphenated project name, cut at the last word under 40 chars."""
@@ -123,11 +133,7 @@ def _run(args) -> None:
     # but is never product: keep it out of the commits.
     gitignore = proj / ".gitignore"
     if not gitignore.exists():
-        gitignore.write_text(
-            ".DS_Store\n__pycache__/\n*.pyc\n.pipeline-checkpoint\n"
-            "verify_verdict.txt\n"
-            "*_output.txt\ninterview_closeout.txt\nregression_*.log\n"
-            "pre_issue_*.json\nlearning_issue_*.txt\nproject_learning.*\n")
+        gitignore.write_text(GITIGNORE)
 
     # Seed the KB only when missing — --resume must not wipe a project's memory.
     kb = Graph(proj / "kb" / "graph.json")

@@ -438,7 +438,7 @@ at its real 8K served context** — the fix is honesty, not size.
   rule and the guard.
   ✅ fixed this round: pi.py (`_served_context`, `_declared_context`,
   `warn_if_context_mismatch`), `__main__._warn_context_mismatches`, catalog.
-- [ ] **#49 The degenerate guard judges text, not artifacts — blocked
+- [x] **#49 The degenerate guard judges text, not artifacts — blocked
   issues leave real work behind, and the residue can break the committed
   base.** Issues #3/#4 were blocked on degenerate stdout, but the worker
   HAD done real work: `git status` in the project shows `M
@@ -449,20 +449,31 @@ at its real 8K served context** — the fix is honesty, not size.
   commits or reverts its tree changes, so resume runs against a dirty,
   possibly contradictory base; (b) no check that the working tree is
   consistent with the committed base + tests before the next issue.
-  Fix sketch: on block, either `git restore` the project tree (honest:
-  the issue did not complete) or commit as WIP with an explicit marker;
-  plus a pre-issue tree-cleanliness check.
-- [ ] **#50 Root-level tests are invisible to the regression gate.** The
+  ✅ fixed in round-9: `_discard_residue()` (phases.py) — on block
+  (degenerate, diagnosis-skip, stuck-after-diagnosis, red-regression
+  skip) tracked files go back to the last commit and untracked product
+  files are removed (`git restore` + `clean -fd`, no `-x` so ignored run
+  evidence survives); the KB survives — it is the run's bookkeeping, not
+  product. Plus the pre-issue guard: a dirty tree at the top of the issue
+  loop is restored before any work starts. `regression_repair_*.txt`
+  added to the generated .gitignore (the -e clean list had lagged the
+  ignore list — evidence must be ignored, then clean preserves it).
+  Unit + e2e tested (blocked issues leave zero committed-file residue).
+- [x] **#50 Root-level tests are invisible to the regression gate.** The
   pomodoro planner's layout puts `test_pomodoro_app.py` at the project
   root (no `tests/` dir, no requirements/setup/pyproject manifest).
   `run_regression()` hardcodes `tests/` as the suite dir and
   `_regression_command()` requires a manifest — so the gate said "No test
   suite in project" while 8 real pytest tests sat at the root. Issues #2+
-  ran unguarded; the scaffold's smoke tests never re-ran. Fix sketch:
-  detect the suite dynamically (root `test_*.py` / `*_test.py` count as
-  pytest suites when pytest is importable; any dir with matching files),
-  and fall back to plain `python -m pytest` when no manifest exists —
-  stdlib-only projects are the pipeline's own default layout.
+  ran unguarded; the scaffold's smoke tests never re-ran.
+  ✅ fixed in round-9: `_suite_dirs()` (phases.py) detects suites
+  dynamically — root `test_*.py`/`*_test.py` files count as a suite dir
+  (`.`) when pytest is importable; `tests/` still counts; every detected
+  dir runs (a red one fails the gate). `_regression_command()` takes the
+  suite dir, and verify's fallback uses the same `run_regression()`
+  instead of its own `(proj / "tests").is_dir()` blindspot. The
+  pomodoro-#49 shape (residue breaks root-suite collection) now reads as
+  a red suite, not "no suite". Unit + e2e tested.
 
 ## Round-4 findings (2026-09-04 — external toolchain regressions, e2e relaunch pending)
 
