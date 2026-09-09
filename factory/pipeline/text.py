@@ -2,25 +2,36 @@
 
 All markers are anchored at line start (re.M). The worker prompt shows
 indented protocol examples, so a plain substring search would match the
-prompt's own rule text; anchoring prevents that.
+prompt's own rule text; anchoring prevents that. Markdown emphasis before
+the marker is tolerated (#52): models habitually bold their verdicts
+(`**VERIFY_PASSED:**`), and run #25 lost a QA verdict that way.
 """
 import re
 
-INTENT = re.compile(r"^INTENT_FINALIZED:[ \t]*(.+)$", re.M)
+# Optional leading markdown decoration a model may put before a marker:
+# heading hashes or bold/italic emphasis, with any spacing after it
+# (#52: `**VERIFY_PASSED:**`, `### APPROVED` must not fall to fallbacks).
+# Bare indentation is NOT decoration — the prompt's own indented rule
+# examples must keep not matching (see the anchor tests). Closing emphasis
+# after the colon does not matter — the regexes match the prefix only.
+_DECOR = r"(?:#{1,6}[ \t]+)?(?:[*_]{1,4}[ \t]*)?"
+
+INTENT = re.compile(
+    rf"^{_DECOR}INTENT_FINALIZED:[ \t]*(?:[*_]{{1,4}}[ \t]*)?(.+)$", re.M)
 ISSUE_HDR = re.compile(r"^##[ \t]+Issue[ \t]+#(\d+)", re.M)
-CONSULT = re.compile(r"^CONSULT:", re.M)
-PROXY = re.compile(r"^PROXY_REQUEST:", re.M)
-SKIP = re.compile(r"^SKIP:", re.M)
-CRITICAL = re.compile(r"^CRITICAL:", re.M)
-REJECTED = re.compile(r"^REJECTED:", re.M)
+CONSULT = re.compile(rf"^{_DECOR}CONSULT:", re.M)
+PROXY = re.compile(rf"^{_DECOR}PROXY_REQUEST:", re.M)
+SKIP = re.compile(rf"^{_DECOR}SKIP:", re.M)
+CRITICAL = re.compile(rf"^{_DECOR}CRITICAL:", re.M)
+REJECTED = re.compile(rf"^{_DECOR}REJECTED:", re.M)
 # Explicit approval only (#3): "APPROVED" at line start, optionally after the
 # skill's own "PROXY_DECISION:" prefix. Hesitation, NEEDS_REVISION or garbage
 # do not match — gates treat no explicit approval as "not approved".
-APPROVED = re.compile(r"^(?:PROXY_DECISION:[ \t]*)?APPROVED\b", re.M)
-REVIEW_PASSED = re.compile(r"^REVIEW_PASSED:", re.M)
-REVIEW_FAILED = re.compile(r"^REVIEW_FAILED:", re.M)
-VERIFY_PASSED = re.compile(r"^VERIFY_PASSED:", re.M)
-VERIFY_FAILED = re.compile(r"^VERIFY_FAILED:", re.M)
+APPROVED = re.compile(rf"^(?:{_DECOR}PROXY_DECISION:[ \t]*)?{_DECOR}APPROVED\b", re.M)
+REVIEW_PASSED = re.compile(rf"^{_DECOR}REVIEW_PASSED:", re.M)
+REVIEW_FAILED = re.compile(rf"^{_DECOR}REVIEW_FAILED:", re.M)
+VERIFY_PASSED = re.compile(rf"^{_DECOR}VERIFY_PASSED:", re.M)
+VERIFY_FAILED = re.compile(rf"^{_DECOR}VERIFY_FAILED:", re.M)
 
 # "TAG: summary — detail", split at the FIRST dash separator so details may
 # themselves contain dashes. Models emit "-", "–" and "—" interchangeably (#14),

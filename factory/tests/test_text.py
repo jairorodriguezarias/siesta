@@ -81,6 +81,25 @@ class AnchoredMarkers(unittest.TestCase):
     def test_substring_inside_a_line_does_not_match(self):
         self.assertIsNone(text.REJECTED.search("the request was NOT_REJECTED today"))
 
+    def test_bolded_marker_matches(self):
+        # #52: run #25's QA verdict `**VERIFY_PASSED:**` fell to the
+        # mechanical fallback and failed a working project
+        self.assertIsNotNone(text.VERIFY_PASSED.search("**VERIFY_PASSED:**"))
+        self.assertIsNotNone(text.VERIFY_FAILED.search("analysis...\n**VERIFY_FAILED:** wrong"))
+        self.assertIsNotNone(text.REVIEW_PASSED.search("**REVIEW_PASSED:** clean"))
+        self.assertIsNotNone(text.APPROVED.search("**APPROVED** — aligned with intent"))
+        self.assertIsNotNone(text.CONSULT.search("**CONSULT:** how to split the file?"))
+        self.assertIsNotNone(text.SKIP.search("**SKIP:** this issue needs the human"))
+
+    def test_heading_marker_matches(self):
+        self.assertIsNotNone(text.APPROVED.search("### APPROVED"))
+        self.assertIsNotNone(text.VERIFY_PASSED.search("## VERIFY_PASSED: all good"))
+
+    def test_decoration_does_not_reach_inside_a_line(self):
+        # a marker cited mid-sentence with decoration is still not a signal
+        self.assertIsNone(text.VERIFY_PASSED.search("the doc says **VERIFY_PASSED:** means done"))
+        self.assertIsNone(text.APPROVED.search("we discussed **APPROVED** but no"))
+
 
 class LearningLines(unittest.TestCase):
     def test_splits_at_first_em_dash(self):

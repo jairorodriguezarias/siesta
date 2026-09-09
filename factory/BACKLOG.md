@@ -547,7 +547,7 @@ tests (raw `pi` calls, no pipeline involved):
   when the checkpoint exists, and consider a `--fresh` flag (or a warn when
   the checkpoint is `complete`) so a "relaunch" is always intentional.
   Found live 2026-09-09 launching #25.
-- [ ] **#52 Verdict markers wrapped in markdown bold are invisible — GLM's
+- [x] **#52 Verdict markers wrapped in markdown bold are invisible — GLM's
   `**VERIFY_PASSED:**` fell to the mechanical fallback and failed a working
   project.** The QA engineer's verify output ended with `**VERIFY_PASSED:**`
   (bold), but `text.VERIFY_PASSED` anchors `^VERIFY_PASSED:` to line start —
@@ -561,10 +561,15 @@ tests (raw `pi` calls, no pipeline involved):
   learner's repeated "Rejected skill update ... not a complete SKILL.md"
   in run #25 — 4 warnings — is likely the same bold/format drift on
   SKILL_UPDATE).
-  Fix sketch: tolerate markdown emphasis before the marker in all
-  anchored marker regexes (`^#{0,3}\s*\**\s*VERIFY_PASSED:` style), and a
-  test per gate with a bolded marker. Found live 2026-09-09, run #25.
-- [ ] **#53 Runtime smoke runs argv-CLIs bare — a correct CLI that requires
+  ✅ fixed in round-9 (2026-09-09): shared `_DECOR` prefix in text.py —
+  optional heading hashes and bold/italic emphasis before every anchored
+  marker (INTENT/CONSULT/PROXY/SKIP/CRITICAL/REJECTED/APPROVED/REVIEW/
+  VERIFY). Bare indentation is still NOT decoration — the prompt's own
+  indented rule examples keep not matching (anchor tests intact). INTENT
+  also strips closing emphasis from its captured text. Tested: bolded and
+  heading markers match per gate; decoration mid-sentence still matches
+  nothing.
+- [x] **#53 Runtime smoke runs argv-CLIs bare — a correct CLI that requires
   an argument exits 1 on the smoke and reads as FAILED.** `runtime_smoke()`
   launches the detected entry point with no arguments; the #25 wordcount
   (spec: `python wordcount.py <file>`) correctly printed usage to stderr
@@ -573,12 +578,13 @@ tests (raw `pi` calls, no pipeline involved):
   ignored, so the mechanical checks alone decided). The QA engineer's own
   static analysis described the exact expected error-exit behavior — the
   product was right and the smoke misread it.
-  Fix sketch: for CLI entry points (non-web), treat a fast nonzero exit
-  that printed a usage message to stderr (or generally: exit != 0 within
-  the deadline where the spec demands an argument) as SKIPPED-with-reason
-  rather than FAILED; or probe with a generated temp input file when the
-  entry point is argv-based. A red regression suite must still fail
-  verify. Found live 2026-09-09, run #25.
+  ✅ fixed in round-9 (2026-09-09): runtime_smoke captures stderr for CLI
+  runs; a nonzero exit whose stderr says "usage" is SKIPPED-with-reason
+  (the product working as specified — the smoke cannot judge a bare
+  argv-CLI), while a traceback or silent nonzero exit stays FAILED.
+  Web entry points keep DEVNULL. Verified against run #25's real
+  wordcount.py: FAILED → SKIPPED('exited 1 asking for its argument
+  (usage on stderr)'). Regression suites still fail verify on red.
 
 Improvements already shipped this round (for the changelog):
 - [x] Orchestrator narration persisted: siesta.sh tees stdout+stderr to

@@ -237,6 +237,51 @@ class SingleFileCLIDetection(unittest.TestCase):
         self.assertIsNotNone(cmd)
 
 
+class RuntimeSmoke(unittest.TestCase):
+    """#53: a bare argv-CLI's usage-exit is the product working as
+    specified — SKIPPED with a reason, never FAILED."""
+
+    def smoke(self, files: dict) -> tuple[str, str]:
+        with TemporaryDirectory() as d:
+            for name, content in files.items():
+                p = Path(d, name)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content)
+            return phases.runtime_smoke(Path(d))
+
+    def test_argv_cli_usage_exit_is_skipped(self):
+        # the exact run-#25 shape: spec demands `python wordcount.py <file>`
+        status, detail = self.smoke({
+            "wordcount.py":
+                "import sys\n\n"
+                "def main():\n"
+                "    if len(sys.argv) != 2:\n"
+                "        print('Error: No file path provided. Usage: "
+                "python wordcount.py <filepath>', file=sys.stderr)\n"
+                "        sys.exit(1)\n"
+                "    print(open(sys.argv[1]).read())\n\n"
+                "if __name__ == \"__main__\":\n"
+                "    main()\n"})
+        self.assertEqual(status, "SKIPPED")
+        self.assertIn("usage", detail.lower())
+
+    def test_crashing_cli_stays_failed(self):
+        # a real traceback must never read as "could not judge"
+        status, detail = self.smoke({
+            "wordcount.py":
+                "if __name__ == \"__main__\":\n"
+                "    1 / 0\n"})
+        self.assertEqual(status, "FAILED")
+        self.assertIn("code 1", detail)
+
+    def test_clean_cli_exit_is_passed(self):
+        status, detail = self.smoke({
+            "wordcount.py":
+                "if __name__ == \"__main__\":\n    print('ok')\n"})
+        self.assertEqual(status, "PASSED")
+        self.assertIn("exited cleanly", detail)
+
+
 class AbandonedInterview(unittest.TestCase):
     """#45: the human leaving mid-interview gets an autonomous close-out."""
 

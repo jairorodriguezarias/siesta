@@ -1014,16 +1014,28 @@ def runtime_smoke(proj: Path) -> tuple[str, str]:
     cmd = [c.replace("{PORT}", str(port)) for c in cmd]
     # round-5: stdin=DEVNULL — a CLI that reads stdin (pipes, prompts) used to
     # inherit the terminal, hang until the deadline, and read as "PASSED".
+    # #53: stderr is captured now — a bare exit != 0 must be told apart by
+    # what the process said (usage vs crash), not by the code alone.
+    err_pipe = subprocess.DEVNULL if web else subprocess.PIPE
     proc = subprocess.Popen(cmd, cwd=proj, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            start_new_session=True)
+                            stdout=subprocess.DEVNULL, stderr=err_pipe,
+                            text=True, start_new_session=True)
     try:
         deadline = time.time() + 12
         if not web:
             while time.time() < deadline:
                 if proc.poll() is not None:
+                    said = (proc.stderr.read() or "") if err_pipe != subprocess.DEVNULL else ""
                     if proc.returncode == 0:
                         return "PASSED", "exited cleanly (code 0)"
+                    # #53: an argv-CLI launched bare that demands its
+                    # argument prints usage and exits nonzero — that is
+                    # the product working as specified, not a crash. A
+                    # traceback is a real crash and stays FAILED.
+                    if re.search(r"(?i)\busage\b", said):
+                        return "SKIPPED", (f"exited {proc.returncode} asking for "
+                                           "its argument (usage on stderr) — "
+                                           "smoke cannot judge a bare argv-CLI")
                     return "FAILED", f"process exited with code {proc.returncode}"
                 time.sleep(0.75)
             return "PASSED", "still running after 12s (started cleanly)"
