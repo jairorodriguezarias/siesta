@@ -433,6 +433,13 @@
       "summary": "Skill improvement: issue-executor (project level)",
       "detail": "Consolidate CLI error-handling and sorting recipes into a new \"CLI Patterns\" section to promote reusable patterns for future CLI projects.",
       "created_at": "2026-09-09T04:44:07Z"
+    },
+    {
+      "id": "n1788929766_485070",
+      "type": "decision",
+      "summary": "Round-9: verify markers tolerate markdown + smoke judges usage-exits",
+      "detail": "Fixed #52: shared _DECOR prefix in text.py \u2014 heading/bold/italic before any anchored marker matches (run #25's QA verdict '**VERIFY_PASSED:**' fell to the fallback and failed a working product); bare indentation still never matches. Fixed #53: runtime_smoke captures CLI stderr \u2014 a nonzero exit saying 'usage' is SKIPPED-with-reason (argv-CLI working as specified), traceback stays FAILED. Verified against run #25's real wordcount.py. Suite 189/189.",
+      "created_at": "2026-09-09T04:56:06Z"
     }
   ],
   "edges": []
