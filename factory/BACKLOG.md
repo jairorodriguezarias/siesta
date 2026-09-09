@@ -509,11 +509,21 @@ tests (raw `pi` calls, no pipeline involved):
   requested level only for known thinking models (glm) and pins `off` otherwise,
   so a misrouted deep-diagnosis call (`thinking="high"` on qwen) can no longer
   400; unit-tested both ways.
-- [ ] **#25 Relaunch run-4 after #23 is green.** Idea already detailed for
+- [x] **#25 Relaunch run-4 after #23 is green.** Idea already detailed for
   --auto intent (wordcount.py CLI). Failed attempt artifacts live in
   `factory/projects/a-tiny-python-3-cli-wordcount-py-that/` (interview_output,
   spec_output ×2, failure KB nodes) — relaunch fresh with the same idea, then
   confirm #8 (parseable learner outputs) with this run too.
+  ✅ done 2026-09-09 (run #25, `a-tiny-python-3-cli-called-wordcount-py`,
+  first all-cloud run): #23 confirmed — spec, plan and 4/4 issues executed
+  where run-4 died in phase 1; #8 confirmed — per-issue learning (incl. the
+  #3 degenerate→retry, analyzed with actions) and project-level learning all
+  parseable and useful. Delivered product works (manual check: correct
+  output, 9/9 tests, review clean) but closed UNVERIFIED: the QA's verdict
+  marker was bolded (#52) and the bare smoke misread the CLI's arg-error
+  exit (#53) — both factory defects, now in the backlog. Run-4's own dir
+  (`…-reads`) accidentally resumed first and honestly reported 5/5 blocked +
+  UNVERIFIED (#34's KB-rebuild summary works on resume).
 - [x] **#26 Decide the fate of the 2 never-loaded addyosmani skills**
   (`git-workflow-and-versioning`, `using-agent-skills` — verified: no run_pi
   call loads them). Options: wire git-workflow into review/commit guidance, or
@@ -525,6 +535,50 @@ tests (raw `pi` calls, no pipeline involved):
   kept per decision (2026-09-04) but the Python port never executes them; say
   so explicitly to avoid future archaeology.
   ✅ documented in AGENTS.md (this batch).
+- [ ] **#51 "Creating project" lies when the slug collides — same idea always
+  resumes, never fresh.** `slug()` truncates the idea at 40 chars, so
+  relaunching "the same idea" (text-identical, e.g. #25) maps to the dead
+  run-4 dir and `_run()` resumes it instead of creating a project: the log
+  says "Creating project:" while the run is actually a resume (run-4's shell
+  spent 2 minutes printing the honest 5/5-blocked summary and exited).
+  Not a data-loss bug — resume of a complete-but-dead project is honest
+  (#34) — but the log line is a lie and the operator can't tell fresh from
+  resume without reading further. Fix sketch: make `_run()` say "Resuming"
+  when the checkpoint exists, and consider a `--fresh` flag (or a warn when
+  the checkpoint is `complete`) so a "relaunch" is always intentional.
+  Found live 2026-09-09 launching #25.
+- [ ] **#52 Verdict markers wrapped in markdown bold are invisible — GLM's
+  `**VERIFY_PASSED:**` fell to the mechanical fallback and failed a working
+  project.** The QA engineer's verify output ended with `**VERIFY_PASSED:**`
+  (bold), but `text.VERIFY_PASSED` anchors `^VERIFY_PASSED:` to line start —
+  the marker never matched, verify discarded the QA's verdict, and the
+  fallback (regression + smoke) decided: smoke FAILED (see #53) →
+  VERIFY_FAILED → delivered UNVERIFIED, while the delivered product
+  actually works (manual check: correct output, 9/9 tests). Same risk for
+  every anchored protocol marker: GLM habitually bolds headings/answers;
+  the worker marker gates (CONSULT/PROXY) and the learner gates
+  (LEARNING/SKILL_UPDATE) can silently lose markers the same way (the
+  learner's repeated "Rejected skill update ... not a complete SKILL.md"
+  in run #25 — 4 warnings — is likely the same bold/format drift on
+  SKILL_UPDATE).
+  Fix sketch: tolerate markdown emphasis before the marker in all
+  anchored marker regexes (`^#{0,3}\s*\**\s*VERIFY_PASSED:` style), and a
+  test per gate with a bolded marker. Found live 2026-09-09, run #25.
+- [ ] **#53 Runtime smoke runs argv-CLIs bare — a correct CLI that requires
+  an argument exits 1 on the smoke and reads as FAILED.** `runtime_smoke()`
+  launches the detected entry point with no arguments; the #25 wordcount
+  (spec: `python wordcount.py <file>`) correctly printed usage to stderr
+  and exited 1, so the smoke read FAILED and the fallback verdict
+  failed the whole verify (compounding with #52: the QA's marker was
+  ignored, so the mechanical checks alone decided). The QA engineer's own
+  static analysis described the exact expected error-exit behavior — the
+  product was right and the smoke misread it.
+  Fix sketch: for CLI entry points (non-web), treat a fast nonzero exit
+  that printed a usage message to stderr (or generally: exit != 0 within
+  the deadline where the spec demands an argument) as SKIPPED-with-reason
+  rather than FAILED; or probe with a generated temp input file when the
+  entry point is argv-based. A red regression suite must still fail
+  verify. Found live 2026-09-09, run #25.
 
 Improvements already shipped this round (for the changelog):
 - [x] Orchestrator narration persisted: siesta.sh tees stdout+stderr to

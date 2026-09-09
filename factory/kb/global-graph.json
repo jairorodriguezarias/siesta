@@ -342,6 +342,97 @@
       "summary": "Successful clean execution of helper function issue",
       "detail": "Worker implemented format_time and correctly matched AC to test cases (0, 59, 60, 1500), verifying with pytest.",
       "created_at": "2026-09-06T19:22:46Z"
+    },
+    {
+      "id": "n1788926968_562004",
+      "type": "decision",
+      "summary": "Round-9: worker routed to gemma4:31b-cloud",
+      "detail": "All roles now route to Ollama Cloud (planner/consultant glm-5.2:cloud unchanged). Worker gemma4:31b-cloud verified for native tool calling through the real stack (pi wrote hello.py and ran it); served window 262144 read from POST /api/show (cloud models never appear in /api/ps - local daemon is only a proxy) and registered in pi catalog. Suite 172/172 after making routing tests read config instead of freezing gemma4:latest. Motivation: the local 8B worker's 8K served window was the pomodoro run's bottleneck (round-8 incident).",
+      "created_at": "2026-09-09T04:09:28Z"
+    },
+    {
+      "id": "n1788928419_867826",
+      "type": "decision",
+      "summary": "Round-9: blocked-issue residue discarded + root suites count",
+      "detail": "Fixed #49: _discard_residue() on every block (degenerate, diagnosis-skip, stuck-after-diagnosis, red-regression skip) restores tracked files to the last commit and removes untracked product files (restore + clean -fd, no -x - ignored run evidence and the KB survive); pre-issue dirty-tree guard at the top of the issue loop. Fixed #50: _suite_dirs() detects suites where they live (root test_*.py counts when pytest importable, tests/ counts, every dir runs); verify fallback uses the same detection. Suite 183/183.",
+      "created_at": "2026-09-09T04:33:39Z"
+    },
+    {
+      "id": "n1788928678_482300",
+      "type": "learning",
+      "summary": "Degenerate output pattern across issues 1-5",
+      "detail": "The worker repeatedly generated degenerate output for a-tiny-python-3-cli-wordcount-py-reads, indicating that consecutive degenerate outputs should trigger a model switch or context reset.",
+      "created_at": "2026-09-09T04:37:58Z"
+    },
+    {
+      "id": "n1788928678_943810",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (project level)",
+      "detail": "Add a degenerate output detection mechanism that counts consecutive failures of the same type and halts the worker to prompt a model switch or retry.",
+      "created_at": "2026-09-09T04:37:58Z"
+    },
+    {
+      "id": "n1788928940_830960",
+      "type": "learning",
+      "summary": "Successful scaffold execution",
+      "detail": "The worker successfully created the project scaffold (wordcount.py, tests/__init__.py, README.md, test_wordcount.py) and verified the green baseline using the exact command from the acceptance criteria.",
+      "created_at": "2026-09-09T04:42:20Z"
+    },
+    {
+      "id": "n1788928965_923139",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #2)",
+      "detail": "Add a \"CLI error-handling recipe\" subsection describing the standard pattern: validate `sys.argv` length, print to `sys.stderr`, call `sys.exit(1)` on failure and `sys.exit(0)` on success. Include the corresponding `unittest` pattern using `subprocess.run` with `capture_output=True` and asserting `returncode` and non-empty `stderr`.",
+      "created_at": "2026-09-09T04:42:45Z"
+    },
+    {
+      "id": "n1788928965_772975",
+      "type": "learning",
+      "summary": "Clean CLI validation execution",
+      "detail": "For CLI argument + file-access error issues, the pattern of \"stderr message + exit 1 on failure, exit 0 on success\" with subprocess-based unittests covering both error cases executes cleanly and should be reused.",
+      "created_at": "2026-09-09T04:42:45Z"
+    },
+    {
+      "id": "n1788928965_773028",
+      "type": "learning",
+      "summary": "Acceptance-criteria-to-test traceability",
+      "detail": "Worker mapped each acceptance criterion to exactly one test, resulting in 3 criteria \u2192 3 tests with full coverage and a green suite.",
+      "created_at": "2026-09-09T04:42:45Z"
+    },
+    {
+      "id": "n1788928999_300261",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #3)",
+      "detail": "Add a checklist item for compound sorting requirements: \"When issues specify sorting by one field and breaking ties by another, use a compound sort key (e.g., `key=lambda x: (-x[1], x[0])` for descending count, ascending word).\"",
+      "created_at": "2026-09-09T04:43:19Z"
+    },
+    {
+      "id": "n1788928999_224421",
+      "type": "learning",
+      "summary": "Retry successful on wordcount pipeline",
+      "detail": "Worker failed first attempt (output unavailable) but succeeded on retry by closely following acceptance criteria for tie-breaking and top-10 limit.",
+      "created_at": "2026-09-09T04:43:19Z"
+    },
+    {
+      "id": "n1788929023_313024",
+      "type": "learning",
+      "summary": "Clean execution of edge-case hardening",
+      "detail": "Issue #4 implemented output regex validation and edge-case limits cleanly, adding specific tests for zero-token and short-file scenarios.",
+      "created_at": "2026-09-09T04:43:43Z"
+    },
+    {
+      "id": "n1788929047_712229",
+      "type": "learning",
+      "summary": "Project execution success",
+      "detail": "The project successfully implemented a Python 3 CLI wordcount tool with clean mapping of acceptance criteria to tests, proper CLI validation, and edge-case handling.",
+      "created_at": "2026-09-09T04:44:07Z"
+    },
+    {
+      "id": "n1788929047_984031",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (project level)",
+      "detail": "Consolidate CLI error-handling and sorting recipes into a new \"CLI Patterns\" section to promote reusable patterns for future CLI projects.",
+      "created_at": "2026-09-09T04:44:07Z"
     }
   ],
   "edges": []
