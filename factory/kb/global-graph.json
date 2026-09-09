@@ -440,6 +440,97 @@
       "summary": "Round-9: verify markers tolerate markdown + smoke judges usage-exits",
       "detail": "Fixed #52: shared _DECOR prefix in text.py \u2014 heading/bold/italic before any anchored marker matches (run #25's QA verdict '**VERIFY_PASSED:**' fell to the fallback and failed a working product); bare indentation still never matches. Fixed #53: runtime_smoke captures CLI stderr \u2014 a nonzero exit saying 'usage' is SKIPPED-with-reason (argv-CLI working as specified), traceback stays FAILED. Verified against run #25's real wordcount.py. Suite 189/189.",
       "created_at": "2026-09-09T04:56:06Z"
+    },
+    {
+      "id": "n1788929918_742717",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #3)",
+      "detail": "Add an \"Anti-Hallucination & Tool Enforcement\" section requiring actual tool execution before claiming success.",
+      "created_at": "2026-09-09T04:58:38Z"
+    },
+    {
+      "id": "n1788929918_705131",
+      "type": "learning",
+      "summary": "Hallucinated tool execution",
+      "detail": "Worker generated a completion summary claiming pytest passed without invoking file edit or test execution tools.",
+      "created_at": "2026-09-09T04:58:38Z"
+    },
+    {
+      "id": "n1788929918_164685",
+      "type": "learning",
+      "summary": "Cycle management logic",
+      "detail": "The logic for returning \"Long Break\" after 4 work sessions and \"Short Break\" otherwise was correctly understood but not executed.",
+      "created_at": "2026-09-09T04:58:38Z"
+    },
+    {
+      "id": "n1788929965_101208",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #5)",
+      "detail": "Add an explicit warning against hallucinating tool execution in the Verification section.",
+      "created_at": "2026-09-09T04:59:25Z"
+    },
+    {
+      "id": "n1788929965_749897",
+      "type": "learning",
+      "summary": "Hallucinated tool execution",
+      "detail": "Worker faked pytest output instead of running the command, causing a block on retry.",
+      "created_at": "2026-09-09T04:59:25Z"
+    },
+    {
+      "id": "n1788929997_274036",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #6)",
+      "detail": "Add a specific rule in the testing guidance: \"When implementing GUI frameworks (Tkinter, PyQt, etc.), DO NOT call the blocking main loop (`mainloop()`) until the final integration issue. Isolate the window initialization and widget update methods so they can be called directly in tests without hanging the test suite.\"",
+      "created_at": "2026-09-09T04:59:57Z"
+    },
+    {
+      "id": "n1788929997_71942",
+      "type": "learning",
+      "summary": "GUI testing without blocking",
+      "detail": "Defer `root.mainloop()` to avoid pytest hanging when testing Tkinter applications. Test UI components by calling initialization and update methods directly.",
+      "created_at": "2026-09-09T04:59:57Z"
+    },
+    {
+      "id": "n1788930057_522748",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #7)",
+      "detail": "Add a section \"GUI Loop / Logic Separation\" with the rule: when integrating a Tkinter `after` loop with a controller, keep running-state guards in the GUI orchestration method, never inside the controller's logic methods. Write the unit test for the logic method before wiring the GUI to catch coupling early.",
+      "created_at": "2026-09-09T05:00:57Z"
+    },
+    {
+      "id": "n1788930057_262045",
+      "type": "learning",
+      "summary": "\"Separating GUI loop guards from controller logic: Place is_running checks in the GUI after-loop, not inside TimerController.tick(), so tick() remains unit-testable without setting running state.\"",
+      "detail": "Issue #7 retry revealed that putting `if not self.is_running: return` inside `TimerController.tick()` broke all existing tick unit tests. Fix: move the guard to `PomodoroApp.tick()` before calling `controller.tick()`.",
+      "created_at": "2026-09-09T05:00:57Z"
+    },
+    {
+      "id": "n1788930057_10079",
+      "type": "learning",
+      "summary": "\"Retry successful on pomodoro GUI integration issue #7\"",
+      "detail": "Worker retried after first attempt failed pytest due to logic/orchestration coupling; second attempt fixed it cleanly with 23 tests passing.",
+      "created_at": "2026-09-09T05:00:57Z"
+    },
+    {
+      "id": "n1788930108_645185",
+      "type": "learning",
+      "summary": "Hallucination pattern across multiple issues",
+      "detail": "Worker simulated pytest output instead of running tools in issues #3, #4, and #5, requiring strict anti-hallucination enforcement in the executor skill.",
+      "created_at": "2026-09-09T05:01:48Z"
+    },
+    {
+      "id": "n1788930108_681130",
+      "type": "learning",
+      "summary": "Tkinter GUI testing patterns",
+      "detail": "Defer `mainloop()` to final integration; keep state guards (`is_running`) in the GUI orchestration layer, not in controller logic, to preserve unit testability.",
+      "created_at": "2026-09-09T05:01:48Z"
+    },
+    {
+      "id": "n1788930108_726009",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (project level)",
+      "detail": "Add an \"Anti-Hallucination & Tool Enforcement\" section and a \"GUI Loop/Logic Separation\" section.",
+      "created_at": "2026-09-09T05:01:48Z"
     }
   ],
   "edges": []
