@@ -24,6 +24,9 @@ PHASE_ORDER = ["phase-0", "phase-1", "phase-2", "phase-3",
 # preserves, so the #49 residue discard never destroys evidence.
 GITIGNORE = (
     ".DS_Store\n__pycache__/\n*.pyc\n.pipeline-checkpoint\n"
+    # .pipeline-idea is run bookkeeping the #56 guard reads on relaunch —
+    # ignored (not product, never committed) but preserved by clean -fd.
+    ".pipeline-idea\n"
     "verify_verdict.txt\n"
     "*_output.txt\ninterview_closeout.txt\nregression_*.log\n"
     "regression_repair_*.txt\n"
@@ -36,6 +39,15 @@ def slug(idea: str) -> str:
     if len(name) > 40:
         name = re.sub(r"-[^-]*$", "", name[:40])
     return name or f"project-{int(time.time())}"
+
+
+def _norm_idea(s: str) -> str:
+    """Comparison form of an idea: case/whitespace differences are typos,
+    but different words are a different project (#56)."""
+    return re.sub(r"\s+", " ", s.lower()).strip()
+
+
+IDEA_FILE = ".pipeline-idea"
 
 
 def _latest(kb: Graph, type_: str) -> str | None:
@@ -128,8 +140,25 @@ def _run(args) -> None:
     if checkpoint.exists():
         log(f"Resuming project: {name} (checkpoint: "
             f"{checkpoint.read_text().strip() or 'unknown'})")
+        # #56: the slug cuts at 40 chars, so a DIFFERENT idea can map to a
+        # completed project's dir (tempconv/guessgame collision, live
+        # 2026-09-10). Resume of the same idea is the design; resuming on
+        # behalf of a different idea silently ignores the new one.
+        idea_file = proj / IDEA_FILE
+        if idea_file.exists() and \
+                _norm_idea(idea_file.read_text()) != _norm_idea(idea):
+            err(f"Project dir exists for a DIFFERENT idea: {proj}")
+            err(f'  recorded idea: "{idea_file.read_text().strip()}"')
+            err(f'  current  idea: "{idea}"')
+            err("Resume is for continuing the same idea. Pick a different "
+                "wording (the slug truncates at 40 chars) or remove the "
+                "old project dir to start fresh.")
+            raise SystemExit(1)
     else:
         log(f"Creating project: {name}")
+        # record the idea — the #56 collision guard reads this on relaunch
+        proj.mkdir(parents=True, exist_ok=True)
+        (proj / IDEA_FILE).write_text(idea + "\n")
     _warn_context_mismatches()
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same
@@ -232,6 +261,15 @@ def _run(args) -> None:
     mark("phase-5")
 
     # ─── PHASE 6: DONE ───────────────────────────────────────────────────
+    if done("complete"):
+        # #57: a completed project's relaunch printed the summary but ALSO
+        # re-ran phase 6 (duplicate "Project verified" commit) and phase 7
+        # (duplicate project-level learnings in the global KB) — a done
+        # project must stay done.
+        log("Project already complete (resume mode) — nothing left to do")
+        blocked = _blocked_from_kb(kb)
+        _summary(proj, name, kb, blocked)
+        return
     phase(6, "DONE")
     # #6: the decision node and the commit message tell the truth about the
     # verdict — never "verified" for a project that failed verify.
@@ -252,6 +290,10 @@ def _run(args) -> None:
 
     # ─── Summary ─────────────────────────────────────────────────────────
     ok("Siesta pipeline complete!")
+    _summary(proj, name, kb, blocked)
+
+
+def _summary(proj: Path, name: str, kb: Graph, blocked: list[int]) -> None:
     git_log = subprocess.run(["git", "-C", str(proj), "log", "--oneline"],
                              capture_output=True, text=True).stdout.splitlines()
     try:

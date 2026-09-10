@@ -108,6 +108,15 @@ How should I implement this?" ;;
 How should I implement this?" ;;
           proxy_request) echo "PROXY_REQUEST: requesting approval to proceed.
 Justification: the change requires it." ;;
+          proxy_hang) echo "PROXY_REQUEST: requesting approval to proceed.
+Justification: the change requires it." ;;
+          proxy_approved_implements)
+            case "$*" in
+              *"Approval was granted"*)
+                echo "ISSUE_OK: implemented the issue after the approval" ;;
+              *) echo "PROXY_REQUEST: requesting approval to proceed.
+Justification: the change requires it." ;;
+            esac ;;
           proxy_rejected|proxy_no_marker)
             case "$*" in
               *"Proxy rejected"*|*"Proxy did not approve"*)
@@ -347,6 +356,23 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         # 2 issue-level proxies + 1 review proxy
         self.assertEqual(len(self.types(self.kb(), "proxy_decision")), 3)
+
+    def test_proxy_approval_still_implements_the_issue(self):
+        # #58: APPROVED used to mean "continue" with no worker re-invocation
+        # — the issue was marked completed on a bare PROXY_REQUEST and
+        # nothing was ever implemented. The worker MUST run again with
+        # the approval fed back.
+        result = self.siesta("--auto", self.idea,
+                             scenario="proxy_approved_implements")
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(self.types(self.kb(), "blocker"), [])
+        self.assertIn("Issue #1 completed", self.decisions())
+        # the completion node records the IMPLEMENTATION, not the request
+        first = next(n for n in self.kb()["nodes"]
+                     if n["summary"] == "Issue #1 completed")
+        self.assertIn("implemented the issue", first["detail"])
+        # each issue: PROXY attempt + post-approval implementation = 2
+        self.assertGreaterEqual(self.log_count("--model worker-model"), 4)
 
     # ─── degenerate-output guard (#2) ────────────────────────────────────
 
@@ -600,6 +626,46 @@ class PipelineRun(unittest.TestCase):
         # a genuinely fresh idea still says "Creating"
         fresh = self.siesta("--auto", self.idea + " and a tail")
         self.assertIn("Creating project", fresh.stderr)
+
+    def test_different_idea_with_same_slug_dies_loudly(self):
+        # #56: two DIFFERENT ideas sharing a >40-char prefix slug-map to
+        # the same dir — the newer idea used to silently resume the older
+        # project (tempconv/guessgame collision, live 2026-09-10).
+        from pipeline.__main__ import slug
+        prefix = "build a tiny todo cli with a very long shared prefix"
+        idea_a = f"{prefix} alpha variant"
+        idea_b = f"{prefix} beta variant"
+        self.assertEqual(slug(idea_a), slug(idea_b))
+        self.siesta("--auto", idea_a)
+        collide = self.siesta("--auto", idea_b)
+        self.assertNotEqual(collide.returncode, 0)
+        self.assertIn("DIFFERENT idea", collide.stderr)
+        # the original idea still resumes cleanly (no worker calls)
+        (self.tmp / "pi_calls.log").write_text("")
+        again = self.siesta("--auto", idea_a)
+        self.assertEqual(again.returncode, 0, again.stderr[-3000:])
+        self.assertEqual(self.log_count("--model worker-model"), 0)
+
+    def test_relaunch_of_completed_project_does_not_duplicate(self):
+        # #57: checkpoint complete → phases 6-7 re-ran on every relaunch:
+        # a duplicate "Project verified" commit and duplicate project-level
+        # learnings landed in the project git history and the global KB.
+        first = self.siesta("--auto", self.idea)
+        self.assertEqual(first.returncode, 0, first.stderr[-3000:])
+        proj = self.proj()
+        one = subprocess.run(["git", "-C", str(proj), "log", "--oneline"],
+                             capture_output=True, text=True).stdout
+        self.assertEqual(one.count("Project verified"), 1)
+        gkb_nodes = len(self.kb("factory/kb/global-graph.json")["nodes"])
+        (self.tmp / "pi_calls.log").write_text("")
+        second = self.siesta("--auto", self.idea)
+        self.assertEqual(second.returncode, 0, second.stderr[-3000:])
+        two = subprocess.run(["git", "-C", str(proj), "log", "--oneline"],
+                             capture_output=True, text=True).stdout
+        self.assertEqual(two.count("Project verified"), 1)
+        self.assertEqual(
+            len(self.kb("factory/kb/global-graph.json")["nodes"]), gkb_nodes)
+        self.assertIn("already complete", second.stderr)
 
     def test_generated_project_has_hygiene_gitignore(self):
         # #7: `git add -A` must not commit .DS_Store/__pycache__/checkpoint

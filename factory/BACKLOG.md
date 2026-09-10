@@ -643,3 +643,56 @@ red-test-first; 196 tests green after.
   issue #1 no longer inherits #10's blocker, insertion order can't flip
   the verdict, clean projects flag nothing. Unit tests in test_learn
   (IssueFacts): 4 cases including the exact poison shape.
+- [x] **#56 Slug collision silently resumes a DIFFERENT idea's project.**
+  Found live in the round-10 e2e monitoring (2026-09-10): the tempconv
+  case ran green (5 issues, verified), then the guessgame case — a
+  DIFFERENT idea sharing only the prefix "Build a tiny Python 3 CLI
+  called" — slug-mapped to the SAME `build-a-tiny-python-3-cli-called`
+  dir (slug cuts the idea at 40 chars) and resumed the completed
+  tempconv project instead of creating guessgame. The #51 fix made the
+  log honest ("Resuming project") which is how this became visible —
+  but the operator's new idea still silently never runs. A relaunch of
+  "the same idea" resuming is the intended design; a DIFFERENT idea
+  mapping to a completed project is a lie with exit 0.
+  ✅ fixed (round-10, batch 2): project init records the full idea in
+  `.pipeline-idea` (ignored, like the checkpoint — never committed, never
+  cleaned); a relaunch whose normalized idea differs from the recorded
+  one dies loudly (exit 1, both ideas printed, remedy in the message).
+  Same-idea relaunches resume exactly as before. Integration test: two
+  ideas sharing a >40-char prefix — the second dies, the first still
+  resumes cleanly.
+- [x] **#57 Resume past `complete` re-runs phases 6-7 — duplicate commits
+  and duplicate learnings.** The same collision run showed the second
+  defect: with checkpoint `complete`, `done()` skips phases 0-5 but
+  phase 6 (commit "Project verified") and phase 7 (project learning)
+  run unconditionally on EVERY relaunch — the tempconv dir now has a
+  duplicate "Project verified" commit (b06a6d4 on top of d99f7c0) and
+  the global KB received 3 duplicate project-level learnings. A
+  completed project's relaunch should print the summary and exit, not
+  re-learn.
+  ✅ fixed (round-10, batch 2): `if done("complete")` short-circuits
+  before phase 6 — logs "already complete", rebuilds the blocked list
+  from the KB (#34), prints the summary (extracted to `_summary()`),
+  returns. A done project stays done: no duplicate commit, no duplicate
+  learnings. Integration test: relaunch of a completed project leaves
+  exactly one "Project verified" commit and the global KB node count
+  unchanged.
+- [x] **#58 Proxy APPROVED marked the issue complete on a bare
+  PROXY_REQUEST — nothing was ever implemented.** Found in the round-10
+  top-to-bottom review (`phases._escalate`): when the worker asked for
+  proxy approval and the proxy APPROVED, the pipeline logged "continuing
+  with the approach" but never re-invoked the worker — the output was
+  still the PROXY_REQUEST text, so `post_issue` recorded a *request* as
+  the completion detail and the issue counted as "executed" with zero
+  implementation. Family A ("silence = success") at its purest: the
+  skill's own contract says the worker implements *after* approval.
+  Same family, second defect in the same function: `_escalate` operated
+  on a local copy of `output`, so even consult/diagnosis recoveries
+  logged the ORIGINAL stuck output as the completion record (#29 fixed
+  the first-attempt case for clean issues but not for escalated ones).
+  ✅ fixed (round-10, batch 2): APPROVED now re-invokes the worker with
+  the approval fed back ("approval was granted — now implement the issue
+  fully"); `_escalate` returns (stuck, final_output) and the caller logs
+  the implementation, never the stuck request. Integration test:
+  approved issue #1 completes with "implemented" in the decision node
+  detail, and the worker gets a post-approval call.

@@ -739,8 +739,8 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                             f"Worker never produced a usable answer: {reason}")
                     _discard_residue(proj, num, "degenerate output")
                     continue
-        stuck = _escalate(proj, num, output, issue_text, kb_summaries, source,
-                          kb, fails, history, blocked)
+        stuck, output = _escalate(proj, num, output, issue_text, kb_summaries,
+                                   source, kb, fails, history, blocked)
         if not stuck:
             ok(f"Issue #{num} executed")
             post_issue(proj, num, output, kb)
@@ -751,8 +751,13 @@ def execute(proj: Path, kb: Graph) -> list[int]:
 
 def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: str,
               source: str, kb: Graph, fails: dict, history: dict,
-              blocked: list[int]) -> bool:
-    """Walk the stuck protocol. Returns True if the issue needs no post-work."""
+              blocked: list[int]) -> tuple[bool, str]:
+    """Walk the stuck protocol.
+
+    Returns (issue-needs-no-post-work, final worker output) — the caller
+    logs the returned output, so it must be the implementation, never the
+    stuck request (#29's lesson, applied to every escalation path).
+    """
     # Marker gates match fence-free: a CONSULT:/PROXY_REQUEST: the worker
     # quotes as a code example is not the worker speaking (round-7).
     output = text.without_fences(output)
@@ -770,7 +775,14 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                           artifact=proj / f"proxy_{num}_output.txt")
         kb.node("proxy_decision", f"Proxy decision for issue #{num}", decision)
         if text.APPROVED.search(decision):
-            log("Proxy explicitly approved — continuing with the approach")
+            # #58: approval is permission, not an execution — the worker
+            # that asked must now implement with the approval fed back.
+            # Marking the issue complete on a bare PROXY_REQUEST logged a
+            # request as a completion and built nothing.
+            log("Proxy explicitly approved — worker continues with the approach")
+            output = _retry(
+                f"Proxy APPROVED your request: {decision}\n"
+                f"Approval was granted — now implement the issue fully: {issue_text}")
         elif text.REJECTED.search(decision):
             warn("Proxy rejected, retrying with a different approach...")
             output = _retry(
@@ -814,7 +826,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                         "Manual intervention needed.")
                     err("CRITICAL: stop.md created. Pipeline will halt.")
                     raise SystemExit(0)  # per AGENTS.md: CRITICAL halts the pipeline
-                return True
+                return True, output
             log("Diagnosis provided, feeding back to worker...")
             output = _retry(
                 f"A senior engineer did a deep diagnosis and provided this plan:\n\n"
@@ -826,7 +838,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                 kb.node("blocker", f"Issue #{num} blocked after diagnosis",
                         "Worker still stuck after deep diagnosis")
                 _discard_residue(proj, num, "still stuck after diagnosis")
-                return True
+                return True, output
             break  # recovered after diagnosis
         resolution = run_pi(
             "consultant", CONSULT_PROMPT.format(consult=consult, kb=kb_summaries),
@@ -842,7 +854,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
         # still CONSULT → the loop escalates (fail 2, then the fail-3 diagnosis)
         stuck_at = text.CONSULT.search(text.without_fences(output))
     # A stuck round that recovered still gets the post hooks.
-    return False
+    return False, output
 
 
 # ─── Phase 4: REVIEW ─────────────────────────────────────────────────────
