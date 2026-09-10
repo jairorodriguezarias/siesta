@@ -14,7 +14,7 @@ venv/
 # Project outputs (each project has its own git repo)
 factory/projects/
 
-# Runtime skill views (recreated by setup-github.sh)
+# Runtime agent state (pi CLI can write here)
 .claude/
 
 # Pipeline checkpoints
