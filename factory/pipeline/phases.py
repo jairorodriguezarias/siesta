@@ -998,6 +998,27 @@ def _is_entry_point(source: str) -> bool:
     return False
 
 
+GUI_TOOLKITS = ("tkinter", "PyQt", "PySide", "wxPython", "kivy", "curses",
+                "cocoa", "Objective-C", "SwiftUI")
+
+
+def _looks_gui(proj: Path, cmd: list[str]) -> bool:
+    """True when the launched entry point's project smells like a GUI —
+    #54: for those, "still running" can only mean liveness; the smoke must
+    say so instead of implying the user will see anything. Best-effort by
+    design: a miss is only a missing caveat, never a wrong verdict."""
+    if not cmd:
+        return False
+    target = Path(cmd[-1])
+    if not target.suffix == ".py":
+        return False
+    try:
+        source = target.read_text(errors="replace")
+    except OSError:
+        return False
+    return any(t in source for t in GUI_TOOLKITS)
+
+
 def runtime_smoke(proj: Path) -> tuple[str, str]:
     """Launch the project locally; returns (status, detail).
 
@@ -1038,7 +1059,13 @@ def runtime_smoke(proj: Path) -> tuple[str, str]:
                                            "smoke cannot judge a bare argv-CLI")
                     return "FAILED", f"process exited with code {proc.returncode}"
                 time.sleep(0.75)
-            return "PASSED", "still running after 12s (started cleanly)"
+            return "PASSED", "still running after 12s (started cleanly)" + (
+                # #54: liveness is all a processless smoke can prove — for
+                # a GUI the window may open BEHIND others (the pomodoro
+                # incident: "verified" app looked dead to the human). The
+                # honest verdict says what it does NOT know.
+                " — window visibility NOT checked" if _looks_gui(proj, cmd)
+                else "")
         last = ""
         while time.time() < deadline:
             try:

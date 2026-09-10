@@ -123,7 +123,13 @@ def _run(args) -> None:
     name = slug(idea)
     proj = FACTORY / "projects" / name
     checkpoint = proj / ".pipeline-checkpoint"
-    log(f"Creating project: {name}")
+    # #51: the same idea always slug-maps to the same dir, so a relaunch
+    # is silently a resume — the operator must be able to tell them apart.
+    if checkpoint.exists():
+        log(f"Resuming project: {name} (checkpoint: "
+            f"{checkpoint.read_text().strip() or 'unknown'})")
+    else:
+        log(f"Creating project: {name}")
     _warn_context_mismatches()
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same

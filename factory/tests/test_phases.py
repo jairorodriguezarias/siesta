@@ -281,6 +281,31 @@ class RuntimeSmoke(unittest.TestCase):
         self.assertEqual(status, "PASSED")
         self.assertIn("exited cleanly", detail)
 
+    def test_gui_still_running_says_visibility_not_checked(self):
+        # #54: "still running" for a GUI only proves the process lives —
+        # the smoke can never see a window (the pomodoro incident: Tk
+        # opened BEHIND other windows and the "verified" app looked dead).
+        # The honest verdict must say what it does NOT know.
+        status, detail = self.smoke({
+            "pomodoro_app.py":
+                "import time\n"
+                "import tkinter as tk\n\n"
+                "if __name__ == \"__main__\":\n"
+                "    time.sleep(300)\n"})
+        self.assertEqual(status, "PASSED")
+        self.assertIn("still running", detail)
+        self.assertIn("window visibility NOT checked", detail)
+
+    def test_plain_still_running_keeps_old_detail(self):
+        # a non-GUI long-runner (a timer daemon) needs no GUI caveat
+        status, detail = self.smoke({
+            "timer.py":
+                "import time\n\n"
+                "if __name__ == \"__main__\":\n"
+                "    time.sleep(300)\n"})
+        self.assertEqual(status, "PASSED")
+        self.assertNotIn("visibility", detail)
+
 
 class AbandonedInterview(unittest.TestCase):
     """#45: the human leaving mid-interview gets an autonomous close-out."""

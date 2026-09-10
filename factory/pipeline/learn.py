@@ -150,7 +150,10 @@ def _issue_facts(proj: Path, n: int, issue_text: str, kb: Graph) -> dict:
     consult = readable(f"consult_{n}_output.txt")
     proxy = readable(f"proxy_{n}_output.txt")
     retry = readable(f"issue_{n}_retry_output.txt")
-    blocked = any(f"Issue #{n}" in node["summary"]
+    # Word-boundary match: "Issue #1" is also a substring of "Issue #10
+    # blocked" — a completed issue #1 must not inherit a neighbor's
+    # blocker, or the learner logs false facts into the global KB.
+    blocked = any(re.search(rf"[Ii]ssue #{n}\b", node["summary"])
                   for node in kb.query(type_="blocker"))
     return {
         "issue_text": text.head(issue_text, 30),

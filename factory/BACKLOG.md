@@ -535,7 +535,7 @@ tests (raw `pi` calls, no pipeline involved):
   kept per decision (2026-09-04) but the Python port never executes them; say
   so explicitly to avoid future archaeology.
   ✅ documented in AGENTS.md (this batch).
-- [ ] **#51 "Creating project" lies when the slug collides — same idea always
+- [x] **#51 "Creating project" lies when the slug collides — same idea always
   resumes, never fresh.** `slug()` truncates the idea at 40 chars, so
   relaunching "the same idea" (text-identical, e.g. #25) maps to the dead
   run-4 dir and `_run()` resumes it instead of creating a project: the log
@@ -547,6 +547,12 @@ tests (raw `pi` calls, no pipeline involved):
   when the checkpoint exists, and consider a `--fresh` flag (or a warn when
   the checkpoint is `complete`) so a "relaunch" is always intentional.
   Found live 2026-09-09 launching #25.
+  ✅ fixed (round-10, batch 1): `_run()` now says "Resuming project: <name>
+  (checkpoint: <state>)" when the checkpoint exists and "Creating project"
+  only for a genuinely fresh dir. Integration test: a same-idea relaunch
+  says Resuming, a different idea still says Creating. (`--fresh` flag left
+  out — the honest log line is the fix; the operator can `rm -rf` a dead
+  project dir deliberately.)
 - [x] **#52 Verdict markers wrapped in markdown bold are invisible — GLM's
   `**VERIFY_PASSED:**` fell to the mechanical fallback and failed a working
   project.** The QA engineer's verify output ended with `**VERIFY_PASSED:**`
@@ -606,7 +612,34 @@ tests (raw `pi` calls, no pipeline involved):
   `root.lift()` / `-topmost` on launch (not pipeline code); (c) do NOT
   chase screenshot tooling — assistive access grants are out of scope
   for a personal pipeline. Found live 2026-09-09, pomodoro relaunch.
+  ✅ (a) fixed (round-10, batch 1): `runtime_smoke` appends " — window
+  visibility NOT checked" to the still-running PASSED detail when the
+  launched entry point's source mentions a GUI toolkit (tkinter/PyQt/
+  PySide/wxPython/kivy/cocoa…). Best-effort sniff, by design: a miss is
+  a missing caveat, never a wrong verdict. Unit tests: GUI long-runner
+  gets the caveat, plain timer daemon does not. (b)/(c) rejected per the
+  finding's own guidance.
 
 Improvements already shipped this round (for the changelog):
 - [x] Orchestrator narration persisted: siesta.sh tees stdout+stderr to
   `factory/pipeline.log` (9b45293). README/AGENTS updated accordingly.
+
+## Round-10 findings (2026-09-10 — top-to-bottom review, TDD batch fixes)
+
+Full walkthrough of all 6 pipeline modules (~2030 lines: `__main__.py`,
+`phases.py`, `pi.py`, `text.py`, `kb.py`, `learn.py`) with the 189-test
+suite green as baseline. Batch 1 = #51 + #54(a) + the #55 below, each
+red-test-first; 196 tests green after.
+
+- [x] **#55 The per-issue learner's blocker flag matches by substring.**
+  `learn._issue_facts` used `f"Issue #{n}" in node["summary"]` — but
+  "Issue #1" is also a substring of "Issue #10 blocked after diagnosis",
+  so a completed issue #1 in a project with 10+ issues (or any #1–#9 next
+  to a #10+ blocker) reads as BLOCKED in the learning prompt, and the
+  learner logs false facts ("Issue was BLOCKED" for a clean issue) into
+  the global KB — the factory's long-term memory. Silent corruption, no
+  gate catches it (the learner's output is advice, not protocol).
+  ✅ fixed in the batch-1 batch: word-boundary regex `[Ii]ssue #{n}\b` —
+  issue #1 no longer inherits #10's blocker, insertion order can't flip
+  the verdict, clean projects flag nothing. Unit tests in test_learn
+  (IssueFacts): 4 cases including the exact poison shape.

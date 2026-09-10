@@ -52,6 +52,41 @@ SKILL_UPDATE_END
 """
 
 
+class IssueFacts(unittest.TestCase):
+    """The per-issue learner must read THIS issue's facts, not a substring
+    neighbor's: "Issue #1" also matches inside "Issue #10 blocked" — the
+    blocker flag would fire for a completed issue #1 and log false facts
+    into the global KB (the factory's long-term memory)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = Path(self.tmp.name)
+        self.kb = Graph(self.proj / "kb" / "graph.json")
+
+    def facts(self, n: int) -> dict:
+        return learn._issue_facts(self.proj, n, "write hello", self.kb)
+
+    def test_issue_1_not_flagged_blocked_by_issue_10_blocker(self):
+        self.kb.node("blocker", "Issue #10 blocked after diagnosis", "boom")
+        self.assertFalse(self.facts(1)["flags"]["blocker"])
+
+    def test_own_issue_blocker_still_flags(self):
+        self.kb.node("blocker", "Issue #1 blocked after diagnosis", "boom")
+        self.assertTrue(self.facts(1)["flags"]["blocker"])
+
+    def test_own_issue_blocker_flagged_after_higher_numbered_blocker(self):
+        # the KB insertion order must not matter — only the number
+        self.kb.node("blocker", "Issue #10 blocked after diagnosis", "boom")
+        self.kb.node("blocker", "Issue #1 degenerate output", "boom")
+        self.assertTrue(self.facts(1)["flags"]["blocker"])
+
+    def test_clean_project_flags_nothing(self):
+        self.assertEqual(self.facts(1)["flags"],
+                         {"consult": False, "proxy": False,
+                          "retry": False, "blocker": False})
+
+
 class ActOnLearnings(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

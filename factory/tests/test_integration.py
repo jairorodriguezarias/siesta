@@ -588,6 +588,19 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("2 blocked", second.stdout)
         self.assertIn("Blocked issues: #1, #2", second.stderr)
 
+    def test_resume_says_resuming_not_creating(self):
+        # #51: the slug maps the same idea to the same dir every time, so a
+        # relaunch is silently a resume — the operator can't tell fresh
+        # from resume while the log still says "Creating project".
+        self.siesta("--auto", self.idea)
+        result = self.siesta("--auto", self.idea)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertNotIn("Creating project", result.stderr)
+        self.assertIn("Resuming project", result.stderr)
+        # a genuinely fresh idea still says "Creating"
+        fresh = self.siesta("--auto", self.idea + " and a tail")
+        self.assertIn("Creating project", fresh.stderr)
+
     def test_generated_project_has_hygiene_gitignore(self):
         # #7: `git add -A` must not commit .DS_Store/__pycache__/checkpoint
         self.siesta("--auto", self.idea)
