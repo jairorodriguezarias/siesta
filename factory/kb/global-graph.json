@@ -531,6 +531,412 @@
       "summary": "Skill improvement: issue-executor (project level)",
       "detail": "Add an \"Anti-Hallucination & Tool Enforcement\" section and a \"GUI Loop/Logic Separation\" section.",
       "created_at": "2026-09-09T05:01:48Z"
+    },
+    {
+      "id": "n1789066439_762730",
+      "type": "learning",
+      "summary": "Successful scaffold execution (issue #1 tempconv)",
+      "detail": "Worker correctly limited scope to scaffold only, used a real import-based smoke test, and ran both AC verification commands verbatim. This is the third recurrence of the \"clean scaffold issue\" pattern in the global KB.",
+      "created_at": "2026-09-10T18:53:59Z"
+    },
+    {
+      "id": "n1789066439_233117",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #1)",
+      "detail": "Add a short \"Scaffold issues\" subsection that codifies the best-practice observed: (a) implement ONLY the minimal file layout + guards, never the feature logic; (b) make the smoke test import a real symbol rather than `assert True`; (c) run each acceptance-criteria verification command verbatim.",
+      "created_at": "2026-09-10T18:53:59Z"
+    },
+    {
+      "id": "n1789066463_109251",
+      "type": "learning",
+      "summary": "Clean execution of first conversion path on scaffold (issue #2 tempconv)",
+      "detail": "Worker correctly extended issue #1 scaffold with C\u2192F conversion, used subprocess integration tests mapped 1:1 to acceptance criteria, and performed dual pytest+manual verification. 3 tests green.",
+      "created_at": "2026-09-10T18:54:23Z"
+    },
+    {
+      "id": "n1789066558_235694",
+      "type": "learning",
+      "summary": "Clean execution of second conversion path (issue #3 tempconv)",
+      "detail": "The worker successfully implemented F->C conversion reusing existing CLI structure and verified both conversion directions work without interfering.",
+      "created_at": "2026-09-10T18:55:58Z"
+    },
+    {
+      "id": "n1789066577_162545",
+      "type": "learning",
+      "summary": "Clean execution of input normalization (issue #4 tempconv)",
+      "detail": "Using `.upper()` on the CLI argument before conditional routing cleanly handles case-insensitivity, and adding explicit parity tests for lower vs upper inputs ensures acceptance criteria are strictly verified.",
+      "created_at": "2026-09-10T18:56:17Z"
+    },
+    {
+      "id": "n1789066614_73070",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #5)",
+      "detail": "Add a section on handling library default exit codes (like argparse's 2) when a spec mandates a specific exit code (like 1), specifically mentioning catching SystemExit.",
+      "created_at": "2026-09-10T18:56:54Z"
+    },
+    {
+      "id": "n1789066614_788993",
+      "type": "learning",
+      "summary": "Intercepting argparse SystemExit for custom exit codes",
+      "detail": "When a spec requires a specific exit code (e.g., 1) for argument errors but the CLI library defaults to another (e.g., argparse uses 2), wrap the parsing call in a try-except block to catch SystemExit and explicitly exit with the required code.",
+      "created_at": "2026-09-10T18:56:54Z"
+    },
+    {
+      "id": "n1789066733_599723",
+      "type": "learning",
+      "summary": "Frictionless CLI project execution",
+      "detail": "The tempconv project was completed with zero blockers or consultations across all 5 issues, demonstrating excellent scope discipline, strict AC-to-test traceability, and idiomatic handling of CLI library quirks.",
+      "created_at": "2026-09-10T18:58:53Z"
+    },
+    {
+      "id": "n1789066733_34022",
+      "type": "learning",
+      "summary": "Handling CLI library default exit codes",
+      "detail": "When a spec requires a specific exit code (e.g., 1) for argument errors but the CLI library defaults to another (e.g., argparse uses 2), wrap the parsing call in a try-except block to catch SystemExit and explicitly exit with the required code.",
+      "created_at": "2026-09-10T18:58:53Z"
+    },
+    {
+      "id": "n1789066733_981334",
+      "type": "learning",
+      "summary": "Strict AC-to-Test Traceability",
+      "detail": "For CLI projects, using subprocess-based integration tests that directly map to the exact acceptance criteria invocations (e.g., `tempconv.py 100 C` -> `212.00`) ensures that the test suite genuinely verifies the project requirements.",
+      "created_at": "2026-09-10T18:58:53Z"
+    },
+    {
+      "id": "n1789066733_169120",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (project level)",
+      "detail": "Add a \"CLI Implementation Best Practices\" section covering (1) Scaffold issues (implement only minimal layout, use real imports in smoke tests), (2) Extending scaffolds without duplicating parsing logic, and (3) Intercepting library default exit codes (e.g., catching `SystemExit` from `argparse`).",
+      "created_at": "2026-09-10T18:58:53Z"
+    },
+    {
+      "id": "n1789068029_828932",
+      "type": "learning",
+      "summary": "Frictionless CLI project execution",
+      "detail": "A 5-issue Python CLI project was executed with 0 blockers and 0 retries, strictly following incremental feature building and AC-to-test traceability.",
+      "created_at": "2026-09-10T19:20:29Z"
+    },
+    {
+      "id": "n1789068029_648826",
+      "type": "learning",
+      "summary": "Strict AC-to-Test Traceability",
+      "detail": "Using subprocess integration tests that directly invoke the CLI exactly as written in the acceptance criteria ensures strict compliance and catches real-world execution discrepancies.",
+      "created_at": "2026-09-10T19:20:29Z"
+    },
+    {
+      "id": "n1789068029_619411",
+      "type": "learning",
+      "summary": "Handling CLI library default exit codes",
+      "detail": "When a spec mandates a specific exit code (like 1) that differs from a library default (like argparse's 2), wrapping the parser call to catch SystemExit and explicitly calling sys.exit() with the required code is the standard fix.",
+      "created_at": "2026-09-10T19:20:29Z"
+    },
+    {
+      "id": "n1789068029_438556",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (project level)",
+      "detail": "Restructure to include a \"CLI Project Execution\" subsection consolidating scaffold best-practices, subprocess-based AC testing, and exit code interception.",
+      "created_at": "2026-09-10T19:20:29Z"
+    },
+    {
+      "id": "n1789068146_983436",
+      "type": "learning",
+      "summary": "Successful scaffold execution (guessgame)",
+      "detail": "Module and smoke test created, pytest verified passing.",
+      "created_at": "2026-09-10T19:22:26Z"
+    },
+    {
+      "id": "n1789068173_768407",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #2)",
+      "detail": "Add a subsection under testing guidance: \"Testing Randomness: When implementing and testing functions that return random values without a fixed seed, use loop-based sampling (e.g., 1000+ iterations) to assert that the output strictly falls within expected inclusive bounds and maintains the correct type.\"",
+      "created_at": "2026-09-10T19:22:53Z"
+    },
+    {
+      "id": "n1789068173_408892",
+      "type": "learning",
+      "summary": "Testing random function bounds",
+      "detail": "When testing functions that return random numbers, sample repeatedly (e.g., 1000 times) to assert type and inclusive range bounds without relying on a fixed seed.",
+      "created_at": "2026-09-10T19:22:53Z"
+    },
+    {
+      "id": "n1789068190_407004",
+      "type": "learning",
+      "summary": "Clean execution of pure comparison function (issue #3 guessgame)",
+      "detail": "Worker implemented compare_guess() with 3 branches and comprehensive boundary tests, all passing on first attempt",
+      "created_at": "2026-09-10T19:23:10Z"
+    },
+    {
+      "id": "n1789068206_751931",
+      "type": "learning",
+      "summary": "Clean execution of input parsing function (issue #4 guessgame)",
+      "detail": "The worker successfully decoupled input validation into a pure function and implemented it using minimal TDD, covering all AC edge cases.",
+      "created_at": "2026-09-10T19:23:26Z"
+    },
+    {
+      "id": "n1789068235_773541",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #5)",
+      "detail": "Add a testing pattern note: \"When implementing interactive `while` loops for CLI games, verify the exit code by mocking `sys.stdin` with `io.StringIO` to feed inputs directly to the loop helper, asserting it exits cleanly without spawning a subprocess.\"",
+      "created_at": "2026-09-10T19:23:55Z"
+    },
+    {
+      "id": "n1789068235_711765",
+      "type": "learning",
+      "summary": "Clean execution of CLI game loop integration (issue #5 guessgame)",
+      "detail": "Successfully integrated helper functions into a main loop, handled invalid input state correctly, and used mocked stdin to test the loop's exit status.",
+      "created_at": "2026-09-10T19:23:55Z"
+    },
+    {
+      "id": "n1789068277_846438",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #6)",
+      "detail": "Add a \"Testing nondeterministic CLI loops\" subsection: When an issue requires end-to-end testing of a CLI that uses randomness, prefer adding an optional DI parameter (e.g. `secret=None`) to the main entry function that defaults to the random source but can be overridden; alternatively, feed a complete range of inputs (e.g. 1\u2013100) to guarantee hitting the secret without knowing it. Always prefer subprocess with piped stdin for true end-to-end verification of the interactive contract.",
+      "created_at": "2026-09-10T19:24:37Z"
+    },
+    {
+      "id": "n1789068277_597463",
+      "type": "learning",
+      "summary": "Clean execution of end-to-end acceptance verification (issue #6 guessgame)",
+      "detail": "DI seam + subprocess stdin piping pattern for nondeterministic CLI testing executed frictionlessly.",
+      "created_at": "2026-09-10T19:24:37Z"
+    },
+    {
+      "id": "n1789068298_160877",
+      "type": "learning",
+      "summary": "Frictionless TDD execution for CLI project",
+      "detail": "The project was completed in 6 issues with zero blockers, using pure function decoupling and smart nondeterminism testing.",
+      "created_at": "2026-09-10T19:24:58Z"
+    },
+    {
+      "id": "n1789068298_767864",
+      "type": "learning",
+      "summary": "Testing non-deterministic interactive CLIs",
+      "detail": "Consolidated patterns for handling randomness in tests (loop sampling, full-range feeding) and interactive loops (mocked stdin, subprocess piping, DI seams).",
+      "created_at": "2026-09-10T19:24:58Z"
+    },
+    {
+      "id": "n1789069005_751893",
+      "type": "learning",
+      "summary": "Successful scaffold execution",
+      "detail": "Issue #1 executed cleanly establishing pwcheck.py and test_pwcheck.py with subprocess smoke test pattern.",
+      "created_at": "2026-09-10T19:36:45Z"
+    },
+    {
+      "id": "n1789069022_929344",
+      "type": "learning",
+      "summary": "Clean execution of CLI usage-error validation (issue #2 pwcheck)",
+      "detail": "Worker correctly implemented no-argument usage error with exact stderr string match, empty stdout, exit code 1, and left one-arg case stubbed per AC.",
+      "created_at": "2026-09-10T19:37:02Z"
+    },
+    {
+      "id": "n1789069022_903969",
+      "type": "learning",
+      "summary": "Clean execution of CLI usage-error validation (issue #2 pwcheck)",
+      "detail": "Worker implemented no-arg usage error to stderr with exit code 1, exact string match, empty stdout, stubbed one-arg case per AC, full suite green.",
+      "created_at": "2026-09-10T19:37:02Z"
+    },
+    {
+      "id": "n1789069041_153536",
+      "type": "learning",
+      "summary": "Clean execution of STRONG password path (issue #3 pwcheck)",
+      "detail": "Worker followed Red->Green->Verify TDD discipline with explicit regression verification of Issue #2 usage errors; all ACs met on first attempt",
+      "created_at": "2026-09-10T19:37:21Z"
+    },
+    {
+      "id": "n1789069063_155832",
+      "type": "learning",
+      "summary": "Clean execution of WEAK password path (issue #4 pwcheck)",
+      "detail": "Worker successfully inverted existing `is_strong` logic to implement the WEAK branch without duplicating validation checks.",
+      "created_at": "2026-09-10T19:37:43Z"
+    },
+    {
+      "id": "n1789069076_687703",
+      "type": "learning",
+      "summary": "Clean execution of WEAK password missing-uppercase path (issue #5 pwcheck)",
+      "detail": "The worker successfully added the dedicated test `test_pwcheck_weak_missing_uppercase` using the example `\"abcdefghij1!\"` and verified the full suite passed, maintaining strict AC-to-Test traceability.",
+      "created_at": "2026-09-10T19:37:56Z"
+    },
+    {
+      "id": "n1789069105_610866",
+      "type": "learning",
+      "summary": "Clean execution of WEAK password missing-lowercase path (issue #6 pwcheck)",
+      "detail": "Worker recognized existing implementation already covered the AC, added only the dedicated test, and avoided unnecessary code changes.",
+      "created_at": "2026-09-10T19:38:25Z"
+    },
+    {
+      "id": "n1789069105_509624",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #6)",
+      "detail": "Add guidance in the implementation phase: \"Before writing implementation code, check whether existing logic already satisfies the new AC. If it does, add the test and explicitly state 'no code change needed \u2014 existing logic covers this.' Do not modify working code to satisfy an already-met criterion.\"",
+      "created_at": "2026-09-10T19:38:25Z"
+    },
+    {
+      "id": "n1789069130_759469",
+      "type": "learning",
+      "summary": "Clean execution of WEAK password missing-digit path (issue #7 pwcheck)",
+      "detail": "The worker successfully added a test for a case that was already handled by existing logic without modifying the logic itself.",
+      "created_at": "2026-09-10T19:38:50Z"
+    },
+    {
+      "id": "n1789069148_799970",
+      "type": "learning",
+      "summary": "Clean execution of WEAK password missing-symbol path (issue #8 pwcheck)",
+      "detail": "Worker correctly identified a test-only issue where implementation already handled the edge case via `has_symbol` check, added dedicated test for AC3, and verified full suite green (8 tests).",
+      "created_at": "2026-09-10T19:39:08Z"
+    },
+    {
+      "id": "n1789069163_583046",
+      "type": "learning",
+      "summary": "Clean execution of empty-string edge case (issue #9 pwcheck)",
+      "detail": "Python's `sys.argv` naturally distinguishes no-argument from empty-string arguments, but explicit tests are still required to lock down this boundary.",
+      "created_at": "2026-09-10T19:39:23Z"
+    },
+    {
+      "id": "n1789069191_110304",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #10)",
+      "detail": "Add a step in the implementation phase: \"Before writing implementation logic, verify if the existing code already satisfies the new acceptance criteria. If it does, only add the necessary tests and do not modify the working code unnecessarily.\"",
+      "created_at": "2026-09-10T19:39:51Z"
+    },
+    {
+      "id": "n1789069191_222506",
+      "type": "learning",
+      "summary": "Clean execution of extra-arguments edge case (issue #10 pwcheck)",
+      "detail": "Existing implementation already handled `sys.argv[1]` correctly, worker only added tests without over-engineering.",
+      "created_at": "2026-09-10T19:39:51Z"
+    },
+    {
+      "id": "n1789069222_20965",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #11)",
+      "detail": "Add a note in the implementation guidelines about Python built-in string methods (`isalnum()`, `isalpha()`, `isdigit()`) and their behavior with Unicode characters. Specify that `isalnum()` and `isalpha()` return `True` for non-ASCII characters, and that `isascii()` can be combined to restrict checks to the ASCII set if required by Acceptance Criteria.",
+      "created_at": "2026-09-10T19:40:22Z"
+    },
+    {
+      "id": "n1789069222_139126",
+      "type": "learning",
+      "summary": "Unicode handling in Python string classification",
+      "detail": "`str.isalnum()` returns True for non-ASCII letters, so to treat non-ASCII characters as symbols, combine `isalnum()` with `isascii()` check.",
+      "created_at": "2026-09-10T19:40:22Z"
+    },
+    {
+      "id": "n1789069251_419996",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #12)",
+      "detail": "Add a section \"Regression Gate Issue Pattern\" covering: (1) create a consolidated parameterized test mapping each AC by name/ID, (2) assert exact stdout, stderr, AND returncode via subprocess.run, (3) preserve existing edge-case tests, (4) re-verify implementation constraints (pure stdlib, single-file, no I/O/network/config), (5) verify exit-code contract (0 for results, 1 for usage error, no others).",
+      "created_at": "2026-09-10T19:40:51Z"
+    },
+    {
+      "id": "n1789069251_443756",
+      "type": "learning",
+      "summary": "Clean execution of consolidated acceptance criteria regression gate (issue #12 pwcheck)",
+      "detail": "parameterized AC1-AC7 tests with exact stdout/stderr/returncode assertions, edge cases preserved, all 14 tests passed.",
+      "created_at": "2026-09-10T19:40:51Z"
+    },
+    {
+      "id": "n1789069278_835107",
+      "type": "learning",
+      "summary": "Frictionless TDD execution for CLI project",
+      "detail": "The project completed all 12 issues with 0 blockers, 0 consultations, and 0 retries, demonstrating that the current issue-executor skill enables smooth execution for simple CLI tools.",
+      "created_at": "2026-09-10T19:41:18Z"
+    },
+    {
+      "id": "n1789069278_931495",
+      "type": "learning",
+      "summary": "\"Already-covered\" pattern recognition",
+      "detail": "When implementing edge cases after a core feature, existing logic often satisfies the new ACs. The worker correctly recognized this in issues #5-#10 and only added tests without modifying working code.",
+      "created_at": "2026-09-10T19:41:18Z"
+    },
+    {
+      "id": "n1789069278_645255",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (project level)",
+      "detail": "Add a consolidated \"Already-Covered Pattern\" section, add \"Regression Gate Issue Pattern\" section, and add a note about Python Unicode string methods.",
+      "created_at": "2026-09-10T19:41:18Z"
+    },
+    {
+      "id": "n1789069340_36614",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #1)",
+      "detail": "In the scaffolding phase guidelines, explicitly mention using `pythonpath = [\".\"]` under `[tool.pytest.ini_options]` in `pyproject.toml` for flat-layout Python projects to guarantee `import <package>` works in tests from the root.",
+      "created_at": "2026-09-10T19:42:20Z"
+    },
+    {
+      "id": "n1789069340_660809",
+      "type": "learning",
+      "summary": "Successful scaffold execution (issue #1 diceroll)",
+      "detail": "Clean execution of project scaffolding with pytest flat-layout pythonpath configuration.",
+      "created_at": "2026-09-10T19:42:20Z"
+    },
+    {
+      "id": "n1789069366_847301",
+      "type": "learning",
+      "summary": "Clean execution of random function bounds testing (issue #2 diceroll)",
+      "detail": "Worker implemented TDD cleanly, using large sample sizes (1000-5000 iterations) to test type, bounds, and edge-case (1 and 6) appearance, plus signature validation.",
+      "created_at": "2026-09-10T19:42:46Z"
+    },
+    {
+      "id": "n1789069395_205827",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #3)",
+      "detail": "Add a section on Python `__init__.py` re-exports: when re-exporting a function that shares a name with its submodule (e.g., `roll` from `diceroll/roll.py`), ensure existing tests use explicit imports to avoid `AttributeError` from namespace shadowing.",
+      "created_at": "2026-09-10T19:43:15Z"
+    },
+    {
+      "id": "n1789069395_686222",
+      "type": "learning",
+      "summary": "Clean execution of Python package re-export with namespace collision handling (issue #3 diceroll)",
+      "detail": "Worker successfully re-exported `roll` in `__init__.py` and proactively updated existing tests to use direct imports, avoiding `AttributeError` caused by the package-level re-export overlapping with the submodule name in the test namespace.",
+      "created_at": "2026-09-10T19:43:15Z"
+    },
+    {
+      "id": "n1789069428_906692",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (issue #4)",
+      "detail": "Add a \"file-write verification checkpoint\" step: after every file write/create operation, the worker must re-read the file (cat or equivalent) to confirm content is on disk before proceeding. Add a subprocess test template section showing `subprocess.run([sys.executable, \"-m\", \"package_name\"], capture_output=True, text=True)` pattern for `python -m` entry point tests, with assertions for exit code 0, stdout regex `^\\d+\\n$`, and empty stderr.",
+      "created_at": "2026-09-10T19:43:48Z"
+    },
+    {
+      "id": "n1789069428_899335",
+      "type": "learning",
+      "summary": "Retry successful on diceroll __main__ entry point (issue #4)",
+      "detail": "first attempt failed (empty output, likely hallucinated tool execution), second attempt passed all criteria",
+      "created_at": "2026-09-10T19:43:48Z"
+    },
+    {
+      "id": "n1789069428_947997",
+      "type": "learning",
+      "summary": "Subprocess test pattern for python -m entry points",
+      "detail": "use sys.executable instead of hardcoded \"python\" to ensure test runs with the same interpreter",
+      "created_at": "2026-09-10T19:43:48Z"
+    },
+    {
+      "id": "n1789069461_48572",
+      "type": "learning",
+      "summary": "Frictionless TDD execution for simple Python utility package (diceroll)",
+      "detail": "3 of 4 issues passed first attempt with clean RED\u2192GREEN discipline; the one retry was caused by hallucinated tool execution on __main__.py.",
+      "created_at": "2026-09-10T19:44:21Z"
+    },
+    {
+      "id": "n1789069461_629316",
+      "type": "learning",
+      "summary": "Python packaging pattern cluster (diceroll)",
+      "detail": "Three reusable patterns emerged: flat-layout pytest pythonpath config, __init__.py re-export namespace collision handling, and subprocess testing for python -m entry points using sys.executable.",
+      "created_at": "2026-09-10T19:44:21Z"
+    },
+    {
+      "id": "n1789069461_46876",
+      "type": "learning",
+      "summary": "File-write verification checkpoint reinforced (diceroll)",
+      "detail": "The single failure in this project was hallucinated tool execution on issue #4; re-reading files after writes would have caught it immediately.",
+      "created_at": "2026-09-10T19:44:21Z"
+    },
+    {
+      "id": "n1789069461_697824",
+      "type": "decision",
+      "summary": "Skill improvement: issue-executor (project level)",
+      "detail": "Add a \"Python Project Patterns\" section consolidating: (1) flat-layout pytest pythonpath config, (2) __init__.py re-export namespace collision handling, (3) subprocess test template for python -m entry points. Add a mandatory \"File-Write Verification Checkpoint\" rule: after every file write, re-read the file to confirm content is on disk before proceeding.",
+      "created_at": "2026-09-10T19:44:21Z"
     }
   ],
   "edges": []
