@@ -4,7 +4,7 @@
 
 Siesta is a local-first autonomous development pipeline for macOS. You give it a project idea, answer a few clarifying questions, then walk away. When you come back, there's a git repository with working, tested code that runs locally.
 
-No cloud APIs. No external services. Everything runs using [Ollama](https://ollama.ai) local models, the [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent and Ollama Cloud (GLM 5.2)
+No API keys. No third-party SaaS. Everything runs through your [Ollama](https://ollama.ai) account — the local daemon orchestrates, and every model role is served by [Ollama Cloud](https://ollama.com/cloud) via the [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent: GLM 5.2 for planning/consulting, Gemma4 31B as the worker.
 
 ---
 
@@ -41,12 +41,12 @@ You:  Come back. Working code. Git history. KB of decisions. 🎉
 
 | Model | Roles | When |
 |-------|-------|------|
-| **GLM 5.2** (via `pi`, Ollama Cloud) | Planner, consultant, human-proxy, learner — the roles that must hold the text protocol | Phases 0–2, consultations, proxy decisions, per-issue + project learning |
-| **Gemma4 8B** (100% local, Ollama) | Worker — the one that writes code, reviews and verifies | Phases 3–5 |
+| **GLM 5.2** (Ollama Cloud, via `pi`) | Planner, consultant, human-proxy, learner — the roles that must hold the text protocol | Phases 0–2, consultations, proxy decisions, per-issue + project learning |
+| **Gemma4 31B** (Ollama Cloud) | Worker — the one that writes code, reviews and verifies | Phases 3–5 |
 
 The split is deliberate: the protocol phases need a model that answers with markers
 (`INTENT_FINALIZED:`, `VERIFY_PASSED:`…) instead of tool-call JSON — live runs showed
-the local coder model alone cannot hold that contract. The worker is picked for
+a coder model alone cannot hold that contract. The worker is picked for
 reliable **native tool calling** through Ollama: qwen2.5-coder was retired after
 [ollama#12174](https://github.com/ollama/ollama/issues/12174) made it return tool
 calls as plain text, so it could not write files or run tests at all; gemma4 was
@@ -75,7 +75,7 @@ that enforces two rules the pipeline depends on:
 | 4 — Review | Code review across 5 axes; human-proxy approves | worker + consultant |
 | 5 — Verify | Does it run locally? Fix if not | worker |
 | 6 — Done | Final git commit | — |
-| 7 — Learn | Cross-issue pattern analysis; skill improvement | worker |
+| 7 — Learn | Cross-issue pattern analysis; skill improvement | consultant (learner) |
 
 ### Knowledge Base (KB)
 
@@ -92,7 +92,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 
 ### Skills
 
-**10 skills from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** (intact, unmodified):
+**10 skills from [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)** (with factory-tailoring sections for the autonomous, no-tools output protocol):
 
 `interview-me`, `spec-driven-development`, `planning-and-task-breakdown`, `incremental-implementation`, `test-driven-development`, `debugging-and-error-recovery`, `code-review-and-quality`, `code-simplification`, `git-workflow-and-versioning`, `using-agent-skills`
 
@@ -149,14 +149,11 @@ Skills improve. Next project is smarter.
 
 ### Prerequisites
 
-- [Ollama](https://ollama.ai) running locally
+- [Ollama](https://ollama.ai) running locally (it proxies every model call to [Ollama Cloud](https://ollama.com/cloud))
 - [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent (`npm install -g pi`)
-- Models: `glm-5.2:cloud` (planner/consultant, via `pi`) and `gemma4:latest` (worker)
+- Models: `glm-5.2:cloud` (planner/consultant) and `gemma4:31b-cloud` (worker) — served by Ollama Cloud, no local pulls needed
 
 ```bash
-# Install the local worker model
-ollama pull gemma4
-
 # Install Pi
 npm install -g pi
 ```
@@ -179,7 +176,7 @@ cd ~/Desktop/siesta
 # Make the entry point executable
 chmod +x factory/bin/siesta.sh
 
-# Verify Ollama is running
+# Verify Ollama is running (it proxies to your Ollama Cloud account)
 ollama list
 
 # Verify Pi is configured
@@ -256,7 +253,7 @@ siesta/
 │   └── projects/                  # Output: built projects land here
 │
 ├── .agents/
-│   ├── skills/                    # 10 addyosmani skills (intact)
+│   ├── skills/                    # 10 addyosmani skills (factory-tailored)
 │   ├── agents/
 │   │   └── code-reviewer.md       # code-reviewer persona
 │   ├── references/

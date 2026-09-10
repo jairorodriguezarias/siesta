@@ -696,3 +696,24 @@ red-test-first; 196 tests green after.
   the implementation, never the stuck request. Integration test:
   approved issue #1 completes with "implemented" in the decision node
   detail, and the worker gets a post-approval call.
+- [x] **#59 Docs advertise a worker that no longer exists — README and
+  the siesta.sh banner claim "Gemma4 8B, 100% local" while every role
+  routes to Ollama Cloud since round-9.** The README intro said "No
+  cloud APIs. No external services." with a prerequisite to
+  `ollama pull gemma4` for a local worker; the banner that siesta.sh
+  prints at the start of EVERY run said "Worker: Gemma4 8B — local
+  (Ollama)". All four round-10 e2e runs printed that lie while actually
+  calling gemma4:31b-cloud — an operator reading the console during a
+  run would believe the compute is local (it isn't; the daemon only
+  proxies). The README also mislabeled Phase 7's learner as "worker"
+  (it runs on the consultant role since #46) and the addyosmani skills
+  as "intact, unmodified" (they carry factory-tailoring sections).
+  Docs drift is the same family as the spec-relevance guard (#5): the
+  description must match the reality it describes.
+  ✅ fixed (round-10, close-out): README intro/models table/prerequisites
+  rewritten for the all-cloud truth (no local pulls; Ollama daemon as
+  proxy), Phase 7 role corrected, skills wording corrected; siesta.sh
+  banner + header comments now say Gemma4 31B — Ollama Cloud. Verified
+  by grep: no "Gemma4 8B" / "gemma4:latest" / "100% local" /
+  "No cloud APIs" strings remain in README.md, AGENTS.md, siesta.sh,
+  models.json or this backlog.
