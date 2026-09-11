@@ -6,8 +6,10 @@ writing are the only concerns.
 """
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -186,19 +188,30 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
         # still leave naturally (EOF ends the stream; wait returns fast).
         chunks: list[str] = []
         with subprocess.Popen(args, stdout=subprocess.PIPE, text=True,
-                              cwd=where, env=env) as p:
-            for line in p.stdout:
-                print(line, end="")
-                chunks.append(line)
+                              cwd=where, env=env, start_new_session=True) as p:
+            expired = threading.Event()
+
+            def expire():
+                expired.set()
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+            timer = threading.Timer(PI_TIMEOUT, expire)
+            timer.daemon = True
+            timer.start()
             try:
-                p.wait(timeout=PI_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                p.kill()
+                for line in p.stdout:
+                    print(line, end="", flush=True)
+                    chunks.append(line)
+                p.wait()
+            finally:
+                timer.cancel()
+                timer.join()
+            if expired.is_set():
                 err(f"interactive pi call timed out after {PI_TIMEOUT}s "
                     f"— treating as no answer")
-                text_out = "".join(chunks)
-                _maybe_write(artifact, text_out)
-                return text_out
         text_out = "".join(chunks)
         _maybe_write(artifact, text_out)
         return text_out
@@ -213,6 +226,10 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
         stderr_out = (result.stderr or "").strip()
         if stderr_out:
             warn("pi stderr: " + " / ".join(stderr_out.splitlines()[:3]))
+        if result.returncode:
+            warn(f"pi exited with status {result.returncode}; answer rejected")
+            stderr_out += f"\nEXIT_STATUS: {result.returncode}\nPARTIAL_OUTPUT: {text_out}"
+            text_out = ""
     except subprocess.TimeoutExpired:
         # #10: a timed-out call is "no answer" — the empty return flows into
         # the degenerate-output guards, which treat it as a failed attempt.

@@ -285,11 +285,14 @@ class RuntimeSmoke(unittest.TestCase):
         # #54: "still running" for a GUI only proves the process lives —
         # the smoke can never see a window (the pomodoro incident: Tk
         # opened BEHIND other windows and the "verified" app looked dead).
-        # The honest verdict must say what it does NOT know.
+        # The honest verdict must say what it does NOT know. Keep the GUI
+        # import lazy: this tests source classification, not installed Tk.
         status, detail = self.smoke({
             "pomodoro_app.py":
                 "import time\n"
-                "import tkinter as tk\n\n"
+                "def create_window():\n"
+                "    import tkinter as tk\n"
+                "    return tk.Tk()\n\n"
                 "if __name__ == \"__main__\":\n"
                 "    time.sleep(300)\n"})
         self.assertEqual(status, "PASSED")
@@ -408,6 +411,8 @@ class BlockedIssueResidue(unittest.TestCase):
                         "user.email", "t@t"], capture_output=True)
         subprocess.run(["git", "-C", str(self.proj), "config",
                         "user.name", "t"], capture_output=True)
+        from pipeline.__main__ import GITIGNORE
+        (self.proj / ".gitignore").write_text(GITIGNORE)
         (self.proj / "app.py").write_text("def format_time(s):\n    return s\n")
         (self.proj / "test_app.py").write_text(
             "from app import format_time\n"

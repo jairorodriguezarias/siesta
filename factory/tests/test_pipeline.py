@@ -40,11 +40,11 @@ class VerifyFallback(unittest.TestCase):
         with patch.object(phases, "run_pi", return_value=DRIFTED):
             self.assertEqual(phases.verify(proj), "VERIFY_FAILED")
 
-    def test_explicit_marker_wins_over_regression(self):
-        # Primary signal stays strict: a passed marker never runs the fallback.
+    def test_explicit_model_approval_cannot_override_red_regression(self):
+        # A model's approval cannot replace passing mechanical evidence.
         proj = _proj("def test_bad():\n    assert False\n")
         with patch.object(phases, "run_pi", return_value="VERIFY_PASSED: runs fine"):
-            self.assertEqual(phases.verify(proj), "VERIFY_PASSED")
+            self.assertEqual(phases.verify(proj), "VERIFY_FAILED")
 
 
 class StartupContextGuard(unittest.TestCase):

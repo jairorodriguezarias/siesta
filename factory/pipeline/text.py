@@ -23,7 +23,8 @@ CONSULT = re.compile(rf"^{_DECOR}CONSULT:", re.M)
 PROXY = re.compile(rf"^{_DECOR}PROXY_REQUEST:", re.M)
 SKIP = re.compile(rf"^{_DECOR}SKIP:", re.M)
 CRITICAL = re.compile(rf"^{_DECOR}CRITICAL:", re.M)
-REJECTED = re.compile(rf"^{_DECOR}REJECTED:", re.M)
+REJECTED = re.compile(rf"^(?:{_DECOR}PROXY_DECISION:[ \t]*)?{_DECOR}REJECTED\b", re.M)
+NEEDS_REVISION = re.compile(rf"^(?:{_DECOR}PROXY_DECISION:[ \t]*)?{_DECOR}NEEDS_REVISION\b", re.M)
 # Explicit approval only (#3): "APPROVED" at line start, optionally after the
 # skill's own "PROXY_DECISION:" prefix. Hesitation, NEEDS_REVISION or garbage
 # do not match — gates treat no explicit approval as "not approved".

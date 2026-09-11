@@ -19,12 +19,20 @@ from uuid import uuid4
 from pipeline import phases
 
 FACTORY = Path(__file__).resolve().parent.parent
+GIT_ENV = {"GIT_AUTHOR_NAME": "Siesta Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
+           "GIT_COMMITTER_NAME": "Siesta Test", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
 STUB = r"""#!/bin/bash
 # fake-pi — canned model responses for the pipeline integration tests.
 printf '%s\n' "$*" >> "${FAKE_PI_LOG:-/dev/null}"
 
 model="" prev=""
 for a in "$@"; do [ "$prev" = "--model" ] && model="$a"; prev="$a"; done
+
+implement() {
+  printf 'def greeting():\n    return "hello"\n' > todo.py
+  printf 'from todo import greeting\n\ndef test_greeting():\n    assert greeting() == "hello"\n' > test_todo.py
+  python3 -m pytest -q >&2
+}
 
 case "$model" in
   planner-model)
@@ -86,9 +94,18 @@ APPROACH: take the simplest path" ;;
       *"QA engineer"*)
         case "$FAKE_PI_SCENARIO" in
           verify_fails) echo "VERIFY_FAILED: the entry point crashes on launch" ;;
-          verify_fenced) printf 'The config docs say:\n```\nVERIFY_PASSED: quoted example\n```\nbut honestly I could not check it.\n' ;;
+          verify_fenced)
+            printf 'def test_failed_verification():\n    assert False, "verification must catch this"\n' > test_verify_failure.py
+            printf 'The config docs say:\n```\nVERIFY_PASSED: quoted example\n```\nbut honestly I could not check it.\n' ;;
           verify_degenerate) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
           *) echo "VERIFY_PASSED: static verification complete" ;;
+        esac ;;
+      *"egression suite is RED"*)
+        case "$FAKE_PI_SCENARIO" in
+          repair_regression)
+            printf 'def test_broken():\n    assert True, "repaired"\n' > tests/test_broken.py
+            echo "REPAIR_DONE: fixed the failing tests" ;;
+          *) echo "REPAIR_DONE: tried to fix the tests but they stay broken" ;;
         esac ;;
       *"code-reviewer"*)
         case "$FAKE_PI_SCENARIO" in
@@ -100,7 +117,8 @@ APPROACH: take the simplest path" ;;
           consult_once)
             case "$*" in
               *"A senior engineer provided this guidance"*)
-                echo "ISSUE_OK: implemented after guidance" ;;
+                implement
+                echo "ISSUE_OK: implemented the greeting module and passing tests after guidance" ;;
               *) echo "CONSULT: I am stuck.
 How should I implement this?" ;;
             esac ;;
@@ -113,6 +131,7 @@ Justification: the change requires it." ;;
           proxy_approved_implements)
             case "$*" in
               *"Approval was granted"*)
+                implement
                 echo "ISSUE_OK: implemented the issue after the approval" ;;
               *) echo "PROXY_REQUEST: requesting approval to proceed.
 Justification: the change requires it." ;;
@@ -120,6 +139,7 @@ Justification: the change requires it." ;;
           proxy_rejected|proxy_no_marker)
             case "$*" in
               *"Proxy rejected"*|*"Proxy did not approve"*)
+                implement
                 echo "ISSUE_OK: implemented a simpler approach with tests included" ;;
               *) echo "PROXY_REQUEST: requesting approval to proceed.
 Justification: the change requires it." ;;
@@ -127,25 +147,12 @@ Justification: the change requires it." ;;
           degenerate_once)
             case "$*" in
               *"Your last answer was rejected"*)
+                implement
                 echo "ISSUE_OK: implemented the module and its tests after the feedback" ;;
               *) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
             esac ;;
           degenerate_always) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
-          repair_regression)
-            case "$*" in
-              *"egression suite is RED"*)
-                # a repair that works: rewrite the broken test to pass
-                echo "REPAIR_DONE: fixed the failing tests"
-                printf 'def test_broken():\n    assert True, "repaired"\n' \
-                  > tests/test_broken.py ;;
-              *) echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
-            esac ;;
-          repair_fails_forever|repair_fails_forever_3)
-            case "$*" in
-              *"egression suite is RED"*) echo "REPAIR_DONE: tried to fix the tests but they stay broken" ;;
-              *) echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
-            esac ;;
-          *) echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
+          *) implement; echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
         esac ;;
     esac ;;
   *) echo "FAKE_PI: unexpected model '$model'" >&2; exit 3 ;;
@@ -177,7 +184,7 @@ class PipelineRun(unittest.TestCase):
             fake_pi = bin_path / "pi"
             fake_pi.write_text(STUB)
             fake_pi.chmod(0o755)
-        env = os.environ | {
+        env = os.environ | GIT_ENV | {
             "SIESTA_FACTORY": str(self.tmp / "factory"),
             "PYTHONPATH": str(FACTORY),
             "PATH": f"{bin_path}:{os.environ['PATH']}",
@@ -219,7 +226,7 @@ class PipelineRun(unittest.TestCase):
         proj = self.proj()
         self.assertTrue((proj / "spec.md").exists())
         # The pipeline saved the spec from the model's text output — the stub
-        # never writes files, so these documents prove pipeline-side writing.
+        # planner never writes files, so these documents prove pipeline-side writing.
         self.assertIn("A tiny todo CLI in Python",
                       (proj / "spec.md").read_text())
         self.assertTrue((proj / "issues.md").exists())
@@ -271,7 +278,8 @@ class PipelineRun(unittest.TestCase):
 
     def test_consult_blocks_issue_after_failed_resolution(self):
         result = self.siesta("--auto", self.idea, scenario="always_consult")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-2")
         proj = self.proj()
         # The ladder runs to fail 3: two GLM resolutions, then deep diagnosis.
         self.assertTrue((proj / "consult_1_output.txt").exists())
@@ -296,7 +304,8 @@ class PipelineRun(unittest.TestCase):
 
     def test_deep_diagnosis_can_skip_issue(self):
         result = self.siesta("--auto", self.idea, scenario="diagnosis_skips")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-2")
         proj = self.proj()
         self.assertTrue((proj / "diagnosis_1_output.txt").exists())
         blockers = self.types(self.kb(), "blocker")
@@ -348,14 +357,17 @@ class PipelineRun(unittest.TestCase):
                                                f"{self.name}"), [])
         self.assertEqual(self.log_count("--model worker-model"), 0)
 
-    def test_proxy_approval_completes_issue(self):
-        result = self.siesta("--auto", self.idea, scenario="proxy_request")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
-        proj = self.proj()
-        self.assertIn("APPROVED", (proj / "proxy_1_output.txt").read_text())
-        self.assertEqual(self.types(self.kb(), "blocker"), [])
-        # 2 issue-level proxies + 1 review proxy
-        self.assertEqual(len(self.types(self.kb(), "proxy_decision")), 3)
+    def test_persistent_proxy_requests_stay_blocked(self):
+        for scenario in ("proxy_request", "proxy_hang"):
+            with self.subTest(scenario=scenario):
+                result = self.siesta("--auto", self.idea, scenario=scenario)
+                self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+                self.assert_incomplete("phase-2")
+                self.assertIn("APPROVED", (self.proj() / "proxy_1_output.txt").read_text())
+                self.assertNotIn("Issue #1 completed", self.decisions())
+                self.assertNotIn("Issue #2 completed", self.decisions())
+                self.assertFalse((self.proj() / "todo.py").exists())
+                self.assertIn("2 blocked", result.stdout)
 
     def test_proxy_approval_still_implements_the_issue(self):
         # #58: APPROVED used to mean "continue" with no worker re-invocation
@@ -379,9 +391,16 @@ class PipelineRun(unittest.TestCase):
     def decisions(self):
         return self.types(self.kb(), "decision")
 
+    def assert_incomplete(self, checkpoint):
+        self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
+                         checkpoint)
+        self.assertFalse(any(summary.startswith("Project complete:")
+                             for summary in self.decisions()))
+
     def test_degenerate_worker_output_blocked_not_faked(self):
         result = self.siesta("--auto", self.idea, scenario="degenerate_always")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-2")
         blockers = self.types(self.kb(), "blocker")
         self.assertIn("Issue #1 degenerate output", blockers)
         self.assertIn("Issue #2 degenerate output", blockers)
@@ -398,12 +417,14 @@ class PipelineRun(unittest.TestCase):
         # #49: a blocked issue's uncommitted work is discarded — the tree
         # must match the last commit (untracked run evidence excepted)
         result = self.siesta("--auto", self.idea, scenario="degenerate_always")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-2")
         status = subprocess.run(["git", "-C", str(self.proj()),
                                  "status", "--porcelain"],
                                 capture_output=True, text=True).stdout
         dirty = [ln for ln in status.splitlines()
-                 if ln and not ln.startswith("??")]
+                 if ln and not ln.startswith("??") and not ln[3:].startswith("kb/")]
+        # Failure learning may append KB evidence after the product commit.
         self.assertEqual(dirty, [],
                          "blocked issues must not leave committed-file "
                          "residue (the pomodoro-#3 shape)")
@@ -419,15 +440,11 @@ class PipelineRun(unittest.TestCase):
     # ─── regression gating (#15) ─────────────────────────────────────────
 
     def test_failing_regression_gates_the_next_issue(self):
+        self.siesta_hybrid_repair_project()
         proj = self.proj()
-        proj.mkdir(parents=True)
-        (proj / "pyproject.toml").write_text("[project]\nname = 'stub'\n")
-        tests = proj / "tests"
-        tests.mkdir()
-        (tests / "test_broken.py").write_text(
-            "def test_broken():\n    assert False, 'previous issue broke me'\n")
         result = self.siesta("--auto", self.idea)
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-2")
         blockers = self.types(self.kb(), "blocker")
         self.assertIn("Regression failure before issue #2", blockers)
         # #15: the issue after a red suite is skipped, not built
@@ -456,10 +473,11 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(len(repair_calls), 1)
 
     def test_unrepairable_suite_skips_issue_with_honest_blocker(self):
-        # the repair worker cannot fix the suite (stub never writes files)
+        # This repair response writes no files and leaves the suite red.
         self.siesta_hybrid_repair_project()
         result = self.siesta("--auto", self.idea, scenario="repair_fails_forever")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-2")
         proj = self.proj()
         self.assertTrue((proj / "regression_repair_2.txt").exists())
         blockers = self.types(self.kb(), "blocker")
@@ -474,7 +492,7 @@ class PipelineRun(unittest.TestCase):
     def test_two_unrepairable_suites_halt_phase3(self):
         # circuit breaker: two consecutive unrepairable red suites stop the
         # pipeline honestly instead of skipping every remaining issue
-        self.siesta_hybrid_repair_project()
+        self.siesta_hybrid_repair_project(issue_count=3)
         result = self.siesta("--auto", self.idea,
                              scenario="repair_fails_forever_3")
         self.assertEqual(result.returncode, 1, result.stderr[-3000:])
@@ -485,21 +503,36 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(len(self.global_learnings(
             f"Pipeline failure: {self.name}")), 1)
 
-    def siesta_hybrid_repair_project(self):
-        """Project with a red pytest suite the stub cannot repair.
-
-        The fake pi never writes files, so the repair attempt cannot turn
-        the suite green — exactly the unrepairable case the breaker guards.
-        For the repair-success case the suite is fixed between the gate and
-        the re-run via FAKE_PI_SCENARIO=repair_regression writing the fix.
-        """
+    def siesta_hybrid_repair_project(self, issue_count=2):
+        """Committed red base with issue #1 done and later work pending."""
+        from pipeline.kb import Graph
+        result = self.siesta("--auto", self.idea)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
         proj = self.proj()
-        proj.mkdir(parents=True)
+        graph_path = proj / "kb/graph.json"
+        graph = json.loads(graph_path.read_text())
+        removed = {n["id"] for n in graph["nodes"]
+                   if n["summary"] == "Issue #2 completed"
+                   or n["summary"].startswith("Project complete:")}
+        graph["nodes"] = [n for n in graph["nodes"] if n["id"] not in removed]
+        graph["edges"] = [e for e in graph["edges"]
+                          if e["from"] not in removed and e["to"] not in removed]
+        graph_path.write_text(json.dumps(graph))
+        if issue_count == 3:
+            with (proj / "issues.md").open("a") as stream:
+                stream.write("\n## Issue #3: Add more\nWrite more.\n")
+            Graph(graph_path).node("issue", "Issue #3: Add more", "Write more")
         (proj / "pyproject.toml").write_text("[project]\nname = 'stub'\n")
         tests = proj / "tests"
         tests.mkdir()
         (tests / "test_broken.py").write_text(
             "def test_broken():\n    assert False, 'previous issue broke me'\n")
+        (proj / ".pipeline-checkpoint").write_text("phase-2\n")
+        (proj / "issue_2_output.txt").unlink()
+        subprocess.run(["git", "add", "-A"], cwd=proj, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "Fixture: preserve broken committed base"],
+                       cwd=proj, check=True, capture_output=True, env=os.environ | GIT_ENV)
+        (self.tmp / "pi_calls.log").write_text("")
 
     # ─── explicit-approval gates (#3) ─────────────────────────────────────
 
@@ -529,7 +562,9 @@ class PipelineRun(unittest.TestCase):
 
     def test_review_revision_applies_fixes_with_tools(self):
         result = self.siesta("--auto", self.idea, scenario="review_needs_revision")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-3")
+        self.assertIn("Review not approved", self.types(self.kb(), "blocker"))
         # #16: the fix pass runs WITH write tools and its changes are committed
         fix_calls = [line for line in (self.tmp / "pi_calls.log").read_text()
                      .splitlines() if "Fix review issues" in line]
@@ -544,25 +579,27 @@ class PipelineRun(unittest.TestCase):
         # #41: tool-JSON review output is not a verdict — the proxy must
         # never judge on it. The #16 fix pass runs instead, with tools.
         result = self.siesta("--auto", self.idea, scenario="review_degenerate")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-3")
+        self.assertIn("Review not approved", self.types(self.kb(), "blocker"))
         # the proxy was never consulted for review approval
         self.assertFalse((self.proj() / "proxy_review_output.txt").exists())
         log = (self.tmp / "pi_calls.log").read_text().splitlines()
         self.assertEqual(len([l for l in log
                                if "Evaluate if this review meets" in l]), 0)
-        # one degenerate review + one fix pass with write tools
+        # Two degenerate reviews surround one fix pass with write tools.
         review_calls = [l for l in log if "Fix review issues" in l]
         self.assertEqual(len(review_calls), 1)
         self.assertNotIn("--no-tools", review_calls[0])
-        fix_log = subprocess.run(["git", "-C", str(self.proj()), "log", "--oneline"],
-                                 capture_output=True, text=True).stdout
-        self.assertIn("Review fixes", fix_log)
+        self.assertTrue((self.proj() / "review_fixes_output.txt").exists())
+        self.assertFalse((self.proj() / "verify_verdict.txt").exists())
 
     def test_fenced_verify_marker_is_not_a_verdict(self):
         # round-7 hardening: a VERIFY_PASSED quoted inside a code fence is
         # an example, not a verdict — the marker gate matches fence-free.
         result = self.siesta("--auto", self.idea, scenario="verify_fenced")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-4")
         self.assertEqual((self.proj() / "verify_verdict.txt").read_text().strip(),
                          "VERIFY_FAILED")
         self.assertTrue(any("Project NOT verified" in b
@@ -572,7 +609,8 @@ class PipelineRun(unittest.TestCase):
 
     def test_failed_verify_is_recorded_as_unverified(self):
         result = self.siesta("--auto", self.idea, scenario="verify_fails")
-        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assert_incomplete("phase-4")
         self.assertTrue(any("Project NOT verified" in b
                             for b in self.types(self.kb(), "blocker")))
         self.assertEqual((self.proj() / "verify_verdict.txt").read_text().strip(),
@@ -581,11 +619,32 @@ class PipelineRun(unittest.TestCase):
                              capture_output=True, text=True).stdout
         self.assertIn("UNVERIFIED", log)
         self.assertNotIn("Project verified", log)
-        # a failed project still completes (issues done), only the verdict is honest
-        self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
-                         "complete")
+        # Completed issues survive, but failed verification stays resumable.
+        self.assertIn("Issue #1 completed", self.decisions())
+        (self.tmp / "pi_calls.log").write_text("")
+        recovered = self.siesta("--auto", self.idea)
+        self.assertEqual(recovered.returncode, 0, recovered.stderr[-3000:])
+        self.assertEqual(self.log_count("skills/issue-executor/"), 0)
+        self.assertIn("QA engineer", (self.tmp / "pi_calls.log").read_text())
+        self.assertEqual((self.proj() / "verify_verdict.txt").read_text().strip(),
+                         "VERIFY_PASSED")
 
     # ─── resume ──────────────────────────────────────────────────────────
+
+    def test_legacy_complete_checkpoint_retries_failed_verification(self):
+        first = self.siesta("--auto", self.idea, scenario="verify_fails")
+        self.assertEqual(first.returncode, 1, first.stderr[-3000:])
+        # Older runs closed the checkpoint even when verification failed.
+        (self.proj() / ".pipeline-checkpoint").write_text("complete\n")
+        (self.tmp / "pi_calls.log").write_text("")
+        result = self.siesta("--auto", self.idea)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual(self.log_count("skills/issue-executor/"), 0)
+        self.assertEqual(self.log_count("QA engineer"), 1)
+        self.assertEqual((self.proj() / "verify_verdict.txt").read_text().strip(),
+                         "VERIFY_PASSED")
+        self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
+                         "complete")
 
     def test_resume_skips_completed_issues(self):
         # #9: a resume must not re-run issues whose completion node is on disk
@@ -604,15 +663,20 @@ class PipelineRun(unittest.TestCase):
                          "complete")
 
     def test_resume_reports_blocked_issues_from_kb(self):
-        # #34: the in-memory blocked list dies with the run — a resume past
-        # phase-3 must rebuild it from KB blocker nodes, not claim 0.
+        # Reconstruct pending issues from KB, retry them and outrank stale blockers.
         first = self.siesta("--auto", self.idea, scenario="always_consult")
+        self.assertEqual(first.returncode, 1, first.stderr[-3000:])
         self.assertIn("2 blocked", first.stdout)
+        self.assert_incomplete("phase-2")
         (self.tmp / "pi_calls.log").write_text("")
         second = self.siesta("--auto", self.idea)
         self.assertEqual(second.returncode, 0, second.stderr[-3000:])
-        self.assertIn("2 blocked", second.stdout)
-        self.assertIn("Blocked issues: #1, #2", second.stderr)
+        self.assertIn("0 blocked", second.stdout)
+        self.assertNotIn("Blocked issues: #1, #2", second.stderr)
+        self.assertIn("Issue #1 completed", self.decisions())
+        self.assertIn("Issue #2 completed", self.decisions())
+        self.assertEqual(self.log_count("skills/issue-executor/"), 2)
+        self.assertIn("return \"hello\"", (self.proj() / "todo.py").read_text())
 
     def test_resume_says_resuming_not_creating(self):
         # #51: the slug maps the same idea to the same dir every time, so a
@@ -788,7 +852,7 @@ class RootLevelSuiteVerifyFallback(unittest.TestCase):
         fake_pi = bin_path / "pi"
         fake_pi.write_text(STUB)
         fake_pi.chmod(0o755)
-        env = os.environ | {
+        env = os.environ | GIT_ENV | {
             "SIESTA_FACTORY": str(self.tmp / "factory"),
             "PYTHONPATH": str(FACTORY),
             "PATH": f"{bin_path}:{os.environ['PATH']}",

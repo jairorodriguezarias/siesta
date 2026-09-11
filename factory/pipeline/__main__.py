@@ -23,7 +23,8 @@ PHASE_ORDER = ["phase-0", "phase-1", "phase-2", "phase-3",
 # product — every pattern here is also what `git clean -fd` (no -x)
 # preserves, so the #49 residue discard never destroys evidence.
 GITIGNORE = (
-    ".DS_Store\n__pycache__/\n*.pyc\n.pipeline-checkpoint\n"
+    ".DS_Store\n__pycache__/\n*.pyc\n.pytest_cache/\n"
+    ".pi/\n.qwen/\n.claude/\n.pipeline-checkpoint\n"
     # .pipeline-idea is run bookkeeping the #56 guard reads on relaunch —
     # ignored (not product, never committed) but preserved by clean -fd.
     ".pipeline-idea\n"
@@ -232,6 +233,20 @@ def _run(args) -> None:
         log(f"Planned {count} issues")
     mark("phase-2")
 
+    # Checkpoints record traversed phases; the issue ledger proves completion.
+    issues = text.split_issues((proj / "issues.md").read_text())
+    completed = {node["summary"] for node in kb.query(type_="decision")}
+    pending = [num for num, _ in issues if f"Issue #{num} completed" not in completed]
+    if pending and done("phase-3"):
+        log(f"Pending issues {pending} — resuming execution and invalidating review/verify")
+        checkpoint.write_text("phase-2\n")
+        (proj / "verify_verdict.txt").unlink(missing_ok=True)
+    elif done("phase-5"):
+        saved_verdict = proj / "verify_verdict.txt"
+        if not saved_verdict.exists() or saved_verdict.read_text().strip() != "VERIFY_PASSED":
+            log("Previous verification was not successful — verifying again")
+            checkpoint.write_text("phase-4\n")
+
     # ─── PHASE 3: EXECUTE (per-issue loop) ───────────────────────────────
     if done("phase-3"):
         log("Phase 3 already complete (resume mode), skipping...")
@@ -273,19 +288,24 @@ def _run(args) -> None:
     phase(6, "DONE")
     # #6: the decision node and the commit message tell the truth about the
     # verdict — never "verified" for a project that failed verify.
-    if verdict == "VERIFY_PASSED":
+    if verdict == "VERIFY_PASSED" and not blocked:
         kb.node("decision", f"Project complete: {name}",
                 "Project verified running locally.")
         phases._commit(proj, f"Project verified: {name}")
     else:
         kb.node("blocker", f"Project NOT verified: {name}",
-                f"Verify verdict was {verdict} — the project may not run locally.")
+                f"Verify verdict: {verdict}; blocked issues: {blocked}.")
         phases._commit(proj, f"Project delivered UNVERIFIED: {name}")
 
     # ─── PHASE 7: LEARN (project-level) ──────────────────────────────────
     phase(7, "LEARN — Project-level learning")
     transcript = learn.learn_project(proj, name, kb, gkb)
     (proj / "project_learning.log").write_text(transcript)
+    if blocked or verdict != "VERIFY_PASSED":
+        checkpoint.write_text("phase-2\n" if blocked else "phase-4\n")
+        _summary(proj, name, kb, blocked)
+        err("Project incomplete; resume will retry pending work")
+        raise SystemExit(1)
     mark("complete")
 
     # ─── Summary ─────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.request
 from pathlib import Path
@@ -567,32 +568,55 @@ def _discard_residue(proj: Path, num: int, why: str) -> None:
     the KB survives too — it is the run's bookkeeping, not product.
     """
     status = _git(proj, "status", "--porcelain")
-    dirty = [ln for ln in status.stdout.decode().splitlines()
-             if ln and not ln.startswith("??")]
-    if not dirty:
+    if status.returncode:
+        raise RuntimeError(f"Cannot inspect residue: {status.stderr.decode()}")
+    if not status.stdout.strip():
         return
+    # Preserve staged and new files before cleaning; ignored evidence stays put.
+    git_dir = _git(proj, "rev-parse", "--absolute-git-dir")
+    if git_dir.returncode:
+        raise RuntimeError("Cannot locate Git directory for recovery backup")
+    backup = Path(git_dir.stdout.decode().strip()) / "siesta-recovery" / f"{time.time_ns()}-issue-{num}"
+    backup.mkdir(parents=True)
+    for name, args in (("staged.patch", ("--cached",)), ("unstaged.patch", ())):
+        diff = _git(proj, "diff", "--binary", *args)
+        if diff.returncode:
+            raise RuntimeError("Cannot back up product changes")
+        (backup / name).write_bytes(diff.stdout)
+    files = _git(proj, "ls-files", "-z", "--others", "--exclude-standard")
+    if files.returncode:
+        raise RuntimeError("Cannot list files for recovery backup")
+    with tarfile.open(backup / "files.tar.gz", "w:gz") as archive:
+        for name in set(os.fsdecode(files.stdout).split("\0")) - {""}:
+            path = proj / name
+            if path.exists() or path.is_symlink():
+                archive.add(path, arcname=name, recursive=False)
     kb_dir = proj / "kb"
     saved = {p.relative_to(kb_dir): p.read_bytes()
              for p in kb_dir.rglob("*") if p.is_file()} \
         if kb_dir.is_dir() else {}
-    _git(proj, "restore", "--", ".")
+    restored = _git(proj, "restore", "--source=HEAD", "--staged", "--worktree", "--", ".")
+    if restored.returncode:
+        raise RuntimeError(f"Cannot restore product base; recovery: {backup}")
     # No -x: clean honors .gitignore, so ignored run evidence survives and
     # only the product residue dies (the -e list lived one pattern behind
     # the .gitignore once already — regression_repair_*.txt, #38/#49).
-    _git(proj, "clean", "-fd")
+    cleaned = _git(proj, "clean", "-fd")
     for rel, data in saved.items():
         target = kb_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
+    if cleaned.returncode:
+        raise RuntimeError(f"Cannot clean product residue; recovery: {backup}")
     warn(f"Issue #{num} blocked with tree changes ({why}) — discarded "
-         "uncommitted residue so the base stays honest")
+         f"uncommitted residue; recovery copy: {backup}")
 
 
 def _tree_is_clean(proj: Path) -> bool:
     status = _git(proj, "status", "--porcelain")
-    dirty = [ln for ln in status.stdout.decode().splitlines()
-             if ln and not ln.startswith("??")]
-    return not dirty
+    if status.returncode:
+        raise RuntimeError(f"Cannot inspect product tree: {status.stderr.decode()}")
+    return not status.stdout.strip()
 
 
 REPAIR_PROMPT = """You are a developer. The regression suite is RED.
@@ -690,7 +714,8 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                                 "Two consecutive red suites survived their "
                                 "repair attempt. Continuing would build "
                                 "every remaining issue on a broken base.")
-                        _commit(proj, f"🚧 Phase 3 halted: unrepairable suite")
+                        _discard_residue(proj, num, "red regression repair failed before halt")
+                        _commit(proj, "🚧 Phase 3 halted: unrepairable suite")
                         raise SystemExit(1)
                     warn(f"Regression stayed red before issue #{num}: "
                          f"skipping it.")
@@ -732,7 +757,9 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                     f"Existing source files:\n{source}\n\n"
                     f"Now implement the issue:\n{issue_text}",
                     issue_text, artifact=proj / f"issue_{num}_retry_output.txt")
-                if text.degenerate(output):
+                spoken = text.without_fences(output)
+                if (text.degenerate(output)
+                        and not (text.CONSULT.search(spoken) or text.PROXY.search(spoken))):
                     err(f"Issue #{num} blocked: worker output stayed degenerate")
                     blocked.append(num)
                     kb.node("blocker", f"Issue #{num} degenerate output",
@@ -742,7 +769,14 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         stuck, output = _escalate(proj, num, output, issue_text, kb_summaries,
                                    source, kb, fails, history, blocked)
         if not stuck:
-            ok(f"Issue #{num} executed")
+            suite = run_regression(proj, num)
+            if suite != "passed":
+                blocked.append(num)
+                kb.node("blocker", f"Issue #{num} tests not passing",
+                        f"Post-issue regression verdict: {suite}")
+                _discard_residue(proj, num, "post-issue tests not passing")
+                continue
+            ok(f"Issue #{num} executed and tested")
             post_issue(proj, num, output, kb)
             # micro-learning after every issue (the per-issue learner)
             learn.learn_issue(proj, num, issue_text, kb, gkb)
@@ -752,109 +786,89 @@ def execute(proj: Path, kb: Graph) -> list[int]:
 def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: str,
               source: str, kb: Graph, fails: dict, history: dict,
               blocked: list[int]) -> tuple[bool, str]:
-    """Walk the stuck protocol.
+    """Resolve requests with bounded retries; every returned answer is checked."""
+    proxy_attempts = 0
 
-    Returns (issue-needs-no-post-work, final worker output) — the caller
-    logs the returned output, so it must be the implementation, never the
-    stuck request (#29's lesson, applied to every escalation path).
-    """
-    # Marker gates match fence-free: a CONSULT:/PROXY_REQUEST: the worker
-    # quotes as a code example is not the worker speaking (round-7).
-    output = text.without_fences(output)
+    def block(reason: str, suffix: str = "blocked") -> tuple[bool, str]:
+        blocked.append(num)
+        kb.node("blocker", f"Issue #{num} {suffix}", reason)
+        _discard_residue(proj, num, reason)
+        return True, output
 
-    def _retry(feedback: str) -> str:
+    def retry(feedback: str) -> str:
         return _worker(proj, RETRY_SKILLS, feedback, issue_text,
                        artifact=proj / f"issue_{num}_retry_output.txt")
 
-    if text.PROXY.search(output):
-        log(f"Worker requesting proxy approval for issue #{num}...")
-        request = text.after(output, text.PROXY.search(output), 20)
-        decision = run_pi("consultant", PROXY_PROMPT.format(request=request, kb=kb_summaries),
-                          request, skills=(FACTORY_SKILLS / "human-proxy",
-                                           FACTORY_SKILLS / "kb-manager"), cwd=proj, tools="no",
-                          artifact=proj / f"proxy_{num}_output.txt")
-        kb.node("proxy_decision", f"Proxy decision for issue #{num}", decision)
-        if text.APPROVED.search(decision):
-            # #58: approval is permission, not an execution — the worker
-            # that asked must now implement with the approval fed back.
-            # Marking the issue complete on a bare PROXY_REQUEST logged a
-            # request as a completion and built nothing.
-            log("Proxy explicitly approved — worker continues with the approach")
-            output = _retry(
-                f"Proxy APPROVED your request: {decision}\n"
-                f"Approval was granted — now implement the issue fully: {issue_text}")
-        elif text.REJECTED.search(decision):
-            warn("Proxy rejected, retrying with a different approach...")
-            output = _retry(
-                f"Proxy rejected: {decision}. Try a different approach for: {issue_text}")
-        else:
-            # #3: fail-closed gate — NEEDS_REVISION, hesitation or garbage is
-            # NOT approval; the worker gets the feedback and retries.
-            warn("Proxy did not explicitly approve — retrying with feedback...")
-            output = _retry(
-                f"Proxy did not approve. Feedback: {decision}. "
-                f"Adjust the approach and implement: {issue_text}")
+    while True:
+        spoken = text.without_fences(output)
+        if text.PROXY.search(spoken):
+            proxy_attempts += 1
+            if proxy_attempts > 2:
+                return block("Worker still requesting approval after proxy retries")
+            request = text.after(spoken, text.PROXY.search(spoken), 20)
+            decision = run_pi(
+                "consultant", PROXY_PROMPT.format(request=request, kb=kb_summaries),
+                request, skills=(FACTORY_SKILLS / "human-proxy", FACTORY_SKILLS / "kb-manager"),
+                cwd=proj, tools="no", artifact=proj / f"proxy_{num}_output.txt")
+            kb.node("proxy_decision", f"Proxy decision for issue #{num}", decision)
+            signal_text = text.without_fences(decision)
+            if text.REJECTED.search(signal_text):
+                feedback = f"Proxy rejected: {decision}. Try a different approach for: {issue_text}"
+            elif text.APPROVED.search(signal_text) and not text.NEEDS_REVISION.search(signal_text):
+                feedback = (f"Proxy APPROVED your request: {decision}\n"
+                            f"Approval was granted — now implement the issue fully: {issue_text}")
+            else:
+                feedback = (f"Proxy did not approve. Feedback: {decision}. "
+                            f"Adjust the approach and implement: {issue_text}")
+            output = retry(feedback)
+            continue
 
-    # Escalation ladder: 2 resolution-guided retries, then the fail-3 deep
-    # diagnosis (documented in README/AGENTS.md; unreachable in bash).
-    stuck_at = text.CONSULT.search(text.without_fences(output))
-    while stuck_at:
-        fails[num] = fails.get(num, 0) + 1
-        fail = fails[num]
-        warn(f"Worker stuck (attempt {fail}), consulting the local model...")
-        consult = text.after(output, stuck_at, 50)
-        history[num] = history.get(num, "") + f"Attempt {fail}: {consult}\n"
-        if fail >= 3:
-            warn(f"3 failures on issue #{num}. Triggering deep diagnosis...")
-            diagnosis = run_pi(
-                "consultant",
-                DIAGNOSE_PROMPT.format(issue=issue_text, history=history[num], kb=kb_summaries),
-                # thinking="high" is a GLM feature — qwen2.5-coder 400s on it.
-                f"Diagnose issue #{num}", skills=(
-                    FACTORY_SKILLS / "consultant-protocol",
-                    FACTORY_SKILLS / "human-proxy", FACTORY_SKILLS / "kb-manager"),
-                cwd=proj, tools="no", artifact=proj / f"diagnosis_{num}_output.txt")
-            kb.node("consultation", f"Deep diagnosis for issue #{num}", diagnosis)
-            if text.SKIP.search(diagnosis):
-                err(f"Issue #{num} SKIPPED after deep diagnosis")
-                blocked.append(num)
-                kb.node("blocker", f"Issue #{num} skipped after diagnosis", diagnosis)
-                _discard_residue(proj, num, "deep diagnosis skipped")
-                if text.CRITICAL.search(diagnosis):
-                    (proj / "stop.md").write_text(
-                        f"Issue #{num} is critical and cannot be skipped. "
-                        "Manual intervention needed.")
-                    err("CRITICAL: stop.md created. Pipeline will halt.")
-                    raise SystemExit(0)  # per AGENTS.md: CRITICAL halts the pipeline
-                return True, output
-            log("Diagnosis provided, feeding back to worker...")
-            output = _retry(
-                f"A senior engineer did a deep diagnosis and provided this plan:\n\n"
-                f"{diagnosis}\n\nExisting source files:\n{source}\n\n"
-                f"Now implement the issue:\n{issue_text}")
-            if text.CONSULT.search(text.without_fences(output)):
-                err(f"Issue #{num} blocked after diagnosis")
-                blocked.append(num)
-                kb.node("blocker", f"Issue #{num} blocked after diagnosis",
-                        "Worker still stuck after deep diagnosis")
-                _discard_residue(proj, num, "still stuck after diagnosis")
-                return True, output
-            break  # recovered after diagnosis
-        resolution = run_pi(
-            "consultant", CONSULT_PROMPT.format(consult=consult, kb=kb_summaries),
-            consult, skills=(FACTORY_SKILLS / "consultant-protocol",
-                             FACTORY_SKILLS / "kb-manager"), cwd=proj, tools="no",
-            artifact=proj / f"consult_{num}_output.txt")
-        kb.node("consultation", f"Consultation for issue #{num}", consult)
-        log("Consultant resolved, feeding back to worker...")
-        output = _retry(
-            f"A senior engineer provided this guidance:\n\n{resolution}\n\n"
-            f"Existing source files:\n{source}\n\n"
-            f"Now implement the issue:\n{issue_text}")
-        # still CONSULT → the loop escalates (fail 2, then the fail-3 diagnosis)
-        stuck_at = text.CONSULT.search(text.without_fences(output))
-    # A stuck round that recovered still gets the post hooks.
-    return False, output
+        stuck_at = text.CONSULT.search(spoken)
+        if stuck_at:
+            fails[num] = fails.get(num, 0) + 1
+            fail = fails[num]
+            if fail > 3:
+                return block("Worker still stuck after deep diagnosis", "blocked after diagnosis")
+            consult = text.after(spoken, stuck_at, 50)
+            history[num] = history.get(num, "") + f"Attempt {fail}: {consult}\n"
+            if fail == 3:
+                diagnosis = run_pi(
+                    "consultant",
+                    DIAGNOSE_PROMPT.format(issue=issue_text, history=history[num], kb=kb_summaries),
+                    f"Diagnose issue #{num}", skills=(
+                        FACTORY_SKILLS / "consultant-protocol",
+                        FACTORY_SKILLS / "human-proxy", FACTORY_SKILLS / "kb-manager"),
+                    cwd=proj, tools="no", artifact=proj / f"diagnosis_{num}_output.txt")
+                kb.node("consultation", f"Deep diagnosis for issue #{num}", diagnosis)
+                signal_text = text.without_fences(diagnosis)
+                if text.SKIP.search(signal_text) or text.CRITICAL.search(signal_text):
+                    result = block("Skipped after deep diagnosis: " + diagnosis, "skipped after diagnosis")
+                    if text.CRITICAL.search(signal_text):
+                        (proj / "stop.md").write_text(
+                            f"Issue #{num} is critical. Manual intervention needed.")
+                        raise SystemExit(1)
+                    return result
+                output = retry(
+                    f"A senior engineer did a deep diagnosis and provided this plan:\n\n"
+                    f"{diagnosis}\n\nExisting source files:\n{gather(proj)}\n\n"
+                    f"Now implement the issue:\n{issue_text}")
+            else:
+                resolution = run_pi(
+                    "consultant", CONSULT_PROMPT.format(consult=consult, kb=kb_summaries),
+                    consult, skills=(FACTORY_SKILLS / "consultant-protocol",
+                                     FACTORY_SKILLS / "kb-manager"),
+                    cwd=proj, tools="no", artifact=proj / f"consult_{num}_output.txt")
+                kb.node("consultation", f"Consultation for issue #{num}", consult)
+                output = retry(
+                    f"A senior engineer provided this guidance:\n\n{resolution}\n\n"
+                    f"Existing source files:\n{gather(proj)}\n\n"
+                    f"Now implement the issue:\n{issue_text}")
+            continue
+
+        reason = text.degenerate(output)
+        if reason:
+            return block(f"Unusable worker answer after recovery: {reason}")
+        return False, output
 
 
 # ─── Phase 4: REVIEW ─────────────────────────────────────────────────────
@@ -883,55 +897,43 @@ with the marker. A decision line without a marker counts as NOT approved."""
 
 
 def review(proj: Path, kb: Graph) -> None:
+    """One fix attempt, followed by a fresh review and explicit proxy approval."""
     kb_summaries = kb.compact()
-    source = gather(proj)
-    review_out = run_pi("worker", REVIEW_PROMPT.format(kb=kb_summaries, source=source),
-                        "Review the code in this project",
-                        skills=REVIEW_SKILLS,
-                        artifact=proj / "review_output.txt", cwd=proj)
-    if not (text.REVIEW_PASSED.search(text.without_fences(review_out))
-            or text.REVIEW_FAILED.search(text.without_fences(review_out))):
-        warn("Review output has no REVIEW_PASSED/REVIEW_FAILED marker")
-        # #41: degenerate output is not a verdict — the proxy must never
-        # judge on tool-speak or questions to the absent human. The #16 fix
-        # pass runs instead, with write tools, and is committed.
-        if text.degenerate(review_out):
-            warn("Review output is degenerate — running the fix pass instead "
-                 "of consulting the proxy")
-            kb.node("blocker", "Review output degenerate",
-                    "The reviewer never produced a usable verdict; a fix "
-                    "pass ran with write tools instead of a proxy decision.")
-            fixes = run_pi("worker",
-                           f"Review attempt was unusable.\n\nSource files:\n{source}\n\n"
-                           "Review and fix issues now. Output the corrected file contents.",
-                           "Fix review issues",
-                           skills=REVIEW_SKILLS,
-                           artifact=proj / "review_fixes_output.txt", cwd=proj)
-            if text.degenerate(fixes):
-                warn("Review-fix output looks degenerate — fixes may not have been applied")
-            _commit(proj, "🔧 Review fixes: apply proxy-requested revisions")
-            ok("Review complete")
-            return
-    proxy_out = run_pi("consultant",
-                       PROXY_REVIEW_PROMPT.format(review=review_out, kb=kb_summaries),
-                       review_out, skills=(FACTORY_SKILLS / "human-proxy",),
-                       artifact=proj / "proxy_review_output.txt", cwd=proj, tools="no")
-    kb.node("proxy_decision", "Proxy review approval", proxy_out)
-    if not text.APPROVED.search(proxy_out):
-        # #3/#18: approval requires an explicit line-start marker —
-        # NEEDS_REVISION, hesitation or garbage all mean "fix it", never "pass".
-        warn("Proxy did not explicitly approve the review — fixing...")
-        # #16: this pass has write tools (like the execute phase) so the fixes
-        # actually land in the files, and are committed afterwards.
-        fixes = run_pi("worker", f"Proxy requested: {proxy_out}.\n\nSource files:\n{source}\n\n"
-                       "Fix the issues now. Output the corrected file contents.",
-                       "Fix review issues",
-                       skills=REVIEW_SKILLS,
-                       artifact=proj / "review_fixes_output.txt", cwd=proj)
-        if text.degenerate(fixes):
-            warn("Review-fix output looks degenerate — fixes may not have been applied")
-        _commit(proj, "🔧 Review fixes: apply proxy-requested revisions")
-    ok("Review complete")
+    for attempt in range(2):
+        source = gather(proj)
+        review_out = run_pi(
+            "worker", REVIEW_PROMPT.format(kb=kb_summaries, source=source),
+            "Review the code in this project", skills=REVIEW_SKILLS,
+            artifact=proj / "review_output.txt", cwd=proj, tools="no")
+        spoken = text.without_fences(review_out)
+        passed = bool(text.REVIEW_PASSED.search(spoken)
+                      and not text.REVIEW_FAILED.search(spoken))
+        feedback = review_out
+        if passed:
+            proxy_out = run_pi(
+                "consultant",
+                PROXY_REVIEW_PROMPT.format(review=review_out, kb=kb_summaries),
+                review_out, skills=(FACTORY_SKILLS / "human-proxy",),
+                artifact=proj / "proxy_review_output.txt", cwd=proj, tools="no")
+            kb.node("proxy_decision", "Proxy review approval", proxy_out)
+            approval = text.without_fences(proxy_out)
+            if (text.APPROVED.search(approval) and not text.REJECTED.search(approval)
+                    and not text.NEEDS_REVISION.search(approval)):
+                ok("Review complete")
+                return
+            feedback += "\nProxy feedback: " + proxy_out
+        if attempt == 0:
+            warn("Review not approved — one fix attempt before reviewing again")
+            run_pi(
+                "worker", f"Review feedback: {feedback}\n\nSource files:\n{source}\n\n"
+                "Apply the fixes in files and run tests. Report what changed.",
+                "Fix review issues", skills=REVIEW_SKILLS,
+                artifact=proj / "review_fixes_output.txt", cwd=proj)
+            # Save applied work; a commit is not an approval.
+            _commit(proj, "Review fixes awaiting approval")
+    kb.node("blocker", "Review not approved", feedback)
+    err("Review remains unapproved after fixes; resume will retry the review")
+    raise SystemExit(1)
 
 
 # ─── Phase 5: VERIFY (+ mechanical runtime smoke check) ──────────────────
@@ -1094,6 +1096,9 @@ def runtime_smoke(proj: Path) -> tuple[str, str]:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
+        proc.wait()
+        if proc.stderr:
+            proc.stderr.close()
 
 
 def verify(proj: Path) -> str:
@@ -1105,29 +1110,18 @@ def verify(proj: Path) -> str:
                  artifact=proj / "verify_output.txt", cwd=proj, tools="no")
     try:
         status, detail = runtime_smoke(proj)
-    except Exception as e:  # fail-open: a broken check never halts the pipeline
-        status, detail = "SKIPPED", f"error: {e}"
+    except Exception as e:
+        status, detail = "FAILED", f"error: {e}"
     log(f"Runtime smoke check: {status} — {detail}")
     with open(proj / "verify_output.txt", "a") as f:
         f.write(f"\nRUNTIME_CHECK: {status} — {detail}\n")
-    # #11: with no protocol marker, a degenerate body (tool JSON / questions
-    # to the absent human) is not a verdict — only the mechanical checks may
-    # decide then. An explicit marker stays the primary signal. Markers are
-    # matched fence-free: a quoted example is not a verdict (round-7).
+    # Model approval never overrides red or absent tests; model failure vetoes.
     spoken = text.without_fences(out)
-    has_marker = bool(text.VERIFY_PASSED.search(spoken) or text.VERIFY_FAILED.search(spoken))
-    reason = None if has_marker else text.degenerate(out)
-    if reason:
-        warn(f"Verify output is degenerate ({reason}) — using the mechanical fallback only")
-    if has_marker:
-        # Primary signal: the protocol marker (and smoke must not have failed).
-        verdict = "VERIFY_PASSED" if (
-            text.VERIFY_PASSED.search(spoken) and status != "FAILED") else "VERIFY_FAILED"
-    else:
-        # Model drifted (no marker, or degenerate — tool-speak in the live run):
-        # decide from the regression suite if there is one, else fail.
-        log("No usable VERIFY signal — falling back to the regression suite")
-        verdict = "VERIFY_PASSED" if (run_regression(proj, 0) == "passed"
-                                      and status != "FAILED") else "VERIFY_FAILED"
+    suite = run_regression(proj, 0)
+    with open(proj / "verify_output.txt", "a") as f:
+        f.write(f"REGRESSION_CHECK: {suite}\n")
+    verdict = "VERIFY_PASSED" if (
+        suite == "passed" and status != "FAILED"
+        and not text.VERIFY_FAILED.search(spoken)) else "VERIFY_FAILED"
     (proj / "verify_verdict.txt").write_text(verdict + "\n")
     return verdict

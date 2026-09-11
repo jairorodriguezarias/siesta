@@ -47,52 +47,15 @@ class Timeout(unittest.TestCase):
 
 
 class InteractiveTimeout(unittest.TestCase):
-    """#35: the interactive interview gets the same timeout as #10 — a
-    hung pi/Ollama call in phase 0 must not freeze the pipeline forever."""
-
-    class _HangPopen:
-        def __init__(self, *a, **kw):
-            self.stdout = iter(())          # EOF immediately: no output at all
-            self.pid = 424242
-            self.returncode = None
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
-        def wait(self, timeout=None):
-            import subprocess
-            if timeout is not None:
-                raise subprocess.TimeoutExpired(cmd=["pi"], timeout=timeout)
-            return 0
-
-        def kill(self):
-            self.returncode = -9
-
-    def test_hung_interactive_call_times_out_and_returns_empty(self):
-        import subprocess as sp
-        from unittest.mock import patch
-        with patch.object(sp, "Popen", self._HangPopen), \
-             patch.dict(pi.__dict__, {"PI_TIMEOUT": 0.2}):
-            out = pi.run_pi("planner", "b", "u", interactive=True)
-        self.assertEqual(out, "")
-
-    def test_interactive_wait_passes_the_timeout(self):
-        import subprocess as sp
-        from unittest.mock import patch
-        seen = {}
-
-        class P(self._HangPopen):
-            def wait(self, timeout=None):
-                seen["timeout"] = timeout
-                raise sp.TimeoutExpired(cmd=["pi"], timeout=timeout)
-
-        with patch.object(sp, "Popen", P), \
-             patch.dict(pi.__dict__, {"PI_TIMEOUT": 0.2}):
-            pi.run_pi("planner", "b", "u", interactive=True)
-        self.assertEqual(seen["timeout"], 0.2)
+    def test_silent_child_times_out_before_stdout_closes(self):
+        import sys
+        import time
+        command = [sys.executable, "-c", "import time; time.sleep(2)"]
+        started = time.monotonic()
+        with patch.object(pi, "build_args", return_value=command), \
+             patch.object(pi, "PI_TIMEOUT", 0.2):
+            self.assertEqual(pi.run_pi("planner", "", "", interactive=True), "")
+        self.assertLess(time.monotonic() - started, 1.5)
 
 
 class StderrSeparation(unittest.TestCase):

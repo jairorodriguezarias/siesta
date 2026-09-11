@@ -223,24 +223,30 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   issue's uncommitted work would poison the committed base (pomodoro #3:
   the residue deleted `format_time` while the committed test still imported
   it). On every block (degenerate, diagnosis-skip, stuck-after-diagnosis,
-  red-regression skip) tracked files go back to the last commit and
-  untracked product files are removed — `git restore` + `clean -fd` without
+  red-regression skip or terminal repair failure) tracked files go back to the last commit and
+  untracked product files are removed — `git restore --source=HEAD --staged --worktree` + `clean -fd` without
   `-x`, so ignored run evidence survives and the KB (the run's bookkeeping)
-  survives. A dirty tree at the top of the issue loop is restored before
+  survives. Staged and unstaged binary patches plus an archive of untracked
+  files are saved first under `.git/siesta-recovery/`; unchanged tracked
+  files are not copied. Untracked-only residue also counts as dirty.
+  A dirty tree at the top of the issue loop is restored before
   any work starts — a resume never inherits a contradictory base.
 - **Root-level suites count** (`phases._suite_dirs`): the regression gate
   detects test files where they live — root `test_*.py`/`*_test.py` count as
   a suite (`.`) when pytest is importable, `tests/` still counts, and every
   detected dir runs (a red one fails the gate). Verify's fallback uses the
   same detection, not a `tests/`-dir blindspot.
-- **Verify fallback**: with no usable VERIFY marker, only the mechanical
-  checks decide (regression suite + runtime smoke); no tests means failed.
+- **Mechanical verification**: the regression suite runs for every verification,
+  including an explicit model `VERIFY_PASSED`. Red or absent tests mean failed;
+  an explicit model failure or a failed runtime smoke also vetoes success.
+- **Post-issue evidence**: every issue, including recovered retries, needs a passing
+  mechanical suite before its completion decision and commit are written.
 - **Call timeout** (`pi.PI_TIMEOUT`, env `SIESTA_PI_TIMEOUT`, 1200s default):
   a hung `pi`/Ollama call returns empty and counts as a failed attempt —
   the degenerate guards already handle it. `stop.md` only works between
   issues, so a timeout is the only defense against a frozen call. The
-  INTERACTIVE interview gets the same timeout (#35): the child is killed
-  on expiry, the partial transcript is kept, and phase 0 flows into the
+  INTERACTIVE interview gets the same timeout (#35): the entire child process group is killed
+  on expiry, including while stdout remains open, the partial transcript is kept, and phase 0 flows into the
   autonomous close-out (#45).
 - **Explicit approval marker** (`text.APPROVED`): anchored to line start
   (optional `PROXY_DECISION:` prefix). Both proxy gates are fail-closed —
@@ -250,10 +256,11 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   `NEEDS_REVISION` inside prose cannot trigger a revision.
 - **Review-fix with write tools**: the proxy-requested fix pass runs with
   write tools (like the execute phase) so fixes actually land in files and
-  are committed afterwards; degenerate fix output only warns. A DEGENERATE
+  are committed afterwards; a fresh review runs after the fix. Without both `REVIEW_PASSED` and explicit
+  proxy approval, phase 4 exits 1 and remains pending. A DEGENERATE
   review output (no marker + tool-speak/asks-human) never reaches the proxy
-  (#41): the fix pass runs instead and a KB blocker records the unusable
-  verdict.
+  (#41): the fix pass runs instead; a KB blocker is recorded if the new
+  review still lacks approval.
 - **Fence-free marker gates** (`text.without_fences()`): a protocol marker
   the model quotes inside a code fence is an example, never a signal. The
   worker CONSULT/PROXY gates (including fed-back retries), the review and
@@ -261,8 +268,9 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   match against the text with every fenced region cut — a quoted
   `SKILL_UPDATE` block can never rewrite a factory skill.
 - **Per-issue idempotent resume**: `execute()` skips issues whose
-  "Issue #N completed" decision node is already on disk; blocked issues
-  have no node, so they naturally retry on resume. The final summary
+  "Issue #N completed" decision node is already on disk; pending issues
+  have no node and retry even after later or legacy `complete` checkpoints.
+  Retrying execution invalidates downstream review and verification. The final summary
   rebuilds the blocked list from KB blocker nodes (#34) — a resumed run
   never reports "0 blocked" while the KB holds blockers; an issue that
   later completed outranks its stale blocker node.
@@ -279,7 +287,9 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
 - **Honest verify verdict**: `verify()` persists its verdict to
   `verify_verdict.txt`; resume reads it instead of hardcoding
   `VERIFY_PASSED`, and phase 6 ties the decision node + commit message to
-  the real verdict (failed verify → blocker node + `UNVERIFIED` commit).
+  the real verdict (failed verify → blocker node + `UNVERIFIED` commit and exit 1).
+  Failed verification resumes at phase 5; blocked issues resume at execution.
+  Only verified projects with no pending issues reach `complete`.
 - **Fence-aware spec parsing** (`text.spec_doc()`): language-tagged fence
   regions are CUT before the heading check — a spec with a small code
   example parses, but fenced lines never reach spec.md (run #4's smuggled

@@ -18,7 +18,7 @@ Phase 0: The planner interviews you about what you want
       ↓
 Phase 1: The planner writes the spec autonomously
 Phase 2: The planner breaks it into ordered issues
-Phase 3: The worker (local coder model) executes each issue:
+Phase 3: The worker executes each issue:
          ├─ Writes code + tests (TDD: Red → Green → Refactor)
          ├─ Stuck? → consultant role resolves the doubt
          ├─ 3 fails? → Deep diagnosis (root-cause analysis)
@@ -112,11 +112,14 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 |---------|-------------|
 | `stop.md` | Any agent can create `stop.md` in the project dir to halt the pipeline cleanly |
 | Regression suite | All previous tests re-run before each new issue — a red suite gets one worker-driven repair attempt, then gates the next one (skipped, logged, never built on a broken base); two consecutive unrepairable suites halt the run. An empty suite (pytest "no tests collected") is absence — never a failure |
-| Degenerate-output guard | Tool-call JSON, questions to the absent human, or truncated output are treated as failed attempts — never as success; a degenerate worker answer gets one feedback retry, then the issue is blocked |
-| Call timeout | Every `pi`/Ollama call is capped by `SIESTA_PI_TIMEOUT` (1200s default) — a hung call returns empty and counts as a failed attempt instead of freezing the pipeline (`stop.md` only works between issues) |
+| Degenerate-output guard | Tool-call JSON, questions to the absent human, or truncated output are treated as failed attempts — never as success; a degenerate first answer gets one feedback retry; every consultation, proxy and diagnosis retry is checked, and unresolved requests stay blocked |
+| Call timeout | Every `pi`/Ollama call is capped by `SIESTA_PI_TIMEOUT` (1200s default) — a hung call returns empty and counts as a failed attempt instead of freezing the pipeline (`stop.md` only works between issues). The interview deadline also covers open stdout and kills its process group while preserving partial text |
 | Explicit approval signal | Proxy gates are fail-closed: only a line-start `APPROVED` marker continues the pipeline. `NEEDS_REVISION`, hesitation, or garbage retry with feedback — unmarked output can never count as approval |
-| Honest verify verdict | `verify()` persists its verdict to `verify_verdict.txt`; resume reads it (never invents a pass), and a failed verify produces a blocker node + an `UNVERIFIED` commit instead of "Project verified" |
-| Idempotent resume | Issues with an "Issue #N completed" KB decision node are skipped on `--resume`; blocked issues have no node and naturally retry |
+| Honest verify verdict | `verify()` persists its verdict to `verify_verdict.txt`; resume reads it (never invents a pass), every verification runs the actual test suite. Red or absent tests cannot pass, even with a model approval; failed verification leaves an `UNVERIFIED` commit and exits 1 |
+| Idempotent resume | Issues with an "Issue #N completed" KB decision node are skipped on `--resume`; pending issues retry even after a later or legacy `complete` checkpoint, invalidating downstream review and verification. Failed verification resumes at verify; only verified projects without pending issues reach `complete` |
+| Review gate | One fix attempt is followed by a fresh review of the files. Both `REVIEW_PASSED` and explicit proxy approval are required; otherwise the phase stays pending and exits 1 |
+| Product recovery | Blocked work is backed up under `.git/siesta-recovery/`, then tracked files and the index restore from HEAD and untracked product files are removed. KB and ignored evidence survive |
+| Post-issue tests | Every issue requires a passing mechanical suite before its completion node and commit are written; no tests means blocked |
 | Spec relevance guard | A spec sharing zero content words with the interview intent is rejected as a template hallucination — one retry with feedback, then abort |
 | Fence-aware spec parsing | Language-tagged fence regions are cut before parsing — a spec with a small code example parses, but fenced lines never reach spec.md (a fenced `###` can't pose as a section; an answer fenced whole as code is a dump); bare fenced prose blocks are kept as illustration |
 | Planner retries | A spec/plan answer that is unusable (generic template, no `## Issue #N:` headers) gets one directive retry demanding the exact format before the honest fallbacks |
