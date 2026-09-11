@@ -2,9 +2,9 @@
 
 **"Give me an idea, go take a siesta, come back to working code."**
 
-Siesta is a local-first autonomous development pipeline for macOS. You give it a project idea, answer a few clarifying questions, then walk away. When you come back, there's a git repository with working, tested code that runs locally.
+Siesta is an autonomous development pipeline for projects that run on your own computer. Give it an idea, answer the interview, and let it write a spec, implement issues, review the code and run checks. It keeps a Git repository and a knowledge base of decisions; incomplete work remains recorded as incomplete.
 
-No API keys. No third-party SaaS. Everything runs through your [Ollama](https://ollama.ai) account — the local daemon orchestrates, and every model role is served by [Ollama Cloud](https://ollama.com/cloud) via the [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent: GLM 5.2 for planning/consulting, Gemma4 31B as the worker.
+The orchestrator is **Siesta's own Python pipeline**, invoked with `python3 -m pipeline`. It calls the [Pi coding agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) to access models and execute tools. The repository defaults to **Ollama Cloud**: GLM 5.2 for planning and consulting, Gemma4 31B for implementation. A separate **local vLLM profile using Qwen3.6** passed four Python CLI project runs on Linux. Files and checks run locally in both profiles; model inference runs where the selected provider serves it.
 
 ---
 
@@ -24,35 +24,92 @@ Phase 3: The worker executes each issue:
          ├─ 3 fails? → Deep diagnosis (root-cause analysis)
          ├─ Need approval? → Human-proxy decides based on KB
          ├─ Regression suite runs before each new issue
-         └─ Learns from every issue immediately
-Phase 4: Review phase, human-proxy approves
-Phase 5: Verify: project runs locally
-Phase 6: Final git commit
-Phase 7: Learns from the full project, improves skills
+         └─ Tests gate completion; learner runs after completed issues
+Phase 4: Review + proxy approval; a fix requires a fresh review
+Phase 5: Model assessment + actual regression and runtime checks
+Phase 6: Record the real verdict and final git commit
+Phase 7: Analyze project learnings and proposed skill updates
       ↓
-You:  Come back. Working code. Git history. KB of decisions. 🎉
+You:  Inspect the result, test evidence, Git history and any blockers.
 ```
 
 ---
 
 ## Architecture
 
-### Models
+### Orchestrator
+
+[`__main__.py`](factory/pipeline/__main__.py) dispatches phases and manages
+checkpoints and resume. [`phases.py`](factory/pipeline/phases.py) implements
+execution, recovery, review, verification and commits.
+[`pi.py`](factory/pipeline/pi.py) passes the selected role's model and provider
+to `pi`, controls tools and timeouts, and captures model output. In the default
+profile, the Ollama daemon proxies inference requests to Ollama Cloud.
+
+```mermaid
+flowchart TD
+    Human["Idea and interview answers"] --> Pipeline["Siesta: python3 -m pipeline"]
+    Config["models.json: role → model + provider"] --> Pipeline
+    Pipeline --> Pi["pi: model calls and permitted tools"]
+    Pi --> Planner["Planner: interview, spec, plan"]
+    Pi --> Worker["Worker: implementation, review, QA assessment"]
+    Pi --> Consultant["Consultant: advice, human-proxy, learner"]
+    Worker -->|"CONSULT / PROXY_REQUEST"| Pipeline
+    Consultant -->|"Resolution / decision"| Pipeline
+    Worker -->|"write, edit, bash during implementation and fixes"| Product["Generated project"]
+    Pipeline --> Checks["Mechanical tests and runtime smoke"]
+    Product --> Checks
+    Checks -->|"Evidence gates completion"| Pipeline
+    Pipeline <--> State["KB, Git history, checkpoints, run evidence"]
+    Skills["Tracked skills and KB context"] --> Pi
+```
+
+### Models and selection
+
+Model selection is **manual, by role**. At startup, Siesta reads the `model`
+and `provider` fields for `planner`, `worker` and `consultant` from
+[`factory/config/models.json`](factory/config/models.json). Each phase requests
+one of those roles; `pi` receives explicit `--model` and `--provider` flags.
+The human-proxy and learner both use `consultant`. Retries and deep diagnosis
+keep these assignments; there is no automatic model selector based on task difficulty.
+
+The committed defaults are:
 
 | Model | Roles | When |
 |-------|-------|------|
 | **GLM 5.2** (Ollama Cloud, via `pi`) | Planner, consultant, human-proxy, learner — the roles that must hold the text protocol | Phases 0–2, consultations, proxy decisions, per-issue + project learning |
 | **Gemma4 31B** (Ollama Cloud) | Worker — the one that writes code, reviews and verifies | Phases 3–5 |
 
-The split is deliberate: the protocol phases need a model that answers with markers
-(`INTENT_FINALIZED:`, `VERIFY_PASSED:`…) instead of tool-call JSON — live runs showed
-a coder model alone cannot hold that contract. The worker is picked for
-reliable **native tool calling** through Ollama: qwen2.5-coder was retired after
+The split reflects earlier runs: planner and consultant roles need reliable
+text markers such as `INTENT_FINALIZED:` and `APPROVED`, while implementation
+needs **native tool calling**. qwen2.5-coder was retired after
 [ollama#12174](https://github.com/ollama/ollama/issues/12174) made it return tool
 calls as plain text, so it could not write files or run tests at all; gemma4 was
 verified end-to-end (real `tool_calls` via `/v1`, tools executed by pi) before adoption.
 
-Model routing is configured in [`factory/config/models.json`](factory/config/models.json).
+The local validation on 2026-09-11 used a different assignment:
+
+| Setting | Committed default | Validated local profile |
+|---------|-------------------|-------------------------|
+| Planner | `glm-5.2:cloud` | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
+| Worker | `gemma4:31b-cloud` | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
+| Consultant, proxy, learner | `glm-5.2:cloud` | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
+| Provider | `ollama` | `local-vllm` |
+| Inference | Ollama Cloud through the local daemon | Local vLLM at `http://127.0.0.1:8000/v1` |
+
+To change a role, edit its `model` and `provider`, register that exact pair in
+Pi's model catalog, and start a new pipeline process. Verify native tools and
+the actual served context window before using a new worker. The local Qwen
+profile used a verified 262144-token window and passed a real write/bash/read probe.
+
+`SIESTA_FACTORY` selects an alternative factory directory, including its
+`config/models.json`, projects, KB and factory skills; it must contain those
+resources and have `.agents/skills/` in its parent directory.
+`PI_CODING_AGENT_DIR` selects the separate Pi profile containing `models.json`.
+The validation profile lives under the Git-ignored
+`.runtime/local-validation-20260911/`; cloning the repository does not install
+that profile or start vLLM. See [configuration details](AGENTS.md#model-routing)
+and the [local validation report](tasks/reliability-validation-20260911.md).
 
 Every model call goes through one wrapper ([`factory/pipeline/pi.py`](factory/pipeline/pi.py))
 that enforces two rules the pipeline depends on:
@@ -64,7 +121,7 @@ that enforces two rules the pipeline depends on:
   thinking models (GLM); every other model is pinned to `off`, so a
   misrouted call can never 400 with "does not support thinking".
 
-### Pipeline (7 Phases)
+### Pipeline (8 phases, numbered 0–7)
 
 | Phase | What happens | Role |
 |-------|-------------|------|
@@ -73,9 +130,9 @@ that enforces two rules the pipeline depends on:
 | 2 — Plan | Break spec into ordered, atomic issues with dependencies | planner |
 | 3 — Execute | Autonomous loop: implement each issue with TDD, consult when stuck | worker |
 | 4 — Review | Code review across 5 axes; human-proxy approves | worker + consultant |
-| 5 — Verify | Does it run locally? Fix if not | worker |
-| 6 — Done | Final git commit | — |
-| 7 — Learn | Cross-issue pattern analysis; skill improvement | consultant (learner) |
+| 5 — Verify | Read-only model assessment; Python runs regression and runtime checks and persists the verdict | worker + orchestrator |
+| 6 — Done | Record decision or blocker and commit according to the verdict | orchestrator |
+| 7 — Learn | Cross-issue analysis; log learnings and apply accepted skill updates | consultant (learner) |
 
 ### Knowledge Base (KB)
 
@@ -104,7 +161,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | [`consultant-protocol`](factory/skills/consultant-protocol/SKILL.md) | The consultant's playbook for resolving doubts when the worker gets stuck |
 | [`human-proxy`](factory/skills/human-proxy/SKILL.md) | Replaces human approval using KB context (evaluates against original intent) |
 | [`kb-manager`](factory/skills/kb-manager/SKILL.md) | Read/write/query the JSON KB graph with progressive disclosure |
-| [`factory-learner`](factory/skills/factory-learner/SKILL.md) | Learns after each issue, improves factory skills immediately |
+| [`factory-learner`](factory/skills/factory-learner/SKILL.md) | Analyzes completed issues and project outcomes; can update factory skills |
 
 ### Safety Features (inspired by [SantanderAI/ralph](https://github.com/SantanderAI/ralph))
 
@@ -124,17 +181,18 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | Fence-aware spec parsing | Language-tagged fence regions are cut before parsing — a spec with a small code example parses, but fenced lines never reach spec.md (a fenced `###` can't pose as a section; an answer fenced whole as code is a dump); bare fenced prose blocks are kept as illustration |
 | Planner retries | A spec/plan answer that is unusable (generic template, no `## Issue #N:` headers) gets one directive retry demanding the exact format before the honest fallbacks |
 | Generated hygiene | Project init writes a standard `.gitignore` (`.DS_Store`, `__pycache__/`, checkpoints) before the first `git add -A` |
-| Thinking escalation | Two consultant-guided retries before escalation on a failing issue |
+| Consultant-guided retries | Two resolution-guided retries before deep diagnosis on a failing issue |
 | Deep diagnosis | After 3 failures, the consultant does a root-cause analysis instead of blindly retrying |
 | Blocker logging | Stuck issues are logged to KB and skipped; pipeline continues |
-| Skill-update guard | Self-modification is validated (frontmatter + substance) — a truncated learner block can never gut a factory skill |
+| Skill-update guard | Updates are restricted to factory skills and checked for minimum structure and length; this does not establish their semantic quality |
 
 ### Self-Improvement Loop
 
-After **every issue**, the learner (GLM 5.2 via the consultant role, #46) analyzes what happened and learns:
+After each **completed issue**, the learner uses the configured consultant
+model to analyze the recorded outcome:
 
 ```
-Issue executed
+Issue completed with passing tests
   ↓
 learn_issue() runs
   ├─ Did I get stuck? Why? → Add Red Flag to issue-executor skill
@@ -143,8 +201,24 @@ learn_issue() runs
   ├─ What went well? → Log as best practice to global KB
   └─ Novel pattern? → Create new factory skill
   ↓
-Skills improve. Next project is smarter.
+Parsed learnings enter the global KB; accepted updates modify factory skills.
 ```
+
+The project-level pass looks for patterns across issues. A pass can produce
+zero learnings; these hooks do not guarantee useful improvements on every run.
+
+### Validated status — 2026-09-11
+
+The reliability work passed **215 Siesta tests**. Four local Qwen-generated
+projects — Caesar cipher, word count, temperature conversion and line deduplication —
+finished with `complete` and `VERIFY_PASSED`. Independent rechecks passed
+**62 generated tests and 14 CLI contract checks**. The generated products were
+implemented by the local model; the Siesta reliability fixes were made by Codex.
+
+These results cover small Python CLIs on Linux. The
+[validation report](tasks/reliability-validation-20260911.md) records the retained
+failures, dedupe's successful resume, and the limits of the checks. Raw logs and
+generated projects remain local under `.runtime/` and are excluded from Git.
 
 ---
 
@@ -152,13 +226,15 @@ Skills improve. Next project is smarter.
 
 ### Prerequisites
 
-- [Ollama](https://ollama.ai) running locally (it proxies every model call to [Ollama Cloud](https://ollama.com/cloud))
-- [Pi](https://github.com/mariozechner/pi-coding-agent) coding agent (`npm install -g pi`)
-- Models: `glm-5.2:cloud` (planner/consultant) and `gemma4:31b-cloud` (worker) — served by Ollama Cloud, no local pulls needed
+- Python and Git on `PATH`; the latest local validation used Python 3.12.3
+- `pytest` in the active Python environment for Python project regression checks
+- [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent#quick-start) coding agent and its Node.js requirements
+- For the default profile: [Ollama](https://ollama.com) running locally and authenticated for Ollama Cloud, with access to `glm-5.2:cloud` and `gemma4:31b-cloud`
+- For local inference: a running model server and matching Pi provider/model configuration
 
 ```bash
-# Install Pi
-npm install -g pi
+# Install Pi using the package named in its upstream quick start
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
 
 > **Note:** also register the worker in pi's user catalog (`~/.pi/agent/models.json`)
@@ -173,8 +249,13 @@ so cloning brings them — no separate skill install step is needed.
 ```bash
 # Clone — https://github.com/jairorodriguezarias/siesta brings all 15 skills
 # (.agents/skills/ + factory/skills/, tracked in git)
-git clone https://github.com/jairorodriguezarias/siesta.git ~/Desktop/siesta
-cd ~/Desktop/siesta
+git clone https://github.com/jairorodriguezarias/siesta.git
+cd siesta
+
+# Keep Python available for the pipeline and generated subprocess tests
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install pytest
 
 # Make the entry point executable
 chmod +x factory/bin/siesta.sh
@@ -195,7 +276,7 @@ skill with explicit `--skill <path>` flags pointing at the tracked sources
 ## Usage
 
 ```bash
-cd ~/Desktop/siesta
+# From the repository root, with the Python environment active
 
 # Give it an idea and answer the interview questions
 ./factory/bin/siesta.sh "Build a CLI pomodoro timer in Python"
@@ -212,6 +293,27 @@ ls factory/projects/
 #     ├── src/            (the code the worker wrote)
 #     ├── tests/          (the tests)
 #     └── kb/graph.json   (decisions, blockers, learnings)
+```
+
+For the Python entry point and an already specified idea:
+
+```bash
+PYTHONPATH=factory python3 -m pipeline --auto "Build a CLI pomodoro timer in Python"
+
+# Resume the same idea, retaining completed issues
+PYTHONPATH=factory python3 -m pipeline --auto --resume "Build a CLI pomodoro timer in Python"
+```
+
+Normal successful completion requires a persisted passing verdict and no pending
+issues. Failed review or verification and unresolved issues leave evidence and
+exit 1; a `stop.md` request is a separate clean halt. Check the project's
+`.pipeline-checkpoint`, `verify_verdict.txt` and KB for its actual state.
+
+To run Siesta's own tests from the repository root:
+
+```bash
+cd factory
+python -B -m unittest discover -s tests -v
 ```
 
 ### Emergency Stop
@@ -267,6 +369,7 @@ siesta/
 │       └── post-issue.sh
 │
 ├── AGENTS.md                      # Agent system documentation
+├── tasks/reliability-validation-20260911.md  # Results and limitations of local runs
 ├── LICENSE                        # MIT
 └── .gitignore
 ```
@@ -289,7 +392,7 @@ Siesta borrows several safety patterns from Ralph:
 
 - **`stop.md`** signal — any agent can halt the pipeline cleanly
 - **Regression suite** — re-run all previous tests before each new issue
-- **Model escalation** — increase model thinking level after repeated failures
+- **Consultant escalation** — resolution-guided retries followed by deep diagnosis
 - **Deep diagnosis** — after 3 failures, trigger root-cause analysis instead of blindly retrying
 - **Per-task learning** — improve skills after each task
 - **Workspace continuity** — all state lives in files (KB + git), not in the session

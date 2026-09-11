@@ -6,7 +6,13 @@ This document describes the autonomous agent system that powers Siesta: the role
 
 ## Overview
 
-Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) plays the roles that must hold the text protocol — planner, consultant, human-proxy — while Gemma4 31B (Ollama Cloud) is the worker that writes, reviews and verifies code. A pipeline orchestrator (`python3 -m pipeline`) coordinates them across 7 phases, with per-issue context loading, post-issue logging, and per-issue learning. The local Ollama daemon acts as the proxy to Ollama Cloud; since round-9 all roles route to cloud models (the local 8B worker's 8K served window was the pomodoro run's bottleneck).
+Siesta's **default routing uses two cloud models**: GLM 5.2 (via `pi`, Ollama Cloud) serves the planner, consultant, human-proxy and learner; Gemma4 31B serves the worker. Siesta's own Python orchestrator (`python3 -m pipeline`) coordinates eight phases, numbered 0–7, with per-issue context, logging and completion-gated learning. Pi handles model calls and tools; the local Ollama daemon proxies inference to Ollama Cloud.
+
+Role assignments are configurable. The separate local validation on 2026-09-11
+used `nvidia/Qwen3.6-35B-A3B-NVFP4` through `local-vllm` for all three configured
+roles. Four Python CLI projects passed; this profile does not replace the
+committed cloud defaults. See the [validation report](tasks/reliability-validation-20260911.md)
+and [model routing](#model-routing). Model names below describe the defaults.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -19,8 +25,8 @@ Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) play
 │  │              │    │              │    │               │  │
 │  │ • Interview  │    │ • Execute    │    │ • Resolve     │  │
 │  │ • Spec       │    │   issues     │───→│   doubts      │  │
-│  │ • Plan       │    │ • Review     │    │ • Deep        │  │
-│  │ • Proxy      │    • • Verify     │    │   diagnosis   │  │
+│  │ • Plan       │    │ • Review     │    │ • Diagnose    │  │
+│  │              │    │ • QA         │    │ • Proxy       │  │
 │  └──────────────┘    └──────────────┘    └───────────────┘  │
 │         │                   │                   │           │
 │         └───────────────────┼───────────────────┘           │
@@ -74,7 +80,7 @@ Siesta uses a **dual-model architecture**: GLM 5.2 (via `pi`, Ollama Cloud) play
 **Responsibilities:**
 - **Phase 3:** Executes each issue following TDD (Red → Green → Refactor). Writes code and tests. If stuck, outputs `CONSULT:` with a specific question, context, and code. If a skill says "ask the human", outputs `PROXY_REQUEST:`.
 - **Phase 4:** Reviews all code across 5 axes: correctness, readability, architecture, security, performance. Outputs `REVIEW_PASSED:` or `REVIEW_FAILED:`.
-- **Phase 5:** Verifies the project runs locally. Detects project type (incl. packages with `__main__.py`, run as `python -m <pkg>`), tries to run it, fixes if needed. Persists the verdict to `verify_verdict.txt` — phase 6 records decision+commit or blocker+`UNVERIFIED` commit per the real verdict.
+- **Phase 5:** Gives a read-only assessment with tools disabled. The Python orchestrator detects the project type (including packages with `__main__.py`), performs the runtime smoke check and always runs the regression suite. It persists `verify_verdict.txt`; model failure or runtime failure vetoes success, and absent/red tests cannot pass. Phase 6 records a decision+commit or blocker+`UNVERIFIED` commit from that verdict. Code fixes belong to execution and the review fix pass.
 
 **Skills used:**
 - `incremental-implementation` (Phase 3)
@@ -105,8 +111,8 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 - Loads KB context for the current issue
 - Performs adversarial review (CLAIM → EXTRACT → DOUBT → RECONCILE → STOP)
 - Returns a resolution with `RESOLUTION:`, `APPROACH:`, `CODE:`, `CONFIDENCE:`
-- If confidence is low, outputs `ESCALATE: web search needed for <query>`
-- If web search also fails, logs as blocker and the issue is skipped
+- The skill permits `ESCALATE: web search needed for <query>` when confidence is low. The current Python pipeline forwards consultant output as retry guidance; it does not invoke web search for this marker.
+- Persistent worker consultation requests reach deep diagnosis and, if unresolved, a logged blocker and skipped issue.
 
 **Escalation ladder:**
 1. Normal consultation (one resolution-guided retry)
@@ -153,13 +159,13 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 
 ### 5. Learner — GLM 5.2 (via consultant role)
 
-**When:** After every issue (Phase 3 hook), and at project end (Phase 7)
+**When:** After each completed issue (Phase 3 hook), and at project end (Phase 7)
 
 The learner runs through the consultant role on GLM 5.2 (#46): the strict `LEARNING` / `SKILL_UPDATE` output format is the most rigid text protocol in the pipeline, and the local gemma4 worker kept emitting unparseable verbose blocks.
 
 **Responsibilities:**
 
-**Per-issue learning (Level 1):** Runs immediately after each issue via `learn.learn_issue()`:
+**Per-issue learning (Level 1):** Runs after an issue passes its tests and completion is recorded, via `learn.learn_issue()`:
 - Did I get stuck? Why? → Add Red Flag to `issue-executor` skill
 - Was I rejected by the proxy? Why? → Add to Rationalizations table
 - What decision did I make? Is it a pattern? → Log to global KB
@@ -178,6 +184,10 @@ The learner runs through the consultant role on GLM 5.2 (#46): the strict `LEARN
 - `kb-manager` (factory custom)
 
 **KB interaction:** Logs learnings, blockers, consultations, and skill improvements to the global KB. Can modify factory skills (but never addyosmani skills).
+
+Learning is best-effort: a pass may produce zero parsed learnings. Skill-update
+checks restrict the destination and require minimum structure and length;
+they do not prove that an update improves the skill.
 
 ---
 
@@ -538,13 +548,33 @@ Each role also carries a `skills` list documenting the skills `run_pi()` loads
 for it — kept in sync with the actual `run_pi(..., skills=(...))` calls in
 `phases.py` / `learn.py`. The pipeline itself only reads `model` and `provider`.
 
+Selection is manual and fixed for a pipeline process. `pipeline.pi` reads the
+three role assignments at import, and `build_args()` forwards the requested
+role's model and provider to Pi. The human-proxy and learner use `consultant`;
+review and QA assessment use `worker`. Retries and deep diagnosis do not select
+a new model based on task difficulty. The `fallback` entry is metadata; the
+Python pipeline does not read it to switch models or invoke web search.
+
+| Environment variable | Effect |
+|----------------------|--------|
+| `SIESTA_FACTORY` | Alternative factory root for `config/models.json`, projects, KB and factory skills; addyosmani skills are read from its parent's `.agents/skills/` |
+| `PI_CODING_AGENT_DIR` | Alternative Pi profile directory, including its provider/model catalog in `models.json` |
+| `SIESTA_PI_TIMEOUT` | Timeout in seconds for each Pi call; default 1200 |
+
+The local validation used an isolated factory and Pi profile under
+`.runtime/local-validation-20260911/`. All three roles selected
+`nvidia/Qwen3.6-35B-A3B-NVFP4`, provider `local-vllm`, served at
+`http://127.0.0.1:8000/v1` with a checked 262144-token context. A native
+write/bash/read probe passed before the project runs. These runtime files are
+Git-ignored; a fresh clone needs its own server and profile setup.
+
 Worker models must be verified for **native tool calling** through the real
-stack (Ollama `/v1` → pi) before use: qwen2.5-coder was retired because
+stack (the configured provider → pi) before use: qwen2.5-coder was retired because
 [ollama#12174](https://github.com/ollama/ollama/issues/12174) made it emit
 tool calls as plain text — the worker could not write files or run tests, so
 every issue degenerated into tool-call JSON narration. Any new worker must
 also be registered in pi's user catalog (`~/.pi/agent/models.json`) with its
-**true served context window**. For local models the source of truth is
+**true served context window**. For local Ollama models the source of truth is
 `ollama ps`'s CONTEXT column (backed by `GET /api/ps`); for `:cloud` models
 the daemon is only a proxy — they never appear in `/api/ps`, so read the
 window from `POST /api/show` (`model_info` context lengths, e.g.
@@ -554,7 +584,9 @@ compaction. A declared window bigger than the served one means pi never
 compacts, long prompts overflow, `--context-shift` silently drops the head
 (skills + closing directive), and the worker ends its turn on a tool call
 with empty stdout — the degenerate guard blocks the issue (round-8, the
-pomodoro run's #3/#4). The startup mismatch guard warns about exactly this.
+pomodoro run's #3/#4). The startup mismatch guard probes Ollama and the default
+Pi catalog; custom vLLM profiles require checking their server and catalog
+directly. It does not validate every provider or `PI_CODING_AGENT_DIR` override.
 
 ### pi invocation contract (`pipeline/pi.py`)
 
@@ -595,7 +627,11 @@ rules the pipeline depends on:
 
 ### Change model routing
 
-Edit `factory/config/models.json`. The pipeline reads this at startup. You can use any Ollama-compatible model.
+Edit the selected factory's `config/models.json`, register the matching model
+and provider in Pi, verify tools and context, and start a new pipeline process.
+Providers can include Ollama or a configured local vLLM endpoint; each role
+still needs to satisfy its tool and text protocol requirements. See
+[Model Routing](#model-routing).
 
 ### Add a new KB node type
 
@@ -624,6 +660,7 @@ Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `ph
 | `factory/tests/` | Unit + fake-pi integration tests (`python3 -m unittest discover -s tests`) |
 | `factory/BACKLOG.md` | Findings + corrections backlog — also the changelog of what Siesta learned about itself |
 | `factory/config/models.json` | Model routing config |
+| `tasks/reliability-validation-20260911.md` | Local model validation results, recovery evidence and limitations |
 | `factory/kb/schema.json` | KB node/edge type schema |
 | `factory/kb/global-graph.json` | Cross-project accumulated learnings |
 | `factory/skills/*/SKILL.md` | 5 custom factory skills |
