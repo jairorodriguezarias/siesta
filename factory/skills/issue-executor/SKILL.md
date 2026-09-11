@@ -1,106 +1,91 @@
 ---
 name: issue-executor
-description: Executes a single issue from the task list. Use when the factory pipeline assigns an issue to the worker model. Follows incremental-implementation and test-driven-development patterns. Outputs CONSULT: when stuck.
+description: Implement a pipeline issue with code and tests. Return CONSULT when stuck or PROXY_REQUEST when approval is needed; leave completion and commits to Python.
 ---
 
 # Issue Executor
 
-The worker model's playbook for executing a single issue. This skill extends `incremental-implementation` and `test-driven-development` with factory-specific orchestration: KB context loading, stuck detection, and git commits.
+The configured worker implements one issue at a time. Follow the supplied
+`incremental-implementation` and `test-driven-development` skills for
+implementation and testing, subject to the pipeline handoff below.
 
-## When to Use
+## Runtime Contract
 
-- The factory pipeline assigns an issue to execute
-- NOT for: spec writing, planning, or review (those have their own skills)
+The worker has write, edit, read and bash tools for product work. Python
+supplies the issue, KB summaries, standing principles and source context.
+Use only skills and tools actually supplied; references do not install skills.
+
+**Python owns completion records, checkpoints, recovery and Git commits.**
+Leave product edits uncommitted. Do not stage or commit files, reset or clean
+the repository, create completion nodes, or edit checkpoints/verdicts.
+This applies during implementation, repair and review-fix calls. It overrides
+generic advice to commit after each increment: Python first runs its tests,
+then records completion and commits.
 
 ## Process
 
-### Step 1: Load Context
+1. Read the issue, acceptance criteria, supplied context and relevant source.
+   Use focused reads to fill gaps.
+2. Follow TDD: write a failing behavior test, implement the smallest working
+   change, then refactor with tests green.
+3. Run relevant tests and regressions with the project's actual runner.
+   Every issue needs executable passing tests, including scaffolding issues.
+4. For unfamiliar APIs, inspect available project documentation and installed
+   source. If a necessary fact cannot be established, consult; do not request
+   an absent skill.
+5. Report changed files, observed test results, significant decisions and
+   remaining uncertainty. Leave source and tests ready for Python's checks.
 
-1. Read the issue description and acceptance criteria
-2. Query the KB graph for relevant decisions and learnings:
-   ```bash
-   python3 -m pipeline.kb query kb/graph.json --summary-only
-   ```
-3. Activate `context-engineering` skill to pack the right context
-4. If the issue uses a framework/library, activate `source-driven-development` to verify against docs
+## Stuck and Approval Protocols
 
-### Step 2: Implement
+When stuck or missing a necessary fact, return:
 
-1. Follow `incremental-implementation` skill:
-   - Thin vertical slices
-   - One feature at a time
-   - Safe defaults, no breaking changes
-2. If building UI → activate `frontend-ui-engineering` skill
-3. If building API → activate `api-and-interface-design` skill
+    CONSULT: <specific question>
+    CONTEXT: <what was attempted and observed>
+    CODE: <relevant source or actual error>
 
-### Step 3: Test
+If a supplied skill asks for human approval, return:
 
-1. Follow `test-driven-development` skill:
-   - Write failing test first (Red)
-   - Implement to make it pass (Green)
-   - Refactor (Refactor)
-2. Run tests and verify they pass
+    PROXY_REQUEST: <decision that needs approval>
+    CONTEXT: <why it is needed and how it relates to the issue>
 
-### Step 4: Evaluate — Am I Stuck?
+Put markers at line start, outside fences, and end the turn. Python routes
+the request and provides feedback. After approval or guidance, implement and
+test; approval alone is not completed work. Report any remaining blocker.
 
-After each implementation attempt, self-assess:
+## Handoff
 
-**If you can continue:** proceed to Step 5.
+Provide a concise factual final report. Do not narrate tool-call JSON, ask
+the absent human questions, or quote example markers as real requests.
+Do not label the issue completed yourself.
 
-**If you are stuck** (you don't know how to proceed, you've tried 2 approaches and neither worked, you're unsure about a design decision), output EXACTLY:
-
-```
-CONSULT: <your specific question for the consultant>
-CONTEXT: <what you've tried so far>
-CODE: <relevant code or error message>
-```
-
-Then STOP. The orchestrator will route this to the consultant role. Do NOT guess or proceed with low confidence.
-
-### Step 5: Log Decision
-
-1. Log any significant decision to the KB:
-   ```bash
-   python3 -m pipeline.kb append-node kb/graph.json "decision" "<one-line summary>" "<full reasoning>"
-   ```
-2. If a learning was discovered, log it:
-   ```bash
-   python3 -m pipeline.kb append-node kb/graph.json "learning" "<one-line summary>" "<full detail>"
-   ```
-
-### Step 6: Git Commit
-
-1. Follow `git-workflow-and-versioning` skill:
-   - Atomic commit scoped to this issue
-   - Message format: `🔧 Issue #N: <short description>`
-   ```bash
-   git add -A
-   git commit -m "🔧 Issue #N: <description>"
-   ```
+Python runs the regression suite before writing the completion decision and
+commit. Red or absent tests block the issue. Python archives and discards
+blocked uncommitted work; leave that recovery to it. Per-issue learning runs
+after successful completion is recorded.
 
 ## Common Rationalizations
 
 | Rationalization | Reality |
 |---|---|
-| "I'll figure it out as I code" | If you're unsure about the approach, CONSULT first. Guessing wastes a full implementation cycle. |
-| "Tests are obvious, I'll add them after" | TDD is non-negotiable. Red-Green-Refactor. No exceptions. |
-| "This decision is too small to log" | If it affects future issues, log it. KB exists to prevent repeating mistakes. |
-| "I'll commit everything at the end" | Atomic commits per issue. If something breaks, you need to know which issue caused it. |
-| "I think this works but haven't tested" | Untested code is not done. Run the tests. |
+| "I'll guess the missing fact" | Consult with the specific evidence gap. |
+| "Tests can come later" | Each issue must leave executable passing tests. |
+| "I should commit to save my work" | Python commits after its verification gate. |
+| "The proxy approved, so I am done" | Implement and test the approved approach. |
+| "I can mark the KB complete" | Completion is Python's evidence-backed decision. |
 
 ## Red Flags
 
-- Writing more than 100 lines without a test
-- Proceeding with an approach you're not confident about (should have CONSULTed)
-- Committing multiple issues in one commit
-- Not logging decisions to the KB
-- Skipping KB context loading ("I know what to do")
+- Claimed edits or test runs without actual tool execution
+- Changing acceptance tests merely to hide failure
+- Invoking absent skills or fabricating external evidence
+- Staging, committing, restoring or deleting recovery evidence
+- Editing bookkeeping to bypass verification gates
 
 ## Verification
 
-- [ ] Issue acceptance criteria are met
-- [ ] Tests written and passing
-- [ ] No regressions in existing tests
-- [ ] Decision logged to KB graph
-- [ ] Git commit is atomic and scoped to this issue
-- [ ] If stuck: CONSULT output was generated with clear question, context, and code
+- [ ] Acceptance criteria have an implementation and meaningful tests
+- [ ] Reported test results were actually observed
+- [ ] Product edits remain uncommitted for Python
+- [ ] Decisions and unresolved concerns appear in the handoff
+- [ ] Any consultation or approval request uses its exact protocol

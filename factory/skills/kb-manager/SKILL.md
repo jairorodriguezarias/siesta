@@ -7,6 +7,15 @@ description: Manages the JSON-based knowledge graph with progressive disclosure.
 
 Manages the file-based JSON knowledge graph. Nodes store typed information (decisions, blockers, learnings, consultations) with summary + detail for progressive disclosure. Edges store typed relationships between nodes.
 
+## Pipeline Tool Boundaries
+
+When tools are disabled (consultant, proxy or learner), use the KB context
+provided in the prompt and return the requested text protocol. The CLI
+examples below are reference operations for an operator or a tool-enabled
+role; do not narrate their execution. Python persists protocol decisions,
+completion records and parsed learnings. A worker must never create an
+"Issue #N completed" node or alter checkpoints to bypass Python's test gate.
+
 ## When to Use
 
 - Before executing an issue: query relevant KB context

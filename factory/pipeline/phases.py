@@ -537,9 +537,10 @@ CODE: <if code fix needed>"""
 # #42: named per-phase skill sets — the tuples were duplicated inline and
 # the overlap (incremental-implementation + test-driven-development) was
 # invisible. Named constants keep them greppable; RETRY_SKILLS is the
-# shared pair the worker gets on every fed-back retry.
+# shared implementation skills for fed-back retries and review fixes.
 RETRY_SKILLS = (SKILLS / "incremental-implementation",
-                SKILLS / "test-driven-development")
+                SKILLS / "test-driven-development",
+                FACTORY_SKILLS / "issue-executor")
 EXECUTE_SKILLS = (SKILLS / "incremental-implementation",
                   SKILLS / "test-driven-development",
                   SKILLS / "debugging-and-error-recovery",
@@ -548,7 +549,8 @@ EXECUTE_SKILLS = (SKILLS / "incremental-implementation",
 REVIEW_SKILLS = (SKILLS / "code-review-and-quality",
                  SKILLS / "code-simplification")
 REPAIR_SKILLS = (SKILLS / "debugging-and-error-recovery",
-                 SKILLS / "test-driven-development")
+                 SKILLS / "test-driven-development",
+                 FACTORY_SKILLS / "issue-executor")
 VERIFY_SKILLS = (SKILLS / "test-driven-development",
                  SKILLS / "debugging-and-error-recovery")
 
@@ -694,6 +696,12 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                 # The pomodoro run skipped 11 issues on a stub-empty suite.
                 source_now = gather(proj)
                 if _repair_regression(proj, num, issue_text, source_now):
+                    # Preserve the tested base before later issue recovery
+                    # can discard that issue's uncommitted changes.
+                    _commit(proj, f"Regression repaired before issue #{num}")
+                    if not _tree_is_clean(proj):
+                        raise RuntimeError("Regression repair remains uncommitted; "
+                                           "fix Git and commit it before resuming")
                     ok("Regression repaired — continuing with the issue")
                     red_streak = 0
                 else:
@@ -927,7 +935,7 @@ def review(proj: Path, kb: Graph) -> None:
             run_pi(
                 "worker", f"Review feedback: {feedback}\n\nSource files:\n{source}\n\n"
                 "Apply the fixes in files and run tests. Report what changed.",
-                "Fix review issues", skills=REVIEW_SKILLS,
+                "Fix review issues", skills=REVIEW_SKILLS + RETRY_SKILLS,
                 artifact=proj / "review_fixes_output.txt", cwd=proj)
             # Save applied work; a commit is not an approval.
             _commit(proj, "Review fixes awaiting approval")

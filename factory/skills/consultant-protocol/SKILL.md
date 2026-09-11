@@ -1,139 +1,83 @@
 ---
 name: consultant-protocol
-description: Protocol for the consultant role to resolve a worker CONSULT: request (same local model, different role). Extends doubt-driven-development with the factory's role handoff.
+description: Resolve a worker CONSULT request using supplied issue and KB evidence. Guide deep diagnosis when the orchestrator requests it.
 ---
 
 # Consultant Protocol
 
-When the worker role gets stuck and outputs `CONSULT:`, this skill defines how the consultant role (same local model, fresh context — the factory runs every role on `qwen2.5-coder`) receives the question, reasons about it, and returns a resolution.
+Use the configured consultant role. The active `config/models.json` selects
+its model; the worker may use the same model or a different one.
 
-## When to Use
+## Runtime Contract
 
-- Worker outputs `CONSULT: <question>` with `CONTEXT:` and `CODE:`
-- Worker has tried at least one approach and failed
-- NOT for: simple questions the worker should know (rare exceptions)
+Python calls this role with tools disabled. Use the supplied question, code,
+prior attempts and KB context. Do not execute commands, request the absent
+human, or claim to have fetched more evidence. Python logs the consultation
+and saves the response as run evidence.
 
 ## Process
 
-### Step 1: Receive the Consultation
+1. Read the worker's `CONSULT:`, `CONTEXT:` and `CODE:` evidence.
+2. Identify the claim and extract its assumptions.
+3. Challenge the assumptions against the supplied source and evidence.
+4. Reconcile the findings into the smallest actionable correction.
+5. Return a resolution with the confidence supported by that evidence.
 
-Parse the worker's output:
+This review is self-contained; no additional skill needs installing.
 
-```
-CONSULT: <question>
-CONTEXT: <what was tried>
-CODE: <relevant code or error>
-```
+## Resolution Format
 
-### Step 2: Load KB Context
+Return these markers at line start, outside code fences:
 
-Query the KB for any prior decisions or learnings related to this issue:
+    RESOLUTION: <answer to the worker's question>
+    APPROACH: <concrete steps the worker can execute>
+    RATIONALE: <root cause and supporting evidence>
+    CODE: <relevant correction, when useful>
+    CONFIDENCE: high|medium|low
 
-```bash
-python3 -m pipeline.kb query kb/graph.json --summary-only
-```
+The worker receives the response and retries with write and test tools.
+Distinguish proposed code from code observed running.
 
-The consultant gets:
-- The worker's question and context
-- Relevant KB summaries (progressive disclosure — summaries first)
-- The issue's acceptance criteria
+If evidence is insufficient, state that with `CONFIDENCE: low` and recommend
+a concrete check the worker can perform. Do not invent a resolution or
+promise web search: Python has no web-search handler for `ESCALATE:`,
+and the `fallback` config entry does not dispatch one.
 
-### Step 3: Adversarial Review
+## Deep Diagnosis
 
-Follow `doubt-driven-development` skill:
+Two resolution-guided retries precede deep diagnosis on the third worker
+consultation request. When asked for diagnosis, return:
 
-1. **CLAIM** — What is the worker trying to do?
-2. **EXTRACT** — What assumptions is the worker making?
-3. **DOUBT** — Challenge each assumption:
-   - Is the approach correct?
-   - Is there a simpler way?
-   - Is the worker stuck because of a wrong assumption or missing knowledge?
-4. **RECONCILE** — Resolve the doubt with evidence
-5. **STOP** — When confident, produce the answer
+    DIAGNOSIS: <root cause and evidence, or stated uncertainty>
+    RECOMMENDATION: <fix, restructure, or skip>
+    DETAILED_PLAN: <steps for the worker to try>
 
-### Step 4: Produce Resolution
-
-Output in this exact format:
-
-```
-RESOLUTION: <clear answer to the question>
-APPROACH: <recommended approach, step by step>
-RATIONALE: <why this approach, what was wrong with the worker's approach>
-CODE: <if code changes are needed, provide them>
-CONFIDENCE: high|medium|low
-```
-
-If the consultant cannot resolve with high or medium confidence:
-
-```
-ESCALATE: web search needed for <specific query>
-```
-
-### Step 5: Log to KB
-
-Log the consultation:
-
-```bash
-python3 -m pipeline.kb append-node kb/graph.json "consultation" "<one-line summary>" "<question + answer + model>"
-```
-
-If the consultation resolved a blocker:
-
-```bash
-python3 -m pipeline.kb append-node kb/graph.json "decision" "<one-line summary>" "<full resolution>"
-```
-
-### Step 6: Return to Worker
-
-The resolution is fed back to the worker model. The worker:
-1. Reads the RESOLUTION and APPROACH
-2. Implements the recommended approach
-3. Continues with `issue-executor` skill from Step 2 (Implement)
-
-## Escalation: Web Search Fallback
-
-If the consultant outputs `ESCALATE: web search needed for <query>`:
-
-1. The orchestrator runs a web search using `@ollama/pi-web-search`
-2. Results are fed back to the consultant
-3. Consultant re-evaluates with the search results
-4. If still unresolved → log as blocker, skip issue
-
-## Escalation: Blocker
-
-If consultant + web search both fail:
-
-1. Log to KB as blocker:
-   ```bash
-   python3 -m pipeline.kb append-node kb/graph.json "blocker" "<one-line summary>" "<full detail>"
-   ```
-2. Mark issue as "blocked" in issues.md
-3. Skip to next issue
-4. Continue pipeline
+If no supported repair remains, emit `SKIP: <specific blocker>`.
+For a critical blocker requiring the entire run to stop, emit
+`CRITICAL: <reason>`. Use these signals only for the intended decision,
+outside fences. Python handles recovery, the blocker and the skip or halt.
+It allows one diagnosis-guided worker retry; persistent consultation is blocked.
 
 ## Common Rationalizations
 
 | Rationalization | Reality |
 |---|---|
-| "I can figure this out without KB context" | The KB exists because past decisions matter. Always query it. |
-| "The worker just needs a hint, I'll give a vague answer" | Be specific. Provide code. The worker needs actionable guidance, not philosophy. |
-| "I'm not sure but let me guess" | If confidence is low, ESCALATE. Don't pass a guess to the worker as a resolution. |
-| "This is too small to log" | Every consultation is valuable. Future issues may hit the same problem. |
+| "A hint should be enough" | Give a concrete next step and its evidence. |
+| "I should guess to keep moving" | State uncertainty; unsupported advice wastes retries. |
+| "The fallback will search for me" | No automatic search exists in this pipeline. |
+| "I need a shell command to log this" | Python owns consultation bookkeeping. |
 
 ## Red Flags
 
-- Returning vague advice without code examples
-- Not querying the KB before answering
-- High confidence answer without evidence
-- Not logging the consultation to KB
-- Guessing instead of escalating when unsure
+- Advice contradicting the supplied intent or prior decisions
+- Claiming tool execution or searches in this role
+- High confidence without evidence
+- Repeating a failed approach without addressing its cause
 
 ## Verification
 
-- [ ] Worker's CONSULT was fully parsed (question, context, code)
-- [ ] KB was queried for relevant context
-- [ ] Resolution includes clear answer + approach + rationale
-- [ ] If code changes needed, code is provided
-- [ ] Confidence level is stated
-- [ ] Consultation logged to KB graph
-- [ ] If escalated, web search was performed and results fed back
+- [ ] Question, source and prior attempts informed the answer
+- [ ] The worker has a concrete next action or an explicit blocker
+- [ ] Confidence matches the available evidence
+- [ ] Markers match the requested resolution or diagnosis task
+- [ ] Proposed actions are not described as completed work
