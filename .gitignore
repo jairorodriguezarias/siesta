@@ -26,3 +26,6 @@ factory/projects/
 # Runtime pi agent state (contains PI — never push)
 .pi/
 .qwen/
+
+# Local validation profiles, credentials and run evidence
+.runtime/

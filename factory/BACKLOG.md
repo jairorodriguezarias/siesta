@@ -717,3 +717,21 @@ red-test-first; 196 tests green after.
   by grep: no "Gemma4 8B" / "gemma4:latest" / "100% local" /
   "No cloud APIs" strings remain in README.md, AGENTS.md, siesta.sh,
   models.json or this backlog.
+
+## Reliability close-out (2026-09-11)
+
+- [x] Require mechanical evidence for issue completion and final verification;
+  validate every recovery answer, require fresh review and explicit approval,
+  enforce the interactive deadline across open stdout, preserve recoverable
+  product residue before cleanup (including terminal repair failures), and
+  resume pending issues after later checkpoints. Implementation: `2907a87`;
+  additional process/Git regressions: `e3d4878`.
+- [x] Validate four distinct Python projects through actual local inference.
+  Caesar, wordcount, tempconv and dedupe all completed; dedupe recovered from
+  an interrupted temporary Python environment. Final checks: 215 factory
+  tests, 62 generated product tests and 14 independent CLI cases pass.
+  Model QA narration and zero new dedupe project learnings remain documented
+  limitations, not evidence of useful learning.
+
+See [the full report](../tasks/reliability-validation-20260911.md) for the
+local model identity, context, failure records, review and reproduction steps.
