@@ -6,12 +6,12 @@
 #   1. Takes your idea
 #   2. Interviews you (human interactive)
 #   3. You leave. Go take a siesta. 💤
-#   4. The planner (GLM-5.2, cloud) generates spec + plan
-#   5. The worker (Gemma4 31B, Ollama Cloud) executes issues autonomously
+#   4. The configured planner generates spec + plan
+#   5. The configured worker executes issues autonomously
 #   6. If stuck → the consultant resolves → if 3 fails → deep diagnosis
 #   7. Reviews code, verifies it runs, git commits
-#   8. Learns from every issue to improve for next time
-#   9. You wake up. Working code is ready.
+#   8. Analyzes completed issues and project outcomes for learnings
+#   9. You inspect the result, evidence and any remaining blockers.
 #
 # 💤 Go take a siesta. Come back to working code.
 
@@ -39,8 +39,7 @@ echo "║              💤  SIESTA  💤                                ║"
 echo "║                                                            ║"
 echo "║  \"Give me an idea, go take a siesta, come back to code\"    ║"
 echo "║                                                            ║"
-echo "║  Models:   GLM-5.2 (planner/consultant) via pi             ║"
-echo "║  Worker:   Gemma4 31B — Ollama Cloud, writes code          ║"
+echo "║  Models:   Active role assignments logged by Python below ║"
 echo "║  Guard:    Degenerate-output guard + regression gating     ║"
 echo "║  Fallback: Deep diagnosis + skip (from Ralph)              ║"
 echo "║  Skills:   10 addyosmani + 5 factory custom              ║"

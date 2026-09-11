@@ -5,6 +5,7 @@ final summary. Phase bodies live in pipeline/phases.py, learning in
 pipeline/learn.py.
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -13,7 +14,7 @@ from pathlib import Path
 
 from pipeline import learn, phases, text
 from pipeline.kb import Graph
-from pipeline.pi import (FACTORY, GLOBAL_KB, ROLE, _declared_context,
+from pipeline.pi import (CONFIG, FACTORY, GLOBAL_KB, ROLE, _declared_context,
                          warn_if_context_mismatch, err, log, ok, phase, warn)
 
 PHASE_ORDER = ["phase-0", "phase-1", "phase-2", "phase-3",
@@ -132,6 +133,9 @@ def _failure_learn(args, e) -> None:
 
 
 def _run(args) -> None:
+    log(f"Model configuration: {os.path.relpath(CONFIG)}")
+    for role, route in ROLE.items():
+        log(f"Model {role}: {route['model']} (provider: {route['provider']})")
     idea = args.idea
     name = slug(idea)
     proj = FACTORY / "projects" / name
