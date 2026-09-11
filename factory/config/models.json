@@ -1,0 +1,14 @@
+{
+  "planner": {
+    "model": "glm-5.2:cloud",
+    "provider": "ollama"
+  },
+  "worker": {
+    "model": "gemma4:31b-cloud",
+    "provider": "ollama"
+  },
+  "consultant": {
+    "model": "glm-5.2:cloud",
+    "provider": "ollama"
+  }
+}

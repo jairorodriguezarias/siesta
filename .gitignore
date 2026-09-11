@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+*/.DS_Store
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Project outputs (each project has its own git repo)
+factory/projects/
+
+# Runtime agent state (pi CLI can write here)
+.claude/
+
+# Pipeline checkpoints
+.pipeline-checkpoint
+
+# Logs
+*.log
+
+# Runtime pi agent state (contains PI — never push)
+.pi/
+.qwen/
+
+# Local validation profiles, credentials and run evidence
+.runtime/
+
+# Local knowledge, plans and development notes
+/factory/kb/global-graph.json
+/factory/kb/graph.json
+/tasks/
+
+# Local environment files
+.env
+.env.*
+!.env.example
