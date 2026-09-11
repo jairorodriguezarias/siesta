@@ -7,9 +7,8 @@ connects it to `http://localhost:11434/v1`. Choose the underlying model yourself
 The same model must support both native tool calls and the text protocols used
 by the planner, consultant, proxy and learner.
 
-This is a setup recipe, not a claim that every Ollama model passes Siesta.
-The [four earlier local project runs](../tasks/reliability-validation-20260911.md)
-used a different serving stack; their results do not validate this profile.
+Model suitability must be checked through real tool use and a complete project.
+See [testing](testing.md) for the acceptance checks and their limits.
 
 ## Prerequisites
 
@@ -30,16 +29,18 @@ is left intact; choose a new directory if you want another fresh profile.
 
 ```bash
 test ! -e .runtime/ollama-local || { echo 'Profile already exists'; exit 1; }
-mkdir -p .runtime/ollama-local/factory/config .runtime/ollama-local/pi
+mkdir -p .runtime/ollama-local/factory/config .runtime/ollama-local/factory/kb .runtime/ollama-local/pi
 mkdir -p .runtime/ollama-local/.agents
-cp -R factory/kb factory/skills .runtime/ollama-local/factory/
+cp factory/kb/global-seed.json factory/kb/schema.json .runtime/ollama-local/factory/kb/
+cp -R factory/skills .runtime/ollama-local/factory/
 cp -R .agents/skills .runtime/ollama-local/.agents/
 cp factory/config/local-ollama.example.json .runtime/ollama-local/factory/config/models.json
 cp factory/config/pi-ollama.example.json .runtime/ollama-local/pi/models.json
 printf '%s\n' '{"packages": [], "quietStartup": true}' > .runtime/ollama-local/pi/settings.json
 ```
 
-The copied KB retains standing principles. Projects, learned skill changes
+The copied seed supplies standing principles without importing prior run history.
+Projects, learned skill changes
 and Pi state stay in this Git-ignored profile. Source code still comes from
 the checkout. Repository updates do not refresh an existing profile's copied
 skills automatically; review and copy updates before reusing that profile.

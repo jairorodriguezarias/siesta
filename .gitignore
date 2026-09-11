@@ -8,6 +8,7 @@ node_modules/
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
 .venv/
 venv/
 
@@ -29,3 +30,13 @@ factory/projects/
 
 # Local validation profiles, credentials and run evidence
 .runtime/
+
+# Local knowledge, plans and development notes
+/factory/kb/global-graph.json
+/factory/kb/graph.json
+/tasks/
+
+# Local environment files
+.env
+.env.*
+!.env.example

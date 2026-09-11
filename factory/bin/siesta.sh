@@ -25,8 +25,6 @@ FACTORY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 exec > >(tee -a "$FACTORY_DIR/pipeline.log") 2>&1
 
 # ─── Colors ───
-RED='\033[0;31m'
-GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
@@ -71,7 +69,7 @@ IDEA="${@: -1}"  # flags may come first; show the idea, not "--auto"
 echo -e "${BLUE}Idea:${NC} $IDEA"
 echo ""
 
-if echo "$@" | grep -q -- "--auto"; then
+if [[ "$*" == *"--auto"* ]]; then
   echo -e "${CYAN}Auto mode: skipping interview. Using idea as intent directly.${NC}"
   echo ""
 else

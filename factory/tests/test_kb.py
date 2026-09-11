@@ -10,6 +10,44 @@ from pathlib import Path
 from pipeline.kb import Graph
 
 
+class SeedBootstrap(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "global-graph.json"
+        self.seed = self.path.with_name("global-seed.json")
+        graph = Graph(self.seed)
+        graph.node("principle", "Keep projects simple")
+
+    def test_new_graph_copies_seed_without_modifying_it(self):
+        original = self.seed.read_bytes()
+        graph = Graph(self.path, seed=self.seed)
+        self.assertEqual(graph.query("principle"), Graph(self.seed).query())
+        graph.node("learning", "Private run detail")
+        self.assertEqual(self.seed.read_bytes(), original)
+        self.assertEqual(len(Graph(self.path).query()), 2)
+
+    def test_existing_graph_is_preserved_even_when_empty(self):
+        for populated in (False, True):
+            with self.subTest(populated=populated):
+                graph = Graph(self.path)
+                if populated:
+                    graph.node("decision", "Keep this local decision")
+                original = self.path.read_bytes()
+                Graph(self.path, seed=self.seed)
+                self.assertEqual(self.path.read_bytes(), original)
+
+    def test_missing_seed_creates_empty_graph(self):
+        graph = Graph(self.path, seed=self.path.with_name("missing.json"))
+        self.assertEqual(graph.query(), [])
+
+    def test_invalid_seed_does_not_create_live_graph(self):
+        self.seed.write_text("invalid JSON")
+        with self.assertRaises(json.JSONDecodeError):
+            Graph(self.path, seed=self.seed)
+        self.assertFalse(self.path.exists())
+
+
 class GraphNodes(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -44,8 +44,7 @@ def slug(idea: str) -> str:
 
 
 def _norm_idea(s: str) -> str:
-    """Comparison form of an idea: case/whitespace differences are typos,
-    but different words are a different project (#56)."""
+    """Ignore case and whitespace when comparing recorded project ideas."""
     return re.sub(r"\s+", " ", s.lower()).strip()
 
 
@@ -58,12 +57,8 @@ def _latest(kb: Graph, type_: str) -> str | None:
 
 
 def _blocked_from_kb(kb: Graph) -> list[int]:
-    """#34: rebuild the blocked-issue list from KB nodes on resume.
-
-    The in-memory list died with the previous run; the KB is the truth. A
-    blocker whose issue later completed (retried on resume, #9) no longer
-    counts — completion outranks the stale blocker.
-    """
+    """Rebuild blocked issues from the persisted ledger.
+    Completion outranks an earlier blocker for the same issue."""
     completed = {n["summary"] for n in kb.query(type_="decision")}
     blocked: list[int] = []
     for node in kb.query(type_="blocker"):
@@ -77,10 +72,8 @@ def _blocked_from_kb(kb: Graph) -> list[int]:
 
 
 def _warn_context_mismatches() -> None:
-    """Round-8: advisory startup guard — pi compacts to its catalog window,
-    so a served window smaller than declared silently truncates the worker's
-    prompts (issues #3/#4 blocked on empty stdout in the pomodoro run).
-    Never crash the run: a broken probe is silence, not a halt."""
+    """Warn once per model if its served window is smaller than declared.
+    This is advisory: an unavailable probe must not halt the pipeline."""
     seen: set[str] = set()
     for role in ("planner", "worker", "consultant"):
         model = ROLE[role]["model"]
@@ -117,7 +110,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _failure_learn(args, e) -> None:
-    """Even on failure, log what went wrong to both KBs (was the EXIT trap)."""
+    """Record failed execution in both project and global knowledge bases."""
     name = slug(args.idea)
     proj = FACTORY / "projects" / name
     checkpoint = proj / ".pipeline-checkpoint"
@@ -126,7 +119,7 @@ def _failure_learn(args, e) -> None:
     Graph(proj / "kb" / "graph.json").node(
         "blocker", "Pipeline failed",
         f"Pipeline exited with error: {e}. Last checkpoint: {last}.")
-    Graph(GLOBAL_KB).node(
+    Graph(GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json")).node(
         "learning", f"Pipeline failure: {name}",
         f"Pipeline failed at checkpoint {last}. Error: {e}.")
     err("Pipeline failed. KB updated with failure details.")
@@ -145,10 +138,7 @@ def _run(args) -> None:
     if checkpoint.exists():
         log(f"Resuming project: {name} (checkpoint: "
             f"{checkpoint.read_text().strip() or 'unknown'})")
-        # #56: the slug cuts at 40 chars, so a DIFFERENT idea can map to a
-        # completed project's dir (tempconv/guessgame collision, live
-        # 2026-09-10). Resume of the same idea is the design; resuming on
-        # behalf of a different idea silently ignores the new one.
+        # Truncated slugs can collide. Never resume a different recorded idea.
         idea_file = proj / IDEA_FILE
         if idea_file.exists() and \
                 _norm_idea(idea_file.read_text()) != _norm_idea(idea):
@@ -181,7 +171,7 @@ def _run(args) -> None:
         schema = FACTORY / "kb" / "schema.json"
         if schema.exists():
             (proj / "kb" / "schema.json").write_text(schema.read_text())
-    gkb = Graph(GLOBAL_KB)
+    gkb = Graph(GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json"))
     if not (proj / ".git").exists():
         phases._git(proj, "init")
 

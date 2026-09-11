@@ -1,8 +1,4 @@
-"""Factory learning: per-issue micro-learning (hook) and Phase 7 project summary.
-
-Ports factory/hooks/learn-issue.sh and factory/scripts/learn.sh. The parse-
-and-act side is unit-tested; the model calls are exercised via fake-pi.
-"""
+"""Per-issue and project learning, KB records and factory skill updates."""
 import re
 import sys
 from pathlib import Path

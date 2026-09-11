@@ -1,9 +1,4 @@
-"""Model access and logging — every model call goes through run_pi().
-
-The pipeline shells out to the `pi` CLI (installed on PATH), exactly as the
-bash version did. Nothing here knows about phases; capture and artifact
-writing are the only concerns.
-"""
+"""Model invocation, timeouts, served-context checks and logging."""
 import json
 import os
 import signal
@@ -32,19 +27,11 @@ _config = json.loads(CONFIG.read_text())
 ROLE = {r: {"model": _config[r]["model"], "provider": _config[r]["provider"]}
         for r in ("planner", "worker", "consultant")}
 
-# #24: pi without an explicit --thinking sends a level Ollama rejects for
-# non-thinking models (qwen2.5-coder 400s: "does not support thinking"). The
-# flag is therefore load-bearing. But a *non-default* level on a model that
-# does not support thinking also 400s (deep-diagnosis "high" on qwen) — so
-# only forward --thinking when the routed model is a known thinking model;
-# for others pin "off", which every provider accepts.
+# Always send a thinking level: unsupported levels can fail at the provider.
+# Forward the requested level only for known thinking model families.
 THINKING_MODELS = ("glm",)
 
-# Round-8: pi's catalog (~/.pi/agent/models.json) declared gemma4 with a
-# 131072 window while Ollama served 8192 — pi never compacted, worker prompts
-# overflowed, --context-shift silently cut the head (skills + closing
-# directive), and the model ended its turn on a tool call with empty stdout
-# (issues #3/#4 "degenerate"). The catalog must state the TRUE served window.
+# Pi compacts against this catalog; an oversized window can truncate prompts.
 PI_CATALOG = Path.home() / ".pi" / "agent" / "models.json"
 
 
@@ -56,13 +43,7 @@ def _safe_thinking(model: str, thinking: str) -> str:
 
 
 def _served_context(model: str) -> int | None:
-    """Ollama's actually-served context for a loaded model, None if unknown.
-
-    `/api/ps` (the JSON behind `ollama ps`'s CONTEXT column) is the truth
-    the catalog must match; a None probe (Ollama absent, unreadable, model
-    idle) must never warn. `ollama ps` has no --format flag (0.33.3), and
-    its table output is locale-unstable — parse the API, not the table.
-    """
+    """Return the loaded Ollama model's served context, or None if unknown."""
     try:
         with urllib.request.urlopen("http://localhost:11434/api/ps",
                                     timeout=10) as resp:
@@ -95,11 +76,9 @@ def _declared_context(model: str) -> int | None:
 
 
 def warn_if_context_mismatch(model: str, declared: int | None) -> bool:
-    """Advisory guard: warn when the served window is smaller than declared.
-
-    pi compacts to the catalog window, so a bigger declared window silently
-    truncates real context (pomodoro run: 131072 declared vs 8192 served).
-    """
+    """Warn when Pi's declared window exceeds the context actually served.
+    Pi uses the catalog window for compaction, so an oversized declaration
+    can allow the provider to truncate source and instructions."""
     served = _served_context(model)
     if served is None or declared is None or served >= declared:
         return False

@@ -140,18 +140,9 @@ def content_words(s: str) -> set[str]:
 
 
 def shares_content(a: str, b: str) -> bool:
-    """True if both texts share at least two content words (#40).
-
-    A spec/plan that shares NO content word with the intent is a generic
-    template hallucination, not an answer (round-3 finding: GLM emitted a
-    'Project name: TBD' shell spec, then 'CI/CD pipeline' issues, for a
-    council-CLI idea — format checks alone let it through). One shared word
-    ("python") proves nearly as little, so two are required — unless `a`
-    (the intent) has fewer than two content words of its own, when one
-    match is all an honest spec can offer. A contentless intent passes
-    vacuously: the guard has nothing to judge, and rejecting every spec
-    would kill the run.
-    """
+    """Require up to two shared content words between intent and document.
+    A single generic word is weak evidence of relevance. Short intents need
+    only as many matches as they contain; empty intents cannot be judged."""
     words_a = content_words(a)
     return len(words_a & content_words(b)) >= min(2, len(words_a))
 
@@ -187,13 +178,8 @@ def _fence_tag(line: str) -> str | None:
 
 
 def _strip_code_fences(doc: str) -> str:
-    """Cut language-tagged fence regions (marker + content); keep bare fences.
-
-    run-4 + #36: a fenced '###' must never pose as a spec heading (run #4
-    smuggled a whole program whose ```python body contained one), but a
-    legit spec with a small ```python example must still parse. Bare ```
-    fences and ```markdown-style wrappers are prose, not code — kept.
-    """
+    """Remove code examples before checking document headings.
+    Bare fences and Markdown/text wrappers contain prose and are preserved."""
     lines, cutting = [], False
     for line in doc.splitlines():
         if cutting:
@@ -209,15 +195,9 @@ def _strip_code_fences(doc: str) -> str:
 
 
 def without_fences(out: str) -> str:
-    """Cut EVERY fenced region (bare or tagged) — for marker gates.
-
-    Hardening (round-7): markers the model quotes as examples inside code
-    blocks sit at column 0, so the ^ anchor doesn't help — quoted content
-    is never a protocol signal. Unlike _strip_code_fences (spec parsing,
-    where bare fences are legit prose), marker gates cut all fences: a
-    CONSULT:/VERIFY_PASSED:/SKILL_UPDATE_START inside a fence is an
-    example, not a decision. An unclosed fence cuts to the end.
-    """
+    """Remove every fenced region before checking protocol markers.
+    Quoted examples never authorize actions. An unclosed fence removes
+    all remaining content."""
     lines, cutting = [], False
     for line in out.splitlines():
         if cutting:

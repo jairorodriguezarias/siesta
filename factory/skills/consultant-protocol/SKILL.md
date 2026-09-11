@@ -40,8 +40,7 @@ Distinguish proposed code from code observed running.
 
 If evidence is insufficient, state that with `CONFIDENCE: low` and recommend
 a concrete check the worker can perform. Do not invent a resolution or
-promise web search: Python has no web-search handler for `ESCALATE:`,
-and the `fallback` config entry does not dispatch one.
+promise web search: Python has no web-search handler for `ESCALATE:`.
 
 ## Deep Diagnosis
 

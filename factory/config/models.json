@@ -1,42 +1,14 @@
 {
   "planner": {
     "model": "glm-5.2:cloud",
-    "provider": "ollama",
-    "role": "Generates spec and plan. Better at reasoning and architecture. Also serves as consultant when worker is stuck.",
-    "skills": [
-      "interview-me",
-      "spec-driven-development",
-      "planning-and-task-breakdown",
-      "kb-manager"
-    ]
+    "provider": "ollama"
   },
   "worker": {
     "model": "gemma4:31b-cloud",
-    "provider": "ollama",
-    "role": "Executes issues, writes code, runs tests. The coder.",
-    "skills": [
-      "incremental-implementation",
-      "test-driven-development",
-      "debugging-and-error-recovery",
-      "code-review-and-quality",
-      "code-simplification",
-      "issue-executor",
-      "kb-manager"
-    ]
+    "provider": "ollama"
   },
   "consultant": {
     "model": "glm-5.2:cloud",
-    "provider": "ollama",
-    "role": "Resolves doubts when worker is stuck. Also owns the learner's strict output format (#46).",
-    "skills": [
-      "consultant-protocol",
-      "human-proxy",
-      "kb-manager",
-      "factory-learner"
-    ]
-  },
-  "fallback": {
-    "method": "web-search",
-    "package": "npm:@ollama/pi-web-search"
+    "provider": "ollama"
   }
 }

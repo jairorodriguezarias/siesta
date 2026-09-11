@@ -1,683 +1,173 @@
-# AGENTS.md — Siesta Agent System
+# Siesta agent system
 
-This document describes the autonomous agent system that powers Siesta: the roles, how they interact, the skills they use, and the knowledge base that connects them.
+Siesta is a Python pipeline that invokes Pi with explicit models and skills.
+It coordinates an interview, specification, issue plan, implementation,
+review, verification, completion records and learning. Ollama provides model
+access; the committed defaults use cloud models. See the
+[README](README.md) for setup and the [local Ollama guide](docs/ollama-local.md)
+for inference on your own machine.
 
----
+## Roles and phases
 
-## Overview
-
-Siesta's **default routing uses two cloud models**: GLM 5.2 (via `pi`, Ollama Cloud) serves the planner, consultant, human-proxy and learner; Gemma4 31B serves the worker. Siesta's own Python orchestrator (`python3 -m pipeline`) coordinates eight phases, numbered 0–7, with per-issue context, logging and completion-gated learning. Pi handles model calls and tools; the local Ollama daemon proxies inference to Ollama Cloud.
-
-For new local installations, use the tracked [Ollama guide and templates](docs/ollama-local.md).
-Role assignments are configurable. The separate historical validation on 2026-09-11
-used `nvidia/Qwen3.6-35B-A3B-NVFP4` through `local-vllm` for all three configured
-roles. Four Python CLI projects passed; this profile does not replace the
-committed cloud defaults and does not validate the Ollama template. See the [validation report](tasks/reliability-validation-20260911.md)
-and [model routing](#model-routing). Model names below describe the defaults.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  python3 -m pipeline                         │
-│                   (Orchestrator - Phase 0-7)                  │
-│                                                              │
-│  ┌──────────────┐    ┌──────────────┐    ┌───────────────┐  │
-│  │  GLM 5.2     │    │  Gemma 4     │    │  GLM 5.2      │  │
-│  │  (Planner)   │    │  (Worker)    │    │  (Consultant) │  │
-│  │              │    │              │    │               │  │
-│  │ • Interview  │    │ • Execute    │    │ • Resolve     │  │
-│  │ • Spec       │    │   issues     │───→│   doubts      │  │
-│  │ • Plan       │    │ • Review     │    │ • Diagnose    │  │
-│  │              │    │ • QA         │    │ • Proxy       │  │
-│  └──────────────┘    └──────────────┘    └───────────────┘  │
-│         │                   │                   │           │
-│         └───────────────────┼───────────────────┘           │
-│                             ▼                               │
-│                    ┌──────────────┐                         │
-│                    │  KB Graph    │                         │
-│                    │  (JSON)      │                         │
-│                    │  per-project │                         │
-│                    │  + global    │                         │
-│                    └──────────────┘                         │
-│                             │                               │
-│                             ▼                               │
-│                    ┌──────────────┐                         │
-│                    │  Learner     │                         │
-│                    │  (GLM 5.2)   │                         │
-│                    │              │                         │
-│                    │ • Per-issue  │                         │
-│                    │   learning   │                         │
-│                    │ • Skill      │                         │
-│                    │   updates    │                         │
-│                    └──────────────┘                         │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Agent Roles
-
-### 1. Planner — GLM 5.2 (via pi)
-
-**When:** Phases 0, 1, 2
-
-**Responsibilities:**
-- **Phase 0 (Interview):** Asks the human one question at a time until ~95% confidence about what to build. When confident, outputs `INTENT_FINALIZED:`. The human then leaves.
-- **Phase 1 (Spec):** Autonomously writes `spec.md` with: project name, tech stack, structure, features, acceptance criteria, testing approach, boundaries. No questions — decides alone.
-- **Phase 2 (Plan):** Reads the spec and writes `issues.md` with ordered, atomic issues. Each issue has: title, description, acceptance criteria, dependencies.
-
-**Skills used:**
-- `interview-me` (Phase 0)
-- `spec-driven-development` (Phase 1)
-- `planning-and-task-breakdown` (Phase 2)
-
-**KB interaction:** Loads standing architectural principles from the global KB before writing the spec (they are mandatory for every project). Logs the human intent as a node, then the spec as a node, then each issue as a node, with `parent_of` edges linking them.
-
----
-
-### 2. Worker — Gemma4 31B (cloud, since round-9; was local 8B)
-
-**When:** Phase 3 (Execute), Phase 4 (Review), Phase 5 (Verify)
-
-**Responsibilities:**
-- **Phase 3:** Executes each issue following TDD (Red → Green → Refactor). Writes code and tests. If stuck, outputs `CONSULT:` with a specific question, context, and code. If a skill says "ask the human", outputs `PROXY_REQUEST:`.
-- **Phase 4:** Reviews all code across 5 axes: correctness, readability, architecture, security, performance. Outputs `REVIEW_PASSED:` or `REVIEW_FAILED:`.
-- **Phase 5:** Gives a read-only assessment with tools disabled. The Python orchestrator detects the project type (including packages with `__main__.py`), performs the runtime smoke check and always runs the regression suite. It persists `verify_verdict.txt`; model failure or runtime failure vetoes success, and absent/red tests cannot pass. Phase 6 records a decision+commit or blocker+`UNVERIFIED` commit from that verdict. Code fixes belong to execution and the review fix pass.
-
-**Skills used:**
-- `incremental-implementation` (Phase 3)
-- `test-driven-development` (Phase 3)
-- `debugging-and-error-recovery` (Phase 3, 5)
-- `issue-executor` (Phase 3 implementation, retries and repair; Phase 4 fix pass — factory custom)
-- `code-review-and-quality` (Phase 4)
-- `code-simplification` (Phase 4)
-
-**Stuck protocol:**
-```
-CONSULT: <specific question>
-CONTEXT: <what was tried>
-CODE: <relevant code or error>
-```
-The orchestrator routes this to the Consultant. The worker does NOT guess.
-
-**KB interaction:** Python supplies summaries before each issue (`phases.pre_issue()`), including global standing principles. The worker reports decisions and test evidence while leaving edits uncommitted. Python runs regression checks, records completion and commits via `phases.post_issue()`; the worker must not create completion nodes or edit checkpoint/verdict files.
-
----
-
-### 3. Consultant — GLM 5.2 (via pi)
-
-**When:** Phase 3 (when worker outputs `CONSULT:`)
-
-**Responsibilities:**
-- Receives the worker's question, context, and code
-- Loads KB context for the current issue
-- Performs adversarial review (CLAIM → EXTRACT → DOUBT → RECONCILE → STOP)
-- Returns a resolution with `RESOLUTION:`, `APPROACH:`, `CODE:`, `CONFIDENCE:`
-- If evidence is insufficient, returns `CONFIDENCE: low` and a concrete check for the worker. Python forwards that response as guidance; it does not invoke automatic web search.
-- Persistent worker consultation requests reach deep diagnosis and, if unresolved, a logged blocker and skipped issue.
-
-**Escalation ladder:**
-1. Normal consultation (one resolution-guided retry)
-2. After 2 failures: a second resolution-guided retry
-3. After 3 failures: **Deep diagnosis** — root-cause analysis, can recommend SKIP
-4. If diagnosis says `CRITICAL:` → `stop.md` is created, pipeline halts
-
-**Skills used:**
-- `consultant-protocol` (factory custom)
-- `human-proxy` (for deep diagnosis only)
-- `kb-manager` (factory custom)
-
-**KB interaction:** Python logs the consultation and retains the response artifact. The consultant has no tools and does not append KB nodes itself.
-
----
-
-### 4. Human-Proxy — GLM 5.2 (consultant role, via pi)
-
-**When:** Phase 3 (when worker outputs `PROXY_REQUEST:`), Phase 4 (review approval)
-
-**Responsibilities:**
-- Replaces the human in autonomous phases. The human already left — their intent is in the KB.
-- Loads the original human intent, spec, and all prior decisions from the KB
-- Evaluates the request against: alignment with intent, scope, simplicity, risk, consistency
-- Outputs `APPROVED`, `REJECTED`, or `NEEDS_REVISION` with reasoning and KB evidence — as a line-start marker (the gate is fail-closed: unmarked output is never approval)
-- Does NOT invent new requirements — only evaluates against existing intent
-
-**Decision categories:**
-
-| Skill says... | Proxy evaluates... | Proxy decides... |
+| Phase | Role | Responsibility |
 |---|---|---|
-| "Confirm approach with user" | Is the approach aligned with spec? | APPROVED or NEEDS_REVISION |
-| "Wait for user approval" | Is the work complete per acceptance criteria? | APPROVED or REJECTED |
-| "Ask user for clarification" | Can the KB answer this? | Answer from KB, or best guess |
-| "User should review before merge" | Does the code meet the Definition of Done? | APPROVED or NEEDS_REVISION |
+| 0: Interview | Planner | Clarify intent; finish with `INTENT_FINALIZED:` |
+| 1: Specification | Planner | Write requirements and acceptance criteria |
+| 2: Plan | Planner | Produce atomic issues headed `## Issue #N:` |
+| 3: Execute | Worker | Implement and test each issue |
+| 3: Consult / proxy | Consultant | Resolve doubts or evaluate approval requests |
+| 4: Review | Worker + consultant | Review code, fix findings, obtain proxy approval |
+| 5: Verify | Worker + Python checks | Run tests and applicable runtime checks |
+| 6: Completion | Python | Record the real verdict and commit |
+| 7: Learning | Consultant | Summarize patterns and propose skill updates |
 
-**Skills used:**
-- `human-proxy` (factory custom)
-- `kb-manager` (factory custom)
+Per-issue learning also runs during execution. The reviewer persona is defined
+in [code-reviewer.md](.agents/agents/code-reviewer.md). These are roles within
+the pipeline; their model names come from configuration.
 
-**KB interaction:** Python logs each response as a `proxy_decision` node. Persistent approval or review failure becomes a blocker; the proxy does not write nodes itself.
+The worker has file and shell tools during implementation, repair and review
+fixes. Advisory calls receive their context in the prompt. The consultant,
+proxy and learner must distinguish advice from actions actually executed.
+Python owns verification gates, Git commits and KB bookkeeping.
 
----
+## Issue execution and recovery
 
-### 5. Learner — GLM 5.2 (via consultant role)
+1. Load KB summaries and global principles with `pre_issue()`.
+2. Check the existing regression suite. A failing suite gets one repair attempt.
+   Commit a successful repair before starting the next issue; halt if it remains
+   uncommitted. Two consecutive unrepairable suites halt execution.
+3. Let the worker implement the issue, using TDD and the issue executor skill.
+4. Resolve consultations or approval requests, with bounded retries.
+5. Require a passing mechanical suite before `post_issue()` records completion.
+6. Commit and run per-issue learning.
 
-**When:** After each completed issue (Phase 3 hook), and at project end (Phase 7)
+A worker requests advice using `CONSULT:`, `CONTEXT:` and `CODE:`.
+The consultant provides a resolution and approach for a worker retry.
+Two resolution-guided retries precede deep diagnosis; diagnosis can recommend
+a fix, `SKIP:`, or `CRITICAL:` to create `stop.md` and halt.
+There is no automatic web-search handler.
 
-The learner runs through the consultant role on GLM 5.2 (#46): the strict `LEARNING` / `SKILL_UPDATE` output format is the most rigid text protocol in the pipeline, and the local gemma4 worker kept emitting unparseable verbose blocks.
+A worker requests approval with `PROXY_REQUEST:`. The consultant evaluates it
+against the original intent, specification and recorded decisions. Only a
+line-start `APPROVED` marker (optionally prefixed `PROXY_DECISION:`) authorizes
+continuation. Rejections, revision requests and unmarked output receive feedback.
 
-**Responsibilities:**
+Tool-call narration, questions to an absent human and truncated output are
+degenerate responses. They receive one feedback retry; continued degeneration
+blocks the issue. Protocol examples inside code fences never count as signals.
 
-**Per-issue learning (Level 1):** Runs after an issue passes its tests and completion is recorded, via `learn.learn_issue()`:
-- Did I get stuck? Why? → Add Red Flag to `issue-executor` skill
-- Was I rejected by the proxy? Why? → Add to Rationalizations table
-- What decision did I make? Is it a pattern? → Log to global KB
-- What went well? → Log as best practice
-- Novel pattern not covered by any skill? → Create new factory skill
+Blocked work cannot become the next issue's base. Before restoring tracked files
+and removing untracked product files, the pipeline saves binary patches and an
+untracked-file archive under the generated project's `.git/siesta-recovery/`.
+The KB and ignored evidence survive cleanup. This also applies to dirty work
+found when resuming at an issue boundary.
 
-**Project-level learning (Level 2):** Runs once at project end via `learn.learn_project()`:
-- Which issues had blockers? Were they related?
-- Which consultations were most valuable?
-- Cross-issue patterns?
-- Should any factory skill be restructured?
-- Summary of all learnings → global KB
+## Review, verification and resume
 
-**Skills used:**
-- `factory-learner` (factory custom)
-- `kb-manager` (factory custom)
+- Review needs both `REVIEW_PASSED:` and explicit proxy approval. Fixes run
+  with write tools, are committed, and receive a fresh review.
+- Mechanical verification always reruns the suite, including after a model
+  says `VERIFY_PASSED`. Red or absent tests fail verification; explicit model
+  failure or a failed runtime smoke check also veto success.
+- Python tests may live in `tests/` or at the project root. An empty pytest
+  suite is skipped at the pre-issue gate and cannot prove issue completion.
+- Verification persists `verify_verdict.txt`. Completion records and commits
+  use this verdict; an unsuccessful result is recorded as `UNVERIFIED`.
+- Resume uses issue completion nodes as its ledger. Pending issues invalidate
+  downstream review and verification. Failed verification resumes at phase 5.
+  Completed projects do not repeat completion commits or project learning.
+- `stop.md` is checked at issue boundaries. `SIESTA_PI_TIMEOUT` bounds every
+  Pi call, including the interactive interview; timed-out process groups are
+  killed and partial output is preserved.
 
-**KB interaction:** Logs learnings, blockers, consultations, and skill improvements to the global KB. Can modify factory skills (but never addyosmani skills).
+## Model configuration and invocation
 
-Learning is best-effort: a pass may produce zero parsed learnings. The learner
-returns text with tools disabled; Python logs parsed actions and applies
-accepted replacements. A proposal alone does not edit a skill. Replacing an
-existing skill requires its complete current text; without it, the learner
-must limit itself to a proposal. Skill-update
-checks restrict the destination and require minimum structure and length;
-they do not prove that an update improves the skill.
+[`factory/config/models.json`](factory/config/models.json) maps `planner`,
+`worker` and `consultant` to `model` and `provider`. The proxy and learner
+use the consultant route. Models are selected manually at startup.
 
----
+[`pipeline/pi.py`](factory/pipeline/pi.py) is the single invocation wrapper:
 
-### 6. Code Reviewer — Gemma4 (persona)
+- Combine context and the closing directive into one positional prompt.
+- Pass an explicit thinking level; unsupported model families use `off`.
+- Parse stdout only. Provider stderr is stored after `PROVIDER_LOG:`.
+- Bound calls with `SIESTA_PI_TIMEOUT` (seconds; default 1200).
+- Warn when a loaded Ollama model serves less context than Pi declares.
+  This advisory probe uses the default Pi catalog; custom profiles need the
+  explicit served-context check in the local setup guide.
 
-**When:** Phase 4
+Verify native file and shell tool use through Ollama and Pi before choosing
+a worker. Set Pi's `contextWindow` to the actual served window, not an assumed
+catalog default. Local context is visible in `ollama ps` / `GET /api/ps`;
+cloud models are proxied and need their model metadata checked separately.
 
-**Responsibilities:**
-- Reviews all code across 5 dimensions: correctness, readability, architecture, security, performance
-- Categorizes findings: Critical, Required, Optional, Nit
-- Always includes what's done well
-- Verdict: APPROVE or REQUEST CHANGES
+`SIESTA_FACTORY` selects the directory containing configuration, factory skills,
+KB and generated projects. Bundled skills are resolved from its parent
+`.agents/skills/`. `PI_CODING_AGENT_DIR` selects an isolated Pi profile.
+Repository paths and examples must remain portable; never hardcode user home
+directories, credentials or machine-specific locations.
 
-**Persona definition:** [`.agents/agents/code-reviewer.md`](.agents/agents/code-reviewer.md)
+## Knowledge base
 
----
+The KB is a JSON graph with `nodes` and `edges`. Newly appended node and edge
+types are checked against an optional sibling [schema](factory/kb/schema.json).
+Nodes contain an ID, type, summary,
+detail and creation timestamp. Agents load summaries first and full detail
+only when relevant.
 
-## Interaction Flows
+| File | Scope |
+|---|---|
+| `factory/projects/<project>/kb/graph.json` | Project intent, decisions, blockers and learning |
+| `factory/kb/global-graph.json` | Local cross-project memory; ignored by Git |
+| [`factory/kb/global-seed.json`](factory/kb/global-seed.json) | Public standing principles for a new global KB |
 
-### Normal Issue Execution
+A missing global graph is initialized from the sibling seed. An existing graph
+is preserved, even when empty. Editing the seed affects fresh installations;
+update an existing live graph explicitly when changing its principles.
+Graph writes are atomic, but concurrent writers to the same graph are unsupported.
 
-```
-pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
-     │              │                │                │
-     ▼              │                ▼                ▼
-  Load KB       Implement       Git commit     Learn & improve
-  context       + tests         + log to KB    skills
-```
+The six principles favor local applications, simplicity, readable code, Python,
+English documentation and privacy. They enter specification prompts and every
+issue's worker context. Generated application scope is separate from whether
+the models themselves use local or cloud inference.
 
-**Guards around the loop (silence is not success):**
-
-- **Degenerate-output guard** (`text.degenerate()`): a worker answer that is
-  tool-call JSON, asks the absent human for input, or is truncated is not an
-  execution. It gets one feedback retry; if it stays degenerate the issue is
-  blocked and logged to the KB — never recorded as completed.
-- **Regression gating**: the suite re-runs before each new issue. A red suite
-  gets one worker-driven repair attempt before anything is skipped; an
-  unrepairable suite skips the issue (blocked) with an honest blocker, and
-  two consecutive unrepairable suites halt phase 3 — never build on a broken
-  base. An empty suite (pytest "no tests collected", exit 5) is absence:
-  `skipped`, never a failure, never green.
-- **Blocked-issue residue discard** (`phases._discard_residue`): a blocked
-  issue's uncommitted work would poison the committed base (pomodoro #3:
-  the residue deleted `format_time` while the committed test still imported
-  it). On every block (degenerate, diagnosis-skip, stuck-after-diagnosis,
-  red-regression skip or terminal repair failure) tracked files go back to the last commit and
-  untracked product files are removed — `git restore --source=HEAD --staged --worktree` + `clean -fd` without
-  `-x`, so ignored run evidence survives and the KB (the run's bookkeeping)
-  survives. Staged and unstaged binary patches plus an archive of untracked
-  files are saved first under `.git/siesta-recovery/`; unchanged tracked
-  files are not copied. Untracked-only residue also counts as dirty.
-  A dirty tree at the top of the issue loop is restored before
-  any work starts — a resume never inherits a contradictory base.
-- **Root-level suites count** (`phases._suite_dirs`): the regression gate
-  detects test files where they live — root `test_*.py`/`*_test.py` count as
-  a suite (`.`) when pytest is importable, `tests/` still counts, and every
-  detected dir runs (a red one fails the gate). Verify's fallback uses the
-  same detection, not a `tests/`-dir blindspot.
-- **Mechanical verification**: the regression suite runs for every verification,
-  including an explicit model `VERIFY_PASSED`. Red or absent tests mean failed;
-  an explicit model failure or a failed runtime smoke also vetoes success.
-- **Post-issue evidence**: every issue, including recovered retries, needs a passing
-  mechanical suite before its completion decision and commit are written.
-- **Verified regression repairs**: Python commits a passing repair before
-  starting the next issue, so later blocked-issue recovery preserves that base.
-  If the commit leaves a dirty tree, execution halts with the repair intact;
-  resolve the Git error and commit the repair before resuming.
-- **Call timeout** (`pi.PI_TIMEOUT`, env `SIESTA_PI_TIMEOUT`, 1200s default):
-  a hung `pi`/Ollama call returns empty and counts as a failed attempt —
-  the degenerate guards already handle it. `stop.md` only works between
-  issues, so a timeout is the only defense against a frozen call. The
-  INTERACTIVE interview gets the same timeout (#35): the entire child process group is killed
-  on expiry, including while stdout remains open, the partial transcript is kept, and phase 0 flows into the
-  autonomous close-out (#45).
-- **Explicit approval marker** (`text.APPROVED`): anchored to line start
-  (optional `PROXY_DECISION:` prefix). Both proxy gates are fail-closed —
-  explicit `APPROVED` continues, `REJECTED` retries with a different
-  approach, and `NEEDS_REVISION` / hesitation / garbage retry with feedback.
-  Unmarked output can never count as approval, and an accidental mention of
-  `NEEDS_REVISION` inside prose cannot trigger a revision.
-- **Review-fix with write tools**: the proxy-requested fix pass runs with
-  write tools (like the execute phase) so fixes actually land in files and
-  are committed afterwards; a fresh review runs after the fix. Without both `REVIEW_PASSED` and explicit
-  proxy approval, phase 4 exits 1 and remains pending. A DEGENERATE
-  review output (no marker + tool-speak/asks-human) never reaches the proxy
-  (#41): the fix pass runs instead; a KB blocker is recorded if the new
-  review still lacks approval.
-- **Fence-free marker gates** (`text.without_fences()`): a protocol marker
-  the model quotes inside a code fence is an example, never a signal. The
-  worker CONSULT/PROXY gates (including fed-back retries), the review and
-  verify marker checks, and the learner's LEARN/SKILL_UPDATE parses all
-  match against the text with every fenced region cut — a quoted
-  `SKILL_UPDATE` block can never rewrite a factory skill.
-- **Per-issue idempotent resume**: `execute()` skips issues whose
-  "Issue #N completed" decision node is already on disk; pending issues
-  have no node and retry even after later or legacy `complete` checkpoints.
-  Retrying execution invalidates downstream review and verification. The final summary
-  rebuilds the blocked list from KB blocker nodes (#34) — a resumed run
-  never reports "0 blocked" while the KB holds blockers; an issue that
-  later completed outranks its stale blocker node.
-- **Context budget** (`phases.GATHER_BUDGET`, 120k chars): `gather()` caps
-  the TOTAL source shown to any model call — a partial file keeps the head
-  that fits, and a `TRUNCATED: N further source files not shown` notice
-  says what was cut (#39). Small projects gather byte-identically.
-- **Spec relevance guard** (`text.shares_content()`): a spec sharing zero
-  content words with the interview intent is rejected as a template
-  hallucination — one `SPEC_RETRY_DIRECTIVE` retry, then abort.
-- **Planner retries**: a plan without `## Issue #N:` headers gets one
-  `PLAN_RETRY_DIRECTIVE` retry demanding the exact format before the
-  fallbacks. Both prompts forbid generic templates and priority groupings.
-- **Honest verify verdict**: `verify()` persists its verdict to
-  `verify_verdict.txt`; resume reads it instead of hardcoding
-  `VERIFY_PASSED`, and phase 6 ties the decision node + commit message to
-  the real verdict (failed verify → blocker node + `UNVERIFIED` commit and exit 1).
-  Failed verification resumes at phase 5; blocked issues resume at execution.
-  Only verified projects with no pending issues reach `complete`.
-- **Fence-aware spec parsing** (`text.spec_doc()`): language-tagged fence
-  regions are CUT before the heading check — a spec with a small code
-  example parses, but fenced lines never reach spec.md (run #4's smuggled
-  ```python program with a `###` heading inside the fence can no longer
-  pose as a spec section; an answer fenced whole as code is a dump and
-  still rejected); bare fenced prose blocks and ```markdown-style wrappers
-  are kept as illustration.
-- **Generated hygiene**: project init writes a standard `.gitignore`
-  (`.DS_Store`, `__pycache__/`, `*.pyc`, checkpoint, `verify_verdict.txt`,
-  and all run evidence — `*_output.txt`, `regression_*.log`,
-  `pre_issue_*.json`, `learning_issue_*.txt`, `project_learning.*`) before
-  the first `git add -A` (#7/#38). The evidence stays on disk (the learner
-  reads it) but never lands in a commit.
-- **stdout-only parsing**: `run_pi()` returns the model's stdout; provider
-  noise on stderr is warned and persisted in the artifact below a
-  `PROVIDER_LOG:` separator — a stderr marker can never falsify a verdict.
-- **Served-context mismatch guard** (advisory, round-8): at startup, before
-  phase 0, `_warn_context_mismatches()` probes Ollama's actually-served
-  context (`GET /api/ps`) for every routed model and warns once when the
-  served window is smaller than pi's catalog window (`pi.py
-  warn_if_context_mismatch`) — pi compacts to the catalog, so a bigger
-  declared window silently truncates worker prompts (the pomodoro run's
-  issues #3/#4 "degenerated" on empty stdout this way). Advisory by design:
-  a broken probe (Ollama absent, model idle) is silence, never a halt.
-
-### Worker Gets Stuck
-
-```
-Worker → CONSULT: → Consultant → RESOLUTION: → Worker retries
-  │                                            │
-  │  (if 2nd failure)                          │
-  └→ CONSULT: → Consultant → ─────────────────┘
-  │
-  │  (if 3rd failure)
-  └→ Deep diagnosis (consultant role)
-       ├→ DIAGNOSIS: fix → Worker retries with plan
-       └→ SKIP: → Log blocker, skip issue, continue pipeline
-```
-
-### Worker Needs Human Approval
-
-```
-Worker → PROXY_REQUEST: → Human-proxy (consultant role)
-                               ├→ APPROVED (line-start marker) → Worker continues
-                               ├→ REJECTED → Worker tries different approach
-                               └→ NEEDS_REVISION / unmarked → Worker adjusts, resubmits with feedback
-```
-
-### Deep Diagnosis (after 3 failures)
-
-```
-diagnose_blocker (consultant role)
-  ├→ Root cause identified + fix plan → Worker implements fix
-  ├→ SKIP: → Log blocker, skip issue, continue
-  └→ CRITICAL: → Create stop.md, halt pipeline
-```
-
----
-
-## Knowledge Base (KB)
-
-### Structure
-
-The KB is a JSON graph stored in files:
-
-```json
-{
-  "nodes": [
-    {
-      "id": "n1695234567_12345",
-      "type": "decision",
-      "summary": "Used argparse for CLI parsing",
-      "detail": "The worker chose argparse over click for zero dependencies...",
-      "created_at": "2025-01-15T10:30:00Z"
-    }
-  ],
-  "edges": [
-    {
-      "from": "n1695234567_12345",
-      "to": "n1695234567_67890",
-      "type": "applied_to",
-      "created_at": "2025-01-15T10:30:00Z"
-    }
-  ]
-}
-```
-
-### Progressive Disclosure
-
-Agents don't load the full KB. They load in levels:
-
-| Level | What | Cost | When |
-|-------|------|------|------|
-| 1 — Summary only | `{id, type, summary}` | Minimal tokens | Before every issue |
-| 2 — Filtered by type | All decisions, or all blockers | Low | When looking for specific patterns |
-| 3 — Full node | Complete detail field | Higher | When a specific node is relevant |
-
-### KB Operations (via `python3 -m pipeline.kb`)
+Run KB commands from a generated project with `PYTHONPATH` pointing to Siesta's
+`factory/` directory:
 
 ```bash
-# Query summaries (cheapest; run from factory/ or set PYTHONPATH=factory)
 python3 -m pipeline.kb query kb/graph.json --summary-only
-
-# Query specific type
 python3 -m pipeline.kb query kb/graph.json --type decision --summary-only
-
-# Get full node detail
-python3 -m pipeline.kb get-node kb/graph.json n1695234567_12345
-
-# Append a decision
-python3 -m pipeline.kb append-node kb/graph.json "decision" "Summary" "Full detail"
-
-# Link two nodes
-python3 -m pipeline.kb append-edge kb/graph.json n123 n456 applied_to
-
-# Initialize fresh KB
-python3 -m pipeline.kb init-project kb/graph.json
+python3 -m pipeline.kb get-node kb/graph.json NODE_ID
+python3 -m pipeline.kb append-node kb/graph.json decision 'Summary' 'Full detail'
+python3 -m pipeline.kb append-edge kb/graph.json FROM_ID TO_ID applied_to
 ```
 
-### Two KB Tiers
+## Skills and development
 
-| KB | Location | Scope | Purpose |
-|----|----------|-------|---------|
-| Project KB | `factory/projects/<name>/kb/graph.json` | One project | Track decisions, blockers, consultations for this project |
-| Global KB | `factory/kb/global-graph.json` | All projects | Standing architectural principles (node type `principle`) plus accumulated learnings across projects — the factory's long-term memory |
+Pi receives each skill through an explicit `--skill` path. The repository
+contains ten adapted skills under `.agents/skills/` and five factory skills
+under `factory/skills/`. No separate installation or runtime view is needed.
 
-### Standing Architectural Principles
+The learner may update or create factory skills only. It cannot modify the
+adapted skills; those require a repository change. Python applies supported
+learning blocks after fence-aware parsing. A new skill proposal is a KB record
+unless it supplies the complete content required for a file update.
 
-The global KB holds `principle` nodes — standing rules that constrain every project. They are injected automatically into the Phase 1 spec prompt and into every per-issue worker context (`phases.pre_issue()`). Current principles (query with `python3 -m pipeline.kb query factory/kb/global-graph.json --type principle --summary-only`):
+Git workflow and skill discovery are for interactive repository development;
+the pipeline implements those operations directly in Python. Follow the
+[Definition of Done](.agents/references/definition-of-done.md), use meaningful
+tests for behavior changes, and review code before merging. Keep documentation,
+model routing and actual skill attachments aligned. Preserve license notices.
 
-1. Personal projects only — runs entirely on the local computer, minimal infrastructure
-2. Simplicity is the core rule — fewer lines of code wins
-3. Code must explain itself
-4. Python is the default language
-5. Use english — docs, KB content and code comments
-6. Verify pushes contain no PI — `.pi/` and `.qwen/` stay ignored; no personal information in commits
-
-To change them: update the `principle` nodes in the global KB — every pipeline run reads them fresh.
-
----
-
-## Skills System
-
-### How Skills Work
-
-Each skill is a `SKILL.md` file with YAML frontmatter and markdown body:
-
-```markdown
----
-name: skill-name
-description: When to use this skill and what it does
----
-
-# Skill Name
-
-## When to Use
-...
-
-## Process
-1. Step one
-2. Step two
-...
-
-## Common Rationalizations
-| Rationalization | Reality |
+| Source | Purpose |
 |---|---|
-| "Excuse" | "Why it's wrong" |
+| [`factory/bin/siesta.sh`](factory/bin/siesta.sh) | Shell entry point and local console log |
+| [`pipeline/__main__.py`](factory/pipeline/__main__.py) | Dispatch, checkpoints, completion and failure records |
+| [`pipeline/phases.py`](factory/pipeline/phases.py) | Prompts, execution, recovery and verification |
+| [`pipeline/pi.py`](factory/pipeline/pi.py) | Model calls, thinking, timeouts and context probe |
+| [`pipeline/text.py`](factory/pipeline/text.py) | Protocol markers and parsers |
+| [`pipeline/kb.py`](factory/pipeline/kb.py) | Graph storage and CLI |
+| [`pipeline/learn.py`](factory/pipeline/learn.py) | Per-issue and project learning |
+| [`factory/tests/`](factory/tests/) | Unit, real-Git and fake-Pi integration tests |
 
-## Red Flags
-- Pattern that indicates a problem
-
-## Verification
-- [ ] Checklist item
-```
-
-Skills are loaded by the Pi agent via `--skill` flags. The agent follows the skill's process, avoids rationalizations, watches for red flags, and checks the verification gate.
-
-### Skill Locations
-
-All skills are tracked in this repository
-([https://github.com/jairorodriguezarias/siesta](https://github.com/jairorodriguezarias/siesta)) —
-a fresh clone brings the 15 sources; no separate skill-install step exists. There
-are no runtime view folders: `run_pi()` loads each skill with an explicit
-`--skill <path>` flag pointing at the tracked sources. `.pi/`, `.qwen/` and
-`.claude/` remain in `.gitignore` only as guards (the `pi` CLI can write
-runtime state there). The learner may only touch `factory/skills/`.
-
-### Skill Categories
-
-**Addyosmani skills (10, tailoring allowed):**
-- `interview-me` — Structured interview to clarify intent
-- `spec-driven-development` — Write specs with acceptance criteria
-- `planning-and-task-breakdown` — Break specs into atomic issues
-- `incremental-implementation` — Thin vertical slices, safe defaults
-- `test-driven-development` — Red → Green → Refactor
-- `debugging-and-error-recovery` — Systematic debugging
-- `code-review-and-quality` — 5-axis code review
-- `code-simplification` — Reduce complexity without changing behavior
-- `git-workflow-and-versioning` — Atomic commits, clean history
-  **(#26: never loaded by the pipeline** — no `run_pi()` call references it; the
-  Python port commits via `_commit()` in `phases.py` instead. Interactive-human
-  use only.)
-- `using-agent-skills` — Meta-skill for skill usage
-  **(#26: never loaded by the pipeline** — skill discovery is hard-coded in
-  `phases.py`/`learn.py`. Interactive-human use only.)
-
-**Factory skills (5, custom, self-improving):**
-- `issue-executor` — Worker's playbook per issue
-- `consultant-protocol` — Consultant's playbook for resolving doubts
-- `human-proxy` — Replaces human approval using KB context
-- `kb-manager` — KB graph operations with progressive disclosure
-- `factory-learner` — Per-issue and project-level learning
-
-The learner can modify factory skills (add Red Flags, Rationalizations, Process steps, Verification checks) but never touches addyosmani skills — manual factory adaptations to addyosmani skills (e.g. the autonomous no-tools output protocol) are made by the human directly in `.agents/skills/`.
-
----
-
-## References
-
-### Definition of Done
-
-[`.agents/references/definition-of-done.md`](.agents/references/definition-of-done.md) — The standing checklist every change must clear before counting as done. Covers correctness, quality, integration, documentation, and ship-readiness.
-
-### Security Checklist
-
-[`.agents/references/security-checklist.md`](.agents/references/security-checklist.md) — Quick reference for web application security including threat modeling, authentication, input validation, security headers, CORS, data protection, and OWASP Top 10.
-
----
-
-## Configuration
-
-### Model Routing
-
-[`factory/config/models.json`](factory/config/models.json):
-
-```json
-{
-  "planner":    { "model": "glm-5.2:cloud",       "provider": "ollama" },
-  "worker":     { "model": "gemma4:31b-cloud",     "provider": "ollama" },
-  "consultant": { "model": "glm-5.2:cloud",       "provider": "ollama" },
-  "fallback":   { "method": "web-search",         "package": "npm:@ollama/pi-web-search" }
-}
-```
-
-Each role also carries a `skills` list documenting the skills `run_pi()` loads
-for it — kept in sync with the actual `run_pi(..., skills=(...))` calls in
-`phases.py` / `learn.py`. The pipeline itself only reads `model` and `provider`.
-
-Selection is manual and fixed for a pipeline process. `pipeline.pi` reads the
-three role assignments at import, and `build_args()` forwards the requested
-role's model and provider to Pi. The human-proxy and learner use `consultant`;
-review and QA assessment use `worker`. Retries and deep diagnosis do not select
-a new model based on task difficulty. The `fallback` entry is metadata; the
-Python pipeline does not read it to switch models or invoke web search.
-
-| Environment variable | Effect |
-|----------------------|--------|
-| `SIESTA_FACTORY` | Alternative factory root for `config/models.json`, projects, KB and factory skills; addyosmani skills are read from its parent's `.agents/skills/` |
-| `PI_CODING_AGENT_DIR` | Alternative Pi profile directory, including its provider/model catalog in `models.json` |
-| `SIESTA_PI_TIMEOUT` | Timeout in seconds for each Pi call; default 1200 |
-
-For local Ollama, the [setup guide](docs/ollama-local.md) copies the tracked
-`factory/config/local-ollama.example.json` and `pi-ollama.example.json` into
-an isolated profile at `.runtime/ollama-local/`. All three roles use the
-`siesta-local:latest` alias through provider `ollama`; the operator chooses
-its local base model, checks the served context and runs the native-tool probe.
-This setup uses Ollama's local `/v1` endpoint. It is separate from the historical
-vLLM validation recorded in the [run report](tasks/reliability-validation-20260911.md).
-
-Worker models must be verified for **native tool calling** through the real
-stack (the configured provider → pi) before use: qwen2.5-coder was retired because
-[ollama#12174](https://github.com/ollama/ollama/issues/12174) made it emit
-tool calls as plain text — the worker could not write files or run tests, so
-every issue degenerated into tool-call JSON narration. Any new worker must
-also be registered in pi's user catalog (`~/.pi/agent/models.json`) with its
-**true served context window**. For local Ollama models the source of truth is
-`ollama ps`'s CONTEXT column (backed by `GET /api/ps`); for `:cloud` models
-the daemon is only a proxy — they never appear in `/api/ps`, so read the
-window from `POST /api/show` (`model_info` context lengths, e.g.
-gemma4:31b-cloud serves 262144). pi's custom-model-id fallback silently
-clones another model's metadata (glm's 1M window), which disables correct
-compaction. A declared window bigger than the served one means pi never
-compacts, long prompts overflow, `--context-shift` silently drops the head
-(skills + closing directive), and the worker ends its turn on a tool call
-with empty stdout — the degenerate guard blocks the issue (round-8, the
-pomodoro run's #3/#4). The startup mismatch guard probes Ollama and the default
-Pi catalog; custom vLLM profiles require checking their server and catalog
-directly. It does not validate every provider or `PI_CODING_AGENT_DIR` override.
-
-### pi invocation contract (`pipeline/pi.py`)
-
-Every model call goes through `build_args()` / `run_pi()`, which enforces two
-rules the pipeline depends on:
-
-- **One positional prompt** (`body + "\n\n" + user`, data first, directive
-  last): pi 0.84.3 stopped delivering `--append-system-prompt` content to the
-  model (#23) — the old shape put the intent in the system prompt and GLM saw
-  the format but not the subject. Merging keeps the "model obeys the last
-  turn" order from runs #3/#4.
-- **Thinking pinning** (`_safe_thinking()`): pi without an explicit
-  `--thinking` sends a level Ollama rejects for non-thinking models
-  (the retired qwen2.5-coder worker 400s "does not support thinking"). The
-  requested level is forwarded only for known thinking models (glm); everything
-  else is pinned to `off` — so a misrouted deep-diagnosis call
-  (`thinking="high"` on a non-thinking model) can no longer 400. Never call
-  `pi` without an explicit `--thinking`.
-
-### Timeouts
-
-`SIESTA_PI_TIMEOUT` (seconds, default 1200) caps every `pi` call — see the call-timeout guard above.
-
-### KB Schema
-
-[`factory/kb/schema.json`](factory/kb/schema.json) — Defines valid node types and edge types. Used by `pipeline/kb.py` (the `Graph` store) to validate node types before appending.
-
----
-
-## Extending Siesta
-
-### Add a new factory skill
-
-1. Create `factory/skills/<skill-name>/SKILL.md` with the standard format
-2. Commit it — a fresh clone of the repo must bring the new skill
-3. Reference it in the pipeline via `FACTORY_SKILLS / "<skill-name>"` in `factory/pipeline/phases.py`
-4. The factory-learner may automatically create skills if it detects novel patterns
-
-### Change model routing
-
-Edit the selected factory's `config/models.json`, register the matching model
-and provider in Pi, verify tools and context, and start a new pipeline process.
-Use the [Ollama setup](docs/ollama-local.md) for local inference; each role
-still needs to satisfy its tool and text protocol requirements. See
-[Model Routing](#model-routing).
-
-### Add a new KB node type
-
-1. Add it to `factory/kb/schema.json` under `node_types`
-2. Use it in `python3 -m pipeline.kb append-node` calls
-3. Query it with `python3 -m pipeline.kb query <graph> --type <new_type>`
-
-### Add a new pipeline phase
-
-Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `phaseN()` function, then wire it into the dispatch in `factory/pipeline/__main__.py` (following the skip/resume pattern of the existing phases). Use `phase(N, "TITLE")` from `pipeline.pi` for consistent output.
-
----
-
-## File Index
-
-| File | Purpose |
-|------|---------|
-| `factory/bin/siesta.sh` | Entry point — takes idea, runs pipeline |
-| `factory/pipeline.log` | Full orchestrator narration, tee'd from the console (runtime, gitignored) |
-| `factory/pipeline/__main__.py` | Orchestrator — checkpoint, failure trap, phase dispatch, summary |
-| `factory/pipeline/phases.py` | Phase bodies 0-7 (interview, spec, plan, execute ladder, review, verify + runtime smoke) |
-| `factory/pipeline/learn.py` | Per-issue micro-learning + project-level learning (Phase 7) |
-| `factory/pipeline/pi.py` | Single `run_pi()` wrapper — every model call: one positional prompt, thinking pinning, call timeout |
-| `factory/pipeline/kb.py` | KB graph store + `python3 -m pipeline.kb` CLI shim |
-| `factory/pipeline/text.py` | Anchored marker regexes + pure parsers |
-| `factory/tests/` | Unit + fake-pi integration tests (`python3 -m unittest discover -s tests`) |
-| `factory/BACKLOG.md` | Findings + corrections backlog — also the changelog of what Siesta learned about itself |
-| `factory/config/models.json` | Model routing config |
-| `factory/config/local-ollama.example.json`, `pi-ollama.example.json` | Local Ollama routing and Pi catalog templates |
-| `docs/ollama-local.md` | Reproducible local Ollama setup, context checks and native-tool probe |
-| `tasks/reliability-validation-20260911.md` | Local model validation results, recovery evidence and limitations |
-| `factory/kb/schema.json` | KB node/edge type schema |
-| `factory/kb/global-graph.json` | Cross-project accumulated learnings |
-| `factory/skills/*/SKILL.md` | 5 custom factory skills |
-| `.agents/skills/*/SKILL.md` | 10 addyosmani skills (with factory-tailoring sections) |
-| `.agents/agents/code-reviewer.md` | Code reviewer persona |
-| `.agents/hooks/pre-issue.sh`, `post-issue.sh` | **#27: bash-era legacy — kept per decision (2026-09-04) but the Python port never executes them.** The equivalent logic lives in `phases.pre_issue()` / `phases.post_issue()`. Do not expect these scripts to run. |
-| `.agents/references/definition-of-done.md` | Standing done checklist |
-| `.agents/references/security-checklist.md` | Security quick reference |
+See [testing.md](docs/testing.md) for validation commands and limitations.

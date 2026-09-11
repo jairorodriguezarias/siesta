@@ -1,9 +1,4 @@
-"""Knowledge-graph store — a JSON file of {nodes, edges}.
-
-Kept byte-compatible with the graphs the bash kb-manager.sh produced
-(id shape, field names, atomic tmp+mv writes, optional schema check).
-The __main__ shim keeps the model-facing skill docs' command examples true.
-"""
+"""JSON knowledge graphs with atomic writes, optional schemas and a CLI."""
 import json
 import os
 import random
@@ -26,20 +21,18 @@ def _save(path: Path, data: dict) -> None:
 
 
 class Graph:
-    """One JSON file, many live instances.
+    """Reload before each operation so sequential instances share updates.
 
-    round-5: __main__ and phases each held a Graph over the global KB, and
-    the stale instance's save wiped the nodes the fresh one had written (the
-    per-issue learnings vanished at phase 7). Every operation now re-reads
-    the file first — the graphs are tiny, so load-modify-save per call makes
-    every instance always-current and loses nothing.
+    A seed initializes a missing graph; existing local data is preserved.
+    Writes are atomic, but concurrent writers are not supported.
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, seed: Path | None = None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
-            self.path.write_text(json.dumps(EMPTY))
+            initial = json.loads(seed.read_text()) if seed and seed.exists() else EMPTY
+            _save(self.path, initial)
         self.data = json.loads(self.path.read_text())
 
     def _reload(self) -> None:

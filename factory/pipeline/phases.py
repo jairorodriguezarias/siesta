@@ -1,10 +1,4 @@
-"""Pipeline phases 0-7: intent, spec, plan, execute, review, verify, done.
-
-Every model call keeps the bash version's prompts and skills verbatim so a
-run behaves identically, minus four latent bash bugs fixed along the way:
-anchored markers, first-dash learning split, monotonic resume, single
-issue count. See also pipeline/text.py for the parser side.
-"""
+"""Model prompts, issue execution, recovery, review and mechanical verification."""
 import json
 import os
 import re
@@ -25,7 +19,7 @@ from pipeline.pi import (CONFIG, FACTORY_SKILLS, GLOBAL_KB, SKILLS, err, log,
 WORKER_THINKING = "off"
 CONSULTANT_THINKING = "off"
 
-# pi -p can't read files, so source content is piped into the prompts.
+# Calls with tools disabled receive source content directly in their prompts.
 SOURCE_EXTS = {"html", "css", "js", "ts", "py", "go", "rs", "json", "md",
                "sh", "jsx", "tsx", "vue", "svelte"}
 
@@ -254,7 +248,9 @@ def _retro_spec(proj: Path) -> None:
 
 def phase1(proj: Path, name: str, intent: str, intent_node: str, kb: Graph) -> str:
     body = SPEC_PROMPT.format(intent=intent, kb=kb.compact(),
-                              principles=Graph(GLOBAL_KB).compact("principle"),
+                              principles=Graph(
+                                  GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json")
+                              ).compact("principle"),
                               models=CONFIG.read_text())
     out = run_pi("planner", body, SPEC_DIRECTIVE,
                  skills=(SKILLS / "spec-driven-development", FACTORY_SKILLS / "kb-manager"),
@@ -390,9 +386,7 @@ def _pytest_available() -> bool:
 
 
 def _suite_dirs(proj: Path) -> list[str]:
-    """Where test files actually live — #50: the pomodoro layout puts
-    test_pomodoro_app.py at the root (no tests/ dir, no manifest); the
-    gate used to answer 'no suite' while 8 real tests sat there."""
+    """Find root-level Python tests and the conventional tests directory."""
     dirs = []
     if any(proj.glob("test_*.py")) or any(proj.glob("*_test.py")):
         dirs.append(".")
@@ -415,9 +409,7 @@ def _regression_command(proj: Path, suite_dir: str):
     return None
 
 
-# pytest exits 5 when the suite exists but collects zero tests (exit 4 is
-# usage error) — a scaffold issue legitimately ships empty test stubs, and
-# the pomodoro run (#44) had every later issue skipped for that alone.
+# Pytest exit 5 means no tests collected; it is neither failure nor success.
 PYTEST_NO_TESTS = 5
 
 
@@ -427,8 +419,7 @@ def run_regression(proj: Path, n: int) -> str:
     dirs = _suite_dirs(proj)
     if not dirs:
         return "skipped"
-    # #50: every dir that holds test files counts — a root-level suite with
-    # no manifest used to make the gate say 'no suite' (pomodoro layout).
+    # Every detected suite counts, including root-level tests without a manifest.
     verdict = "skipped"
     for suite_dir in dirs:
         runner = _regression_command(proj, suite_dir)
@@ -561,14 +552,8 @@ def _worker(proj: Path, skills, body, issue_text, artifact: Path | None = None):
 
 
 def _discard_residue(proj: Path, num: int, why: str) -> None:
-    """#49: a blocked issue leaves its uncommitted work behind — and the
-    residue can contradict the committed base (the pomodoro issue-#3
-    residue deleted format_time while the committed test still imported
-    it). Honest state: the issue did NOT complete, so tracked files go
-    back to the last commit and untracked product files are removed.
-    Ignored run evidence survives (clean without -x honors .gitignore);
-    the KB survives too — it is the run's bookkeeping, not product.
-    """
+    """Archive and discard a blocked issue's uncommitted product changes.
+    Restore the committed base while preserving the KB and ignored evidence."""
     status = _git(proj, "status", "--porcelain")
     if status.returncode:
         raise RuntimeError(f"Cannot inspect residue: {status.stderr.decode()}")
@@ -660,7 +645,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
     """Run every issue; return the numbers that stayed blocked."""
     issues = dict(text.split_issues((proj / "issues.md").read_text()))
     log(f"Found {len(issues)} issues to execute")
-    gkb = Graph(GLOBAL_KB)
+    gkb = Graph(GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json"))
     blocked, fails, history = [], {}, {}
     warned_no_tests = False
     red_streak = 0  # consecutive red suites that stayed red after repair
@@ -967,19 +952,14 @@ def _free_port() -> int:
 
 
 def _detect_runnable(proj: Path):
-    """(command, web_ports) — ports only for HTTP entry points; a CLI smoke
-    needs no port (#42: the dead PY_PORTS list is gone, runtime_smoke
-    computes its own free port)."""
+    """Return a launch command and candidate web ports, or (None, None)."""
     if (proj / "package.json").exists():
         return ["npm", "start"], WEB_PORTS
     for name in ("main.py", "app.py"):
         if (proj / name).exists():
             return [sys.executable, str(proj / name)], None
-    # #33: single-file CLIs the bash-era detection never saw — a root-level
-    # script (wordcount.py) or the planner's favorite scaffold layout
-    # (<dir>/<dir>.py with a __main__ guard, macpomodoro/macpomodoro.py).
-    # Only scripts that RUN something count: the guard must be non-trivial
-    # (not a bare `pass`/`...` stub from a scaffold-only issue).
+    # Find root scripts or <package>/<package>.py entry points.
+    # A __main__ guard must do work; pass-only scaffolds do not count.
     for d in sorted(p for p in proj.iterdir() if p.is_dir() and p.name != "tests"):
         script = d / f"{d.name}.py"
         if script.exists() and _is_entry_point(script.read_text(errors="replace")):
@@ -1042,13 +1022,9 @@ def _looks_gui(proj: Path, cmd: list[str]) -> bool:
 
 
 def runtime_smoke(proj: Path) -> tuple[str, str]:
-    """Launch the project locally; returns (status, detail).
-
-    Web commands (npm start, http.server) are probed over HTTP. Every other
-    entry point gets CLI semantics (#19): a clean exit 0 is success, a crash
-    is failure, and a process still running after the deadline simply started
-    — which is all "runs locally" means for a timer or a non-HTTP server.
-    """
+    """Launch a detected entry point and return (status, detail).
+    Web applications are probed over HTTP. Other commands are checked for
+    clean exit, argument requirements or continued process liveness."""
     cmd, ports = _detect_runnable(proj)
     if cmd is None:
         return "SKIPPED", "no runnable entry point detected"
@@ -1082,10 +1058,7 @@ def runtime_smoke(proj: Path) -> tuple[str, str]:
                     return "FAILED", f"process exited with code {proc.returncode}"
                 time.sleep(0.75)
             return "PASSED", "still running after 12s (started cleanly)" + (
-                # #54: liveness is all a processless smoke can prove — for
-                # a GUI the window may open BEHIND others (the pomodoro
-                # incident: "verified" app looked dead to the human). The
-                # honest verdict says what it does NOT know.
+                # Process liveness cannot establish whether a GUI is visible.
                 " — window visibility NOT checked" if _looks_gui(proj, cmd)
                 else "")
         last = ""

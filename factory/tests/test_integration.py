@@ -167,8 +167,12 @@ class PipelineRun(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="siesta-int-"))
         self.idea = f"build a tiny todo cli {uuid4().hex[:6]}"
         self.name = self.idea.replace(" ", "-")
-        for name in ("config", "kb", "skills"):
+        for name in ("config", "skills"):
             shutil.copytree(FACTORY / name, self.tmp / "factory" / name)
+        kb_dir = self.tmp / "factory/kb"
+        kb_dir.mkdir()
+        for name in ("schema.json", "global-seed.json"):
+            shutil.copy2(FACTORY / "kb" / name, kb_dir / name)
         models = json.loads((self.tmp / "factory/config/models.json").read_text())
         for role in ("planner", "worker", "consultant"):
             models[role]["model"] = f"{role}-model"
@@ -836,8 +840,12 @@ class RootLevelSuiteVerifyFallback(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="siesta-int-"))
         self.idea = f"build a tiny root-tested cli {uuid4().hex[:6]}"
         self.name = self.idea.replace(" ", "-")
-        for name in ("config", "kb", "skills"):
+        for name in ("config", "skills"):
             shutil.copytree(FACTORY / name, self.tmp / "factory" / name)
+        kb_dir = self.tmp / "factory/kb"
+        kb_dir.mkdir()
+        for name in ("schema.json", "global-seed.json"):
+            shutil.copy2(FACTORY / "kb" / name, kb_dir / name)
         models = json.loads((self.tmp / "factory/config/models.json").read_text())
         for role in ("planner", "worker", "consultant"):
             models[role]["model"] = f"{role}-model"
