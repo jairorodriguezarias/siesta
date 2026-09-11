@@ -1,0 +1,25 @@
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "supportsStore": false,
+        "maxTokensField": "max_tokens"
+      },
+      "models": [
+        {
+          "id": "siesta-local:latest",
+          "name": "Siesta local Ollama",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 32768,
+          "maxTokens": 4096
+        }
+      ]
+    }
+  }
+}

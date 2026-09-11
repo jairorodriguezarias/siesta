@@ -1,0 +1,5 @@
+{
+  "planner": { "model": "siesta-local:latest", "provider": "ollama" },
+  "worker": { "model": "siesta-local:latest", "provider": "ollama" },
+  "consultant": { "model": "siesta-local:latest", "provider": "ollama" }
+}

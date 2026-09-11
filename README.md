@@ -4,7 +4,7 @@
 
 Siesta is an autonomous development pipeline for projects that run on your own computer. Give it an idea, answer the interview, and let it write a spec, implement issues, review the code and run checks. It keeps a Git repository and a knowledge base of decisions; incomplete work remains recorded as incomplete.
 
-The orchestrator is **Siesta's own Python pipeline**, invoked with `python3 -m pipeline`. It calls the [Pi coding agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) to access models and execute tools. The repository defaults to **Ollama Cloud**: GLM 5.2 for planning and consulting, Gemma4 31B for implementation. A separate **local vLLM profile using Qwen3.6** passed four Python CLI project runs on Linux. Files and checks run locally in both profiles; model inference runs where the selected provider serves it.
+The orchestrator is **Siesta's own Python pipeline**, invoked with `python3 -m pipeline`. It calls the [Pi coding agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) to access models and execute tools. The repository defaults to **Ollama Cloud**: GLM 5.2 for planning and consulting, Gemma4 31B for implementation. For local inference, use the tracked [Ollama setup guide and templates](docs/ollama-local.md). Files and checks run locally; model inference runs where the selected provider serves it.
 
 ---
 
@@ -44,7 +44,9 @@ checkpoints and resume. [`phases.py`](factory/pipeline/phases.py) implements
 execution, recovery, review, verification and commits.
 [`pi.py`](factory/pipeline/pi.py) passes the selected role's model and provider
 to `pi`, controls tools and timeouts, and captures model output. In the default
-profile, the Ollama daemon proxies inference requests to Ollama Cloud.
+profile, the Ollama daemon proxies inference requests to Ollama Cloud. At
+startup Python prints the active configuration as a relative path and the
+model/provider assigned to each role, including alternative profiles.
 
 ```mermaid
 flowchart TD
@@ -87,29 +89,30 @@ needs **native tool calling**. qwen2.5-coder was retired after
 calls as plain text, so it could not write files or run tests at all; gemma4 was
 verified end-to-end (real `tool_calls` via `/v1`, tools executed by pi) before adoption.
 
-The local validation on 2026-09-11 used a different assignment:
+The local Ollama template provides a separate setup:
 
-| Setting | Committed default | Validated local profile |
+| Setting | Committed default | Local Ollama template |
 |---------|-------------------|-------------------------|
-| Planner | `glm-5.2:cloud` | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
-| Worker | `gemma4:31b-cloud` | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
-| Consultant, proxy, learner | `glm-5.2:cloud` | `nvidia/Qwen3.6-35B-A3B-NVFP4` |
-| Provider | `ollama` | `local-vllm` |
-| Inference | Ollama Cloud through the local daemon | Local vLLM at `http://127.0.0.1:8000/v1` |
+| Planner | `glm-5.2:cloud` | `siesta-local:latest` |
+| Worker | `gemma4:31b-cloud` | `siesta-local:latest` |
+| Consultant, proxy, learner | `glm-5.2:cloud` | `siesta-local:latest` |
+| Provider | `ollama` | `ollama` |
+| Inference | Ollama Cloud through the local daemon | Local Ollama at `http://localhost:11434/v1` |
 
 To change a role, edit its `model` and `provider`, register that exact pair in
 Pi's model catalog, and start a new pipeline process. Verify native tools and
-the actual served context window before using a new worker. The local Qwen
-profile used a verified 262144-token window and passed a real write/bash/read probe.
+the actual served context window before using a new worker. The alias above
+is created from your chosen local model. The guide includes context setup and
+a real write/bash/read probe; the template alone is not model validation.
 
 `SIESTA_FACTORY` selects an alternative factory directory, including its
 `config/models.json`, projects, KB and factory skills; it must contain those
 resources and have `.agents/skills/` in its parent directory.
 `PI_CODING_AGENT_DIR` selects the separate Pi profile containing `models.json`.
-The validation profile lives under the Git-ignored
-`.runtime/local-validation-20260911/`; cloning the repository does not install
-that profile or start vLLM. See [configuration details](AGENTS.md#model-routing)
-and the [local validation report](tasks/reliability-validation-20260911.md).
+The [Ollama guide](docs/ollama-local.md) creates an isolated profile under the
+Git-ignored `.runtime/ollama-local/`. A fresh clone includes both templates;
+you supply the installed model and running Ollama daemon. See
+[configuration details](AGENTS.md#model-routing) for role selection.
 
 Every model call goes through one wrapper ([`factory/pipeline/pi.py`](factory/pipeline/pi.py))
 that enforces two rules the pipeline depends on:
@@ -176,6 +179,7 @@ Schema defined in [`factory/kb/schema.json`](factory/kb/schema.json).
 | Idempotent resume | Issues with an "Issue #N completed" KB decision node are skipped on `--resume`; pending issues retry even after a later or legacy `complete` checkpoint, invalidating downstream review and verification. Failed verification resumes at verify; only verified projects without pending issues reach `complete` |
 | Review gate | One fix attempt is followed by a fresh review of the files. Both `REVIEW_PASSED` and explicit proxy approval are required; otherwise the phase stays pending and exits 1 |
 | Product recovery | Blocked work is backed up under `.git/siesta-recovery/`, then tracked files and the index restore from HEAD and untracked product files are removed. KB and ignored evidence survive |
+| Verified repair preservation | Python commits a passing regression repair before starting the next issue. If that commit fails and work remains dirty, execution halts with the repair preserved |
 | Post-issue tests | Every issue requires a passing mechanical suite before its completion node and commit are written; no tests means blocked |
 | Spec relevance guard | A spec sharing zero content words with the interview intent is rejected as a template hallucination — one retry with feedback, then abort |
 | Fence-aware spec parsing | Language-tagged fence regions are cut before parsing — a spec with a small code example parses, but fenced lines never reach spec.md (a fenced `###` can't pose as a section; an answer fenced whole as code is a dump); bare fenced prose blocks are kept as illustration |
@@ -214,6 +218,7 @@ projects — Caesar cipher, word count, temperature conversion and line deduplic
 finished with `complete` and `VERIFY_PASSED`. Independent rechecks passed
 **62 generated tests and 14 CLI contract checks**. The generated products were
 implemented by the local model; the Siesta reliability fixes were made by Codex.
+Those historical runs used vLLM. They do not validate the new Ollama template.
 
 These results cover small Python CLIs on Linux. The
 [validation report](tasks/reliability-validation-20260911.md) records the retained
@@ -230,7 +235,7 @@ generated projects remain local under `.runtime/` and are excluded from Git.
 - `pytest` in the active Python environment for Python project regression checks
 - [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent#quick-start) coding agent and its Node.js requirements
 - For the default profile: [Ollama](https://ollama.com) running locally and authenticated for Ollama Cloud, with access to `glm-5.2:cloud` and `gemma4:31b-cloud`
-- For local inference: a running model server and matching Pi provider/model configuration
+- For local inference: follow the [local Ollama setup](docs/ollama-local.md) with a downloaded model and matching Pi catalog
 
 ```bash
 # Install Pi using the package named in its upstream quick start
@@ -369,6 +374,7 @@ siesta/
 │       └── post-issue.sh
 │
 ├── AGENTS.md                      # Agent system documentation
+├── docs/ollama-local.md           # Local Ollama setup and native-tool probe
 ├── tasks/reliability-validation-20260911.md  # Results and limitations of local runs
 ├── LICENSE                        # MIT
 └── .gitignore

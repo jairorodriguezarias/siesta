@@ -735,3 +735,29 @@ red-test-first; 196 tests green after.
 
 See [the full report](../tasks/reliability-validation-20260911.md) for the
 local model identity, context, failure records, review and reproduction steps.
+
+## Ollama setup and role contracts (2026-09-11)
+
+- [x] Remove retired model assignments and unavailable skills from factory
+  instructions. Consultant, proxy and learner use supplied context with tools
+  disabled; Python owns persistence. No automatic web-search fallback is claimed.
+- [x] Leave worker edits uncommitted for Python's gates. Supply issue-executor
+  during retries, regression repair and review fixes as well as initial work.
+  Learning may return no action; replacing an existing skill requires its full text.
+- [x] Log the active role/model/provider assignments at startup and display
+  the configuration path relative to the launch directory.
+- [x] Add tracked local Ollama routing and Pi catalog templates, plus a
+  [setup and probe guide](../docs/ollama-local.md). Runtime profiles stay ignored;
+  historical vLLM results are not presented as validation of the Ollama recipe.
+- [x] Preserve a passing regression repair in its own commit before the next
+  issue. A real-Git regression reproduced loss of that repair after a blocked
+  issue. A second test reproduced loss when a Git hook rejected the repair
+  commit; execution now halts with the repair intact instead of continuing.
+
+Independent review approved the changes after both recovery cases and the
+review-fix skill handoff were reproduced failing and then passing. The profile
+creation commands were executed in a temporary checkout, including refusal
+to overwrite an existing profile. Both JSON templates, five skill validators,
+33 relative documentation links and 12 Bash examples were checked. The final
+factory suite passed 218 tests in 61.950 seconds. No new live model inference
+run is claimed for the Ollama recipe.

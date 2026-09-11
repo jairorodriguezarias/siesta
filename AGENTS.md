@@ -8,10 +8,11 @@ This document describes the autonomous agent system that powers Siesta: the role
 
 Siesta's **default routing uses two cloud models**: GLM 5.2 (via `pi`, Ollama Cloud) serves the planner, consultant, human-proxy and learner; Gemma4 31B serves the worker. Siesta's own Python orchestrator (`python3 -m pipeline`) coordinates eight phases, numbered 0–7, with per-issue context, logging and completion-gated learning. Pi handles model calls and tools; the local Ollama daemon proxies inference to Ollama Cloud.
 
-Role assignments are configurable. The separate local validation on 2026-09-11
+For new local installations, use the tracked [Ollama guide and templates](docs/ollama-local.md).
+Role assignments are configurable. The separate historical validation on 2026-09-11
 used `nvidia/Qwen3.6-35B-A3B-NVFP4` through `local-vllm` for all three configured
 roles. Four Python CLI projects passed; this profile does not replace the
-committed cloud defaults. See the [validation report](tasks/reliability-validation-20260911.md)
+committed cloud defaults and does not validate the Ollama template. See the [validation report](tasks/reliability-validation-20260911.md)
 and [model routing](#model-routing). Model names below describe the defaults.
 
 ```
@@ -86,7 +87,7 @@ and [model routing](#model-routing). Model names below describe the defaults.
 - `incremental-implementation` (Phase 3)
 - `test-driven-development` (Phase 3)
 - `debugging-and-error-recovery` (Phase 3, 5)
-- `issue-executor` (Phase 3 — factory custom)
+- `issue-executor` (Phase 3 implementation, retries and repair; Phase 4 fix pass — factory custom)
 - `code-review-and-quality` (Phase 4)
 - `code-simplification` (Phase 4)
 
@@ -98,7 +99,7 @@ CODE: <relevant code or error>
 ```
 The orchestrator routes this to the Consultant. The worker does NOT guess.
 
-**KB interaction:** Queries KB summaries before each issue (`phases.pre_issue()`). The pre-issue context also includes the global KB's standing architectural principles — the worker must respect them in every issue. Logs decisions and learnings via `phases.post_issue()`.
+**KB interaction:** Python supplies summaries before each issue (`phases.pre_issue()`), including global standing principles. The worker reports decisions and test evidence while leaving edits uncommitted. Python runs regression checks, records completion and commits via `phases.post_issue()`; the worker must not create completion nodes or edit checkpoint/verdict files.
 
 ---
 
@@ -111,7 +112,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 - Loads KB context for the current issue
 - Performs adversarial review (CLAIM → EXTRACT → DOUBT → RECONCILE → STOP)
 - Returns a resolution with `RESOLUTION:`, `APPROACH:`, `CODE:`, `CONFIDENCE:`
-- The skill permits `ESCALATE: web search needed for <query>` when confidence is low. The current Python pipeline forwards consultant output as retry guidance; it does not invoke web search for this marker.
+- If evidence is insufficient, returns `CONFIDENCE: low` and a concrete check for the worker. Python forwards that response as guidance; it does not invoke automatic web search.
 - Persistent worker consultation requests reach deep diagnosis and, if unresolved, a logged blocker and skipped issue.
 
 **Escalation ladder:**
@@ -125,7 +126,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 - `human-proxy` (for deep diagnosis only)
 - `kb-manager` (factory custom)
 
-**KB interaction:** Logs each consultation. If the consultation resolved a blocker, logs the resolution as a decision.
+**KB interaction:** Python logs the consultation and retains the response artifact. The consultant has no tools and does not append KB nodes itself.
 
 ---
 
@@ -153,7 +154,7 @@ The orchestrator routes this to the Consultant. The worker does NOT guess.
 - `human-proxy` (factory custom)
 - `kb-manager` (factory custom)
 
-**KB interaction:** Every proxy decision is logged as a `proxy_decision` node. If rejected, also logs a `blocker` node with the reason.
+**KB interaction:** Python logs each response as a `proxy_decision` node. Persistent approval or review failure becomes a blocker; the proxy does not write nodes itself.
 
 ---
 
@@ -185,7 +186,11 @@ The learner runs through the consultant role on GLM 5.2 (#46): the strict `LEARN
 
 **KB interaction:** Logs learnings, blockers, consultations, and skill improvements to the global KB. Can modify factory skills (but never addyosmani skills).
 
-Learning is best-effort: a pass may produce zero parsed learnings. Skill-update
+Learning is best-effort: a pass may produce zero parsed learnings. The learner
+returns text with tools disabled; Python logs parsed actions and applies
+accepted replacements. A proposal alone does not edit a skill. Replacing an
+existing skill requires its complete current text; without it, the learner
+must limit itself to a proposal. Skill-update
 checks restrict the destination and require minimum structure and length;
 they do not prove that an update improves the skill.
 
@@ -251,6 +256,10 @@ pre_issue() → Worker (Gemma4) → post_issue() → learn_issue()
   an explicit model failure or a failed runtime smoke also vetoes success.
 - **Post-issue evidence**: every issue, including recovered retries, needs a passing
   mechanical suite before its completion decision and commit are written.
+- **Verified regression repairs**: Python commits a passing repair before
+  starting the next issue, so later blocked-issue recovery preserves that base.
+  If the commit leaves a dirty tree, execution halts with the repair intact;
+  resolve the Git error and commit the repair before resuming.
 - **Call timeout** (`pi.PI_TIMEOUT`, env `SIESTA_PI_TIMEOUT`, 1200s default):
   a hung `pi`/Ollama call returns empty and counts as a failed attempt —
   the degenerate guards already handle it. `stop.md` only works between
@@ -561,12 +570,13 @@ Python pipeline does not read it to switch models or invoke web search.
 | `PI_CODING_AGENT_DIR` | Alternative Pi profile directory, including its provider/model catalog in `models.json` |
 | `SIESTA_PI_TIMEOUT` | Timeout in seconds for each Pi call; default 1200 |
 
-The local validation used an isolated factory and Pi profile under
-`.runtime/local-validation-20260911/`. All three roles selected
-`nvidia/Qwen3.6-35B-A3B-NVFP4`, provider `local-vllm`, served at
-`http://127.0.0.1:8000/v1` with a checked 262144-token context. A native
-write/bash/read probe passed before the project runs. These runtime files are
-Git-ignored; a fresh clone needs its own server and profile setup.
+For local Ollama, the [setup guide](docs/ollama-local.md) copies the tracked
+`factory/config/local-ollama.example.json` and `pi-ollama.example.json` into
+an isolated profile at `.runtime/ollama-local/`. All three roles use the
+`siesta-local:latest` alias through provider `ollama`; the operator chooses
+its local base model, checks the served context and runs the native-tool probe.
+This setup uses Ollama's local `/v1` endpoint. It is separate from the historical
+vLLM validation recorded in the [run report](tasks/reliability-validation-20260911.md).
 
 Worker models must be verified for **native tool calling** through the real
 stack (the configured provider → pi) before use: qwen2.5-coder was retired because
@@ -629,7 +639,7 @@ rules the pipeline depends on:
 
 Edit the selected factory's `config/models.json`, register the matching model
 and provider in Pi, verify tools and context, and start a new pipeline process.
-Providers can include Ollama or a configured local vLLM endpoint; each role
+Use the [Ollama setup](docs/ollama-local.md) for local inference; each role
 still needs to satisfy its tool and text protocol requirements. See
 [Model Routing](#model-routing).
 
@@ -660,6 +670,8 @@ Edit `factory/pipeline/phases.py` — each phase is a Python function. Add a `ph
 | `factory/tests/` | Unit + fake-pi integration tests (`python3 -m unittest discover -s tests`) |
 | `factory/BACKLOG.md` | Findings + corrections backlog — also the changelog of what Siesta learned about itself |
 | `factory/config/models.json` | Model routing config |
+| `factory/config/local-ollama.example.json`, `pi-ollama.example.json` | Local Ollama routing and Pi catalog templates |
+| `docs/ollama-local.md` | Reproducible local Ollama setup, context checks and native-tool probe |
 | `tasks/reliability-validation-20260911.md` | Local model validation results, recovery evidence and limitations |
 | `factory/kb/schema.json` | KB node/edge type schema |
 | `factory/kb/global-graph.json` | Cross-project accumulated learnings |
