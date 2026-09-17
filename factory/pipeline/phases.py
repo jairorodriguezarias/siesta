@@ -113,25 +113,44 @@ def post_issue(proj: Path, n: int, output: str, kb: Graph) -> str:
 
 # ─── Phase 0: INTENT ─────────────────────────────────────────────────────
 
-INTERVIEW_PROMPT = """You are an interviewer. Follow the interview-me skill.
+INTERVIEW_TURN_PROMPT = """You are an interviewer. Follow the interview-me skill.
 A human wants to build: {idea}
 
-Ask ONE question at a time to clarify what they want. Wait for their answer.
-Keep asking until ~95% confidence about:
-- What exactly to build
-- What tech stack to use
-- What success looks like
-- What is out of scope
+Interview transcript so far:
+{transcript}
 
-When you have enough clarity, output:
-INTENT_FINALIZED: <one paragraph summarizing what the human wants>"""
+Conduct the interview: ONE question at a time, each with your best-guess
+answer attached, until ~95% confidence about what exactly to build, the
+tech stack, what success looks like and what is out of scope. The human is
+present and answering — never assume what you could ask.
+
+Output ONLY one of:
+
+Q: <one focused question>
+GUESS: <your best-guess answer, with the reasoning that produced it>
+
+or, at ~95% confidence:
+
+INTENT_FINALIZED: <one paragraph summarizing what the human wants>
+"""
+
+ASK_DIRECTIVE = ("Conduct the interview: ask your next question, or finalize "
+                 "the intent if you are at ~95% confidence.")
+DEGENERATE_FEEDBACK = ("Your previous output was empty or tool-call JSON, not a "
+                       "question. Output 'Q:' with a 'GUESS:' line, or "
+                       "'INTENT_FINALIZED:' — nothing else.")
+PREMATURE_FEEDBACK = ("You finalized without asking a single question. The "
+                      "human is present and answering — ask your first "
+                      "question now.")
+REFINE_FEEDBACK = ("The human rejected that final summary. Refine it per their "
+                   "latest answer in the transcript, then finalize again.")
 
 
 CLOSEOUT_PROMPT = """You are an interviewer closing an unfinished session. Follow the interview-me skill.
 A human wanted to build: {idea}
 
-You asked questions, the human left without answering. No one will answer
-more questions. Decide autonomously with sensible defaults.
+The human is no longer available to answer questions (they left, or they
+explicitly delegated with 'auto'). Decide autonomously with sensible defaults.
 
 Original idea:
 {idea}
@@ -144,6 +163,105 @@ INTENT_FINALIZED: <one paragraph stating what to build, with your chosen
 defaults made explicit>"""
 
 
+def _read_answer() -> str:
+    """One human answer from this terminal (patched in tests)."""
+    return input("> ")
+
+
+def _quoted(raw: str, why: str) -> str:
+    """Rejected model turn kept as evidence, indented so its line-start
+    markers stay inert for intent extraction."""
+    body = "\n".join("    " + line for line in raw.splitlines())
+    return f"    (rejected turn: {why})\n{body}"
+
+
+def _interview_dialog(proj: Path, idea: str, out: Path) -> str:
+    """The interview as a python-mediated dialog. Returns the transcript.
+
+    Every model turn is a plain pi call; the human answers in this
+    terminal, so both sides of every exchange become evidence. The final
+    INTENT_FINALIZED needs the human's explicit 'yes'; EOF or the answer
+    'auto' hands the remaining decisions to the autonomous close-out (#45).
+    """
+    transcript: list[str] = []
+    answered = 0
+    degenerate = 0
+    premature = 0
+    feedback = ""
+
+    def save() -> None:
+        out.write_text("\n\n".join(transcript) + "\n")
+
+    while True:
+        raw = run_pi("planner",
+                     INTERVIEW_TURN_PROMPT.format(
+                         idea=idea,
+                         transcript="\n\n".join(transcript) or "(none yet)"),
+                     feedback or ASK_DIRECTIVE,
+                     skills=(SKILLS / "interview-me",),
+                     cwd=proj, tools="no").strip()
+        if not raw or text.TOOL_SPEAK.search(raw):
+            degenerate += 1
+            if degenerate > 1:
+                break                      # persistent silence → close-out
+            feedback = DEGENERATE_FEEDBACK
+            continue
+        degenerate = 0
+        feedback = ""
+        m = text.INTENT.search(raw)
+        if m and answered == 0:
+            # an interview that asks nothing is the assumption trap this
+            # phase exists to prevent — one retry, then the close-out
+            # decides with defaults instead of the model's raw assumptions
+            premature += 1
+            transcript.append(
+                _quoted(raw, "finalized before any question was answered"))
+            save()
+            if premature > 1:
+                break                      # refuses to interview → close-out
+            feedback = PREMATURE_FEEDBACK
+            continue
+        if m:
+            # the final summary is evidence only once the human accepts it;
+            # rejected or unconfirmed drafts stay quoted (inert) so the
+            # accepted INTENT is the first extractable one
+            print("\nThe interviewer's final read of your idea:\n")
+            print(text.intent_from(raw, idea) + "\n")
+            print("Type 'yes' to accept it, or write what should change:")
+            try:
+                reply = _read_answer().strip()
+            except EOFError:
+                warn("Human left without confirming — closing out autonomously")
+                transcript.append(_quoted(raw, "final summary left unconfirmed"))
+                save()
+                break
+            if reply.lower() in ("yes", "y"):
+                transcript.append(raw)
+                save()
+                break
+            transcript.append(_quoted(raw, "final summary rejected by the human"))
+            transcript.append(f"A (refinement): {reply}")
+            save()
+            feedback = REFINE_FEEDBACK
+            continue
+        transcript.append(raw)
+        save()
+        print("\n" + raw + "\n")
+        try:
+            answer = _read_answer().strip()
+        except EOFError:
+            break                          # the human left → close-out (#45)
+        if answer.lower() == "auto":
+            transcript.append(
+                "A: auto — the human delegated the remaining decisions")
+            save()
+            break                          # → close-out decides with defaults
+        transcript.append(f"A: {answer}")
+        save()
+        answered += 1
+    return "\n\n".join(transcript) + "\n"
+
+
 def phase0(proj: Path, name: str, idea: str, auto: bool,
            kb: Graph) -> tuple[str, str]:
     """Interview (or auto-fill) the idea. Returns (intent, kb node id)."""
@@ -153,12 +271,10 @@ def phase0(proj: Path, name: str, idea: str, auto: bool,
         out.write_text(f"INTENT_FINALIZED: {idea}")
     else:
         print("━━━ Interactive Session — Human + Agent ━━━")
-        print("The agent will ask questions to clarify your idea.\n")
-        run_pi("planner", INTERVIEW_PROMPT.format(idea=idea), idea,
-               skills=(SKILLS / "interview-me",), interactive=True, artifact=out,
-               cwd=proj, tools="no")
-        print("\n")
-        ok("Interactive phase complete. Human is leaving.")
+        print("Answer each question in this terminal. Type 'auto' to let the")
+        print("interviewer decide the rest with sensible defaults, or press")
+        print("Ctrl+D to stop answering.\n")
+        _interview_dialog(proj, idea, out)
     interview_out = out.read_text()
     if not text.INTENT.search(interview_out):
         # #45: the human leaving mid-interview must not collapse the intent

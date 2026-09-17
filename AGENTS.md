@@ -77,8 +77,8 @@ found when resuming at an issue boundary.
   downstream review and verification. Failed verification resumes at phase 5.
   Completed projects do not repeat completion commits or project learning.
 - `stop.md` is checked at issue boundaries. `SIESTA_PI_TIMEOUT` bounds every
-  Pi call, including the interactive interview; timed-out process groups are
-  killed and partial output is preserved.
+  Pi call; timed-out calls are treated as no answer and partial output is
+  preserved.
 
 ## Model configuration and invocation
 

@@ -135,19 +135,18 @@ class DiscardProductResidue(unittest.TestCase):
             self.assertFalse(phases._tree_is_clean(proj))
 
 
-class RealInterviewDeadline(unittest.TestCase):
-    def test_deadline_covers_open_stdout_and_retains_partial_line(self):
-        with TemporaryDirectory() as directory:
-            artifact = Path(directory) / 'interview.txt'
-            command = [sys.executable, '-c',
-                       "import sys,time; sys.stdout.write('partial'); sys.stdout.flush(); time.sleep(2)"]
-            started = time.monotonic()
-            with patch.object(pi, 'build_args', return_value=command), \
-                 patch.object(pi, 'PI_TIMEOUT', 0.2):
-                result = pi.run_pi('planner', '', '', interactive=True, artifact=artifact)
-            self.assertLess(time.monotonic() - started, 1.5)
-            self.assertEqual(result, 'partial')
-            self.assertEqual(artifact.read_text(), 'partial')
+class RealCallDeadline(unittest.TestCase):
+    """The #10 deadline applies to every pi call — interview turns are
+    one-shot calls now (#55), so a hung one times out like any other."""
+
+    def test_hung_call_times_out_as_no_answer(self):
+        command = [sys.executable, '-c', 'import time; time.sleep(2)']
+        started = time.monotonic()
+        with patch.object(pi, 'build_args', return_value=command), \
+             patch.object(pi, 'PI_TIMEOUT', 0.2):
+            result = pi.run_pi('planner', '', '')
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(result, '')
 
     def test_failed_provider_marker_is_not_an_answer(self):
         command = [sys.executable, '-c',

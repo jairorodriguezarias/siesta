@@ -1,10 +1,8 @@
 """Model invocation, timeouts, served-context checks and logging."""
 import json
 import os
-import signal
 import subprocess
 import sys
-import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -124,7 +122,7 @@ def _child_env() -> dict:
 
 
 def build_args(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
-               interactive: bool = False, tools: str | None = None) -> list[str]:
+               tools: str | None = None) -> list[str]:
     """One canonical pi argument list — order matters only for readability.
 
     tools="no" adds --no-tools (text-protocol phases: the model must answer
@@ -134,13 +132,16 @@ def build_args(role: str, body: str, user: str, *, skills=(), thinking: str = "o
     pi 0.84.3 stopped delivering --append-system-prompt content to the model
     (verified for both glm-5.2:cloud and qwen2.5-coder — #23). Keep the
     "model obeys the last turn" order from runs #3/#4.
+
+    The interview is a python-mediated dialog of one-shot calls (phase 0):
+    pi's own interactive REPL never saw a TTY through the old stdout pipe,
+    so live interviews died after 0-1 turns. Human answers are read by
+    python in the terminal and become transcript evidence.
     """
-    args = [PI_BIN]
-    if not interactive:
-        args.append("-p")
-    args += ["--model", ROLE[role]["model"],
-             "--provider", ROLE[role]["provider"],
-             "--thinking", _safe_thinking(ROLE[role]["model"], thinking)]
+    args = [PI_BIN, "-p",
+            "--model", ROLE[role]["model"],
+            "--provider", ROLE[role]["provider"],
+            "--thinking", _safe_thinking(ROLE[role]["model"], thinking)]
     if tools == "no":
         args += ["--no-tools"]
     elif tools:
@@ -152,7 +153,7 @@ def build_args(role: str, body: str, user: str, *, skills=(), thinking: str = "o
 
 
 def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
-           interactive: bool = False, artifact: Path | None = None,
+           artifact: Path | None = None,
            cwd: Path | None = None, tools: str | None = None) -> str:
     """Run pi for a role; return the output text, optionally saving an artifact.
 
@@ -160,43 +161,9 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
     to it (bash did `cd "$PROJECT_DIR"` once for the whole run).
     """
     args = build_args(role, body, user, skills=skills, thinking=thinking,
-                      interactive=interactive, tools=tools)
+                      tools=tools)
     where = str(cwd) if cwd else None
     env = _child_env()
-    if interactive:
-        # Phase 0 conversation: stream to the human while recording (tee).
-        # #35: the interactive path gets the same #10 timeout — a hung
-        # pi/Ollama call must not freeze phase 0 forever. The human can
-        # still leave naturally (EOF ends the stream; wait returns fast).
-        chunks: list[str] = []
-        with subprocess.Popen(args, stdout=subprocess.PIPE, text=True,
-                              cwd=where, env=env, start_new_session=True) as p:
-            expired = threading.Event()
-
-            def expire():
-                expired.set()
-                try:
-                    os.killpg(p.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-
-            timer = threading.Timer(PI_TIMEOUT, expire)
-            timer.daemon = True
-            timer.start()
-            try:
-                for line in p.stdout:
-                    print(line, end="", flush=True)
-                    chunks.append(line)
-                p.wait()
-            finally:
-                timer.cancel()
-                timer.join()
-            if expired.is_set():
-                err(f"interactive pi call timed out after {PI_TIMEOUT}s "
-                    f"— treating as no answer")
-        text_out = "".join(chunks)
-        _maybe_write(artifact, text_out)
-        return text_out
     try:
         result = subprocess.run(args, capture_output=True, text=True, cwd=where,
                                 env=env, timeout=PI_TIMEOUT)

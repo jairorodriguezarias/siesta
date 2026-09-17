@@ -52,11 +52,10 @@ case "$model" in
         # #45: autonomous close-out after the human left mid-interview
         echo "INTENT_FINALIZED: a tiny todo cli with sensible defaults" ;;
       *"interview-me"*)
-        case "$FAKE_PI_SCENARIO" in
-          abandoned_interview) echo "What kind of user interface do you want?" ;;
-          *) echo "INTENT_FINALIZED: a tiny todo cli" ;;
-        esac ;;
-      *) echo "INTENT_FINALIZED: a tiny todo cli" ;;
+        # #55: the interview is a python-mediated dialog — each call is one
+        # model turn. Subprocess tests have no human, so the dialog ends at
+        # EOF after this turn and the close-out finalizes with defaults.
+        printf 'Q: What kind of user interface do you want?\nGUESS: terminal CLI — simplest to verify.\n' ;;
     esac ;;
   consultant-model)
     case "$*" in

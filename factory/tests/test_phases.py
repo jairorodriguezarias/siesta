@@ -310,8 +310,155 @@ class RuntimeSmoke(unittest.TestCase):
         self.assertNotIn("visibility", detail)
 
 
+class InterviewDialog(unittest.TestCase):
+    """The interview is a python-mediated dialog: one model turn per call,
+    the human answers in the terminal, and both sides become evidence.
+    (#55: the single streamed pi call never produced a real exchange.)"""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = Path(self.tmp.name)
+        self.kb = Graph(self.proj / "kb" / "graph.json")
+        self.answers = []
+
+    def dialog(self, run_pi_fake, answers):
+        self.answers = answers
+        with patch.object(phases, "run_pi", run_pi_fake), \
+                patch.object(phases, "_read_answer",
+                             side_effect=list(answers)):
+            return phases.phase0(self.proj, "pomodoro",
+                                 "build a pomodoro app", False, self.kb)
+
+    def test_real_dialog_confirms_and_records_both_sides(self):
+        model_turns = [
+            "Q: Menu bar app, standalone window, or terminal CLI?\n"
+            "GUESS: menu bar app — 'in my Mac' usually means always-visible.",
+            "INTENT_FINALIZED: A menu-bar pomodoro timer for macOS with "
+            "25/5 cycles, notifications, stdlib only.",
+        ]
+
+        def fake(role, body, user, **kw):
+            return model_turns.pop(0)
+
+        intent, _ = self.dialog(fake, ["menu bar app please",
+                                       "yes"])
+        self.assertIn("menu-bar pomodoro", intent)
+        saved = (self.proj / "interview_output.txt").read_text()
+        self.assertIn("A: menu bar app please", saved)
+        self.assertIn("INTENT_FINALIZED", saved)
+        self.assertEqual(len(model_turns), 0)   # every model turn consumed
+
+    def test_refinement_round_trips_into_the_next_attempt(self):
+        model_turns = [
+            "Q: What UI?\nGUESS: terminal CLI.",
+            "INTENT_FINALIZED: A terminal pomodoro CLI.",
+            "INTENT_FINALIZED: A menu-bar pomodoro timer for macOS, "
+            "per the human's correction.",
+        ]
+        calls = []
+
+        def fake(role, body, user, **kw):
+            calls.append((body, user))
+            return model_turns.pop(0)
+
+        intent, _ = self.dialog(fake, ["terminal",
+                                       "no — menu bar, not terminal",
+                                       "yes"])
+        self.assertIn("menu-bar pomodoro", intent)
+        self.assertIn("A (refinement): no — menu bar, not terminal",
+                      (self.proj / "interview_output.txt").read_text())
+        self.assertIn("Refine", calls[2][1])   # the directive said refine
+
+    def test_premature_intent_gets_one_forced_question(self):
+        # the landing-page failure: INTENT_FINALIZED with zero questions
+        # is the assumption trap — one retry must force a real question
+        model_turns = [
+            "INTENT_FINALIZED: A landing page replica, sections as assumed.",
+            "Q: Should the hero show the pipeline diagram?\n"
+            "GUESS: yes, it is the selling point.",
+            "INTENT_FINALIZED: A landing page with the pipeline hero.",
+        ]
+
+        def fake(role, body, user, **kw):
+            return model_turns.pop(0)
+
+        intent, _ = self.dialog(fake, ["yes", "yes"])
+        self.assertIn("pipeline hero", intent)
+        saved = (self.proj / "interview_output.txt").read_text()
+        self.assertIn("rejected turn", saved)    # the trap kept as evidence
+
+    def test_premature_intent_twice_goes_to_closeout(self):
+        def fake(role, body, user, **kw):
+            if "Close out the interview now" in user:
+                return "INTENT_FINALIZED: a tiny pomodoro cli with defaults"
+            return "INTENT_FINALIZED: I will just assume everything."
+
+        intent, _ = self.dialog(fake, ["yes"] * 5)
+        # the raw assumption never entered the transcript; close-out ran
+        self.assertIn("pomodoro cli", intent)
+        self.assertNotIn("just assume everything", intent)
+
+    def test_degenerate_turn_then_question_recovers(self):
+        model_turns = [
+            '{"name": "bash", "arguments": {"command": "ls"}}',
+            "Q: GUI or CLI?\nGUESS: CLI.",
+            "INTENT_FINALIZED: A pomodoro CLI with sound alerts.",
+        ]
+        directives = []
+
+        def fake(role, body, user, **kw):
+            directives.append(user)
+            return model_turns.pop(0)
+
+        intent, _ = self.dialog(fake, ["cli please", "yes"])
+        self.assertIn("pomodoro CLI", intent)
+        # the degenerate turn got exactly one feedback retry
+        self.assertIn("not a question", directives[1])
+        self.assertLessEqual(len(directives), 3)
+
+    def test_auto_answer_delegates_to_closeout(self):
+        model_turns = ["Q: What UI?\nGUESS: terminal."]
+        closeout_bodies = []
+
+        def fake(role, body, user, **kw):
+            if "Close out the interview now" in user:
+                closeout_bodies.append(body)
+                return "INTENT_FINALIZED: a pomodoro cli with sensible defaults"
+            return model_turns.pop(0)
+
+        intent, _ = self.dialog(fake, ["auto"])
+        self.assertIn("pomodoro cli", intent)
+        # the delegation was recorded in the transcript the close-out saw
+        self.assertTrue(any("delegated the remaining decisions" in b
+                            for b in closeout_bodies))
+        saved = (self.proj / "interview_output.txt").read_text()
+        self.assertIn("INTENT_FINALIZED", saved)
+
+    def test_eof_mid_dialog_goes_to_closeout(self):
+        model_turns = ["Q: What UI?\nGUESS: terminal."]
+
+        def fake(role, body, user, **kw):
+            if "Close out the interview now" in user:
+                return "INTENT_FINALIZED: a pomodoro cli with sensible defaults"
+            return model_turns.pop(0)
+
+        class _EOF:
+            def strip(self):
+                raise EOFError
+
+        with patch.object(phases, "run_pi", fake), \
+                patch.object(phases, "_read_answer", return_value=_EOF()):
+            intent, _ = phases.phase0(self.proj, "pomodoro",
+                                      "build a pomodoro app", False, self.kb)
+        self.assertIn("pomodoro cli", intent)
+
+
 class AbandonedInterview(unittest.TestCase):
-    """#45: the human leaving mid-interview gets an autonomous close-out."""
+    """#45: a dialog that ends without INTENT_FINALIZED gets an autonomous
+    close-out. Here the model goes silent on every turn (degenerate ×2),
+    so the stale on-disk transcript survives untouched and phase 0's
+    residual gate — not the dialog loop — must close it out."""
 
     def setUp(self):
         self.tmp = TemporaryDirectory()
@@ -319,22 +466,29 @@ class AbandonedInterview(unittest.TestCase):
         self.proj = Path(self.tmp.name)
         self.kb = Graph(self.proj / "kb" / "graph.json")
         (self.proj / "interview_output.txt").write_text(
-            "What UI do you want for this pomodoro app?\n")
+            "Q: What UI do you want for this pomodoro app?\n"
+            "GUESS: menu bar, it lives in the corner.\n")
 
-    def test_closeout_finalizes_intent_with_defaults(self):
+    def dialog_run(self, fake):
+        # EOF on read: this session has no human at the terminal
+        with patch.object(phases, "run_pi", fake), \
+                patch.object(phases, "_read_answer",
+                             side_effect=EOFError):
+            return phases.phase0(self.proj, "pomodoro",
+                                 "build a pomodoro app", False, self.kb)
+
+    def test_silent_dialog_closeout_finalizes_intent_with_defaults(self):
         calls = []
 
         def fake(role, body, user, **kw):
             calls.append(user)
-            if len(calls) == 1:
-                return "What UI do you want?\n"  # abandoned interview
-            return "INTENT_FINALIZED: a tiny pomodoro cli with 25/5 defaults"
+            if "Close out the interview now" in user:
+                return "INTENT_FINALIZED: a tiny pomodoro cli with 25/5 defaults"
+            return ""                          # the model goes silent
 
-        with patch.object(phases, "run_pi", fake):
-            intent, _ = phases.phase0(self.proj, "pomodoro",
-                                      "build a pomodoro app", False, self.kb)
-        self.assertEqual(len(calls), 2)  # interview + one close-out call
-        self.assertIn("Close out the interview now", calls[1])
+        intent, _ = self.dialog_run(fake)
+        self.assertEqual(len(calls), 3)  # two silent turns, then close-out
+        self.assertIn("Close out the interview now", calls[2])
         self.assertIn("pomodoro cli", intent)
         # the finalized close-out replaced the raw transcript on disk
         self.assertIn("INTENT_FINALIZED",
@@ -342,11 +496,9 @@ class AbandonedInterview(unittest.TestCase):
 
     def test_closeout_failure_falls_back_loudly(self):
         def fake(role, body, user, **kw):
-            return "What UI do you want?\n"  # never converges
+            return "sorry, I cannot decide"  # never converges
 
-        with patch.object(phases, "run_pi", fake):
-            intent, _ = phases.phase0(self.proj, "pomodoro",
-                                      "build a pomodoro app", False, self.kb)
+        intent, _ = self.dialog_run(fake)
         # raw idea is the honest fallback, not a silent success
         self.assertEqual(intent, "build a pomodoro app")
 
