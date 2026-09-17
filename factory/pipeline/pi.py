@@ -16,7 +16,10 @@ PI_BIN = "pi"
 PI_TIMEOUT = int(os.environ.get("SIESTA_PI_TIMEOUT", "1200"))
 
 # SIESTA_FACTORY redirects projects/, kb/ and skills/ (used by tests).
-FACTORY = Path(os.environ["SIESTA_FACTORY"]) if os.environ.get("SIESTA_FACTORY") \
+# Resolve either way: macOS gives /var/folders/... from env and mkdtemp but
+# /private/var/... from getcwd, and a mixed-prefix relpath (the startup
+# "Model configuration" log) turns into ../../.. soup.
+FACTORY = Path(os.environ["SIESTA_FACTORY"]).resolve() if os.environ.get("SIESTA_FACTORY") \
     else Path(__file__).resolve().parent.parent
 SKILLS = FACTORY.parent / ".agents" / "skills"       # addyosmani skills, repo root
 FACTORY_SKILLS = FACTORY / "skills"                  # factory skills, self-improving
