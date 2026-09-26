@@ -407,13 +407,13 @@ def run_regression(proj: Path, n: int) -> str:
     dirs = _suite_dirs(proj)
     if not dirs:
         return "skipped"
-    # Every detected suite counts, including root-level tests without a manifest.
+    # Python scripts can have tests without a package or dependency manifest.
     verdict = "skipped"
     for suite_dir in dirs:
         runner = _regression_command(proj, suite_dir)
         if runner is None:
-            if suite_dir == "." and _pytest_available():
-                runner = ([sys.executable, "-m", "pytest", "."], True)
+            if _pytest_available():
+                runner = ([sys.executable, "-m", "pytest", suite_dir], True)
             else:
                 continue
         cmd, is_pytest = runner

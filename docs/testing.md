@@ -18,6 +18,7 @@ integration tests exercise generated projects with real test subprocesses.
 - KB updates, seeded initialization and preservation of local knowledge.
 - Planner retries, worker escalation, proxy approval and review fixes.
 - Mechanical test gates, runtime smoke checks and persisted verdicts.
+- Python suites at the root or in `tests/`, including projects without a manifest.
 - Real Git commits, failed commit hooks, recovery archives and residue cleanup.
 - Checkpoints, issue idempotency, incomplete resumes and completed reruns.
 - Model routing, tool permissions, timeouts and context warnings.

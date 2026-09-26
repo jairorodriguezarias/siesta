@@ -163,10 +163,26 @@ class RegressionTriState(unittest.TestCase):
     def test_no_tests_dir_is_skipped(self):
         self.assertEqual(self.regression({"notes.txt": "nothing"}), "skipped")
 
-    def test_no_runner_manifest_is_skipped(self):
-        self.assertEqual(
-            self.regression({"tests/test_x.py": "def test_x():\n    pass"}),
-            "skipped")
+    def test_python_suite_without_manifest_is_passed(self):
+        self.assertEqual(self.regression({
+            "sumints.py": "import sys\nprint(sum(map(int, sys.argv[1:])))\n",
+            "tests/test_sumints.py": (
+                "import subprocess, sys\n"
+                "def test_sum():\n"
+                "    result = subprocess.run([sys.executable, 'sumints.py', '2', '3'],\n"
+                "                            capture_output=True, text=True)\n"
+                "    assert result.returncode == 0\n"
+                "    assert result.stdout == '5\\n'\n"
+            ),
+        }), "passed")
+
+    def test_failing_python_suite_without_manifest_is_failed(self):
+        self.assertEqual(self.regression({
+            "tests/test_broken.py": "def test_broken():\n    assert False\n",
+        }), "failed")
+
+    def test_empty_python_suite_without_manifest_is_skipped(self):
+        self.assertEqual(self.regression({"tests/test_empty.py": ""}), "skipped")
 
     def test_failing_suite_is_failed(self):
         self.assertEqual(self.regression({
