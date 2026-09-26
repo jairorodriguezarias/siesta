@@ -59,8 +59,10 @@ blocks the issue. Protocol examples inside code fences never count as signals.
 Blocked work cannot become the next issue's base. Before restoring tracked files
 and removing untracked product files, the pipeline saves binary patches and an
 untracked-file archive under the generated project's `.git/siesta-recovery/`.
-The KB and ignored evidence survive cleanup. This also applies to dirty work
-found when resuming at an issue boundary.
+The KB and ignored evidence survive cleanup. Cleanup is limited to known failed
+worker edits made during the active run. Unknown product edits at startup or an
+issue boundary are preserved and block execution until committed, or explicitly
+adopted with `--adopt-changes`. Workers cannot rewrite the issue plan.
 
 ## Review, verification and resume
 
@@ -73,9 +75,21 @@ found when resuming at an issue boundary.
   suite is skipped at the pre-issue gate and cannot prove issue completion.
 - Verification persists `verify_verdict.txt`. Completion records and commits
   use this verdict; an unsuccessful result is recorded as `UNVERIFIED`.
-- Resume uses issue completion nodes as its ledger. Pending issues invalidate
+- Resume uses committed issue completion nodes as its ledger. Pending issues invalidate
   downstream review and verification. Failed verification resumes at phase 5.
   Completed projects do not repeat completion commits or project learning.
+- Completion records must commit successfully; rejected commits roll back the
+  claim while preserving implementation edits. Altered local completion records
+  block startup and cannot be adopted into the ledger automatically.
+- Completed requirements are immutable, including acceptance code in fences.
+  Legacy records are reconciled with their first committed plan; duplicate issue
+  numbers are rejected. Use a new issue or `--iterate` for changed requirements.
+- `.git/siesta-state.json` ties review and verification to product contents and
+  executable modes. Changed products and missing fingerprints require fresh
+  checks. Git hooks cannot silently alter a tested product during its commit.
+- `--project` selects an existing Siesta Git root. `--iterate REQUEST` appends a
+  specification amendment and unique issues; the latest identical request
+  resumes. Rejected selection or local edits do not mutate project knowledge.
 - `stop.md` is checked at issue boundaries. `SIESTA_PI_TIMEOUT` bounds every
   Pi call, including the interactive interview; timed-out process groups are
   killed and partial output is preserved.
@@ -91,6 +105,8 @@ use the consultant route. Models are selected manually at startup.
 - Combine context and the closing directive into one positional prompt.
 - Pass an explicit thinking level; unsupported model families use `off`.
 - Parse stdout only. Provider stderr is stored after `PROVIDER_LOG:`.
+- Failed calls return no answer. Saved provider logs and partial output are
+  prefixed so their protocol markers cannot become authorization on resume.
 - Bound calls with `SIESTA_PI_TIMEOUT` (seconds; default 1200).
 - Warn when a loaded Ollama model serves less context than Pi declares.
   This advisory probe uses the default Pi catalog; custom profiles need the
@@ -165,6 +181,9 @@ model routing and actual skill attachments aligned. Preserve license notices.
 | [`pipeline/__main__.py`](factory/pipeline/__main__.py) | Dispatch, checkpoints, completion and failure records |
 | [`pipeline/phases.py`](factory/pipeline/phases.py) | Prompts, execution, recovery and verification |
 | [`pipeline/pi.py`](factory/pipeline/pi.py) | Model calls, thinking, timeouts and context probe |
+| [`pipeline/repository.py`](factory/pipeline/repository.py) | Strict commits, completion ledger and product fingerprints |
+| [`pipeline/iterations.py`](factory/pipeline/iterations.py) | Additional requests, specification amendments and issue plans |
+| [`pipeline/files.py`](factory/pipeline/files.py) | Git-aware filtering of private, ignored and dependency prompt inputs |
 | [`pipeline/text.py`](factory/pipeline/text.py) | Protocol markers and parsers |
 | [`pipeline/kb.py`](factory/pipeline/kb.py) | Graph storage and CLI |
 | [`pipeline/learn.py`](factory/pipeline/learn.py) | Per-issue and project learning |

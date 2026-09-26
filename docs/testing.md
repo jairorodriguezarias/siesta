@@ -21,9 +21,17 @@ integration tests exercise generated projects with real test subprocesses.
 - Real Git commits, failed commit hooks, recovery archives and residue cleanup.
 - Checkpoints, issue idempotency, incomplete resumes and completed reruns.
 - Model routing, tool permissions, timeouts and context warnings.
+- Process-group termination, partial interview evidence and inactive provider markers.
+- Private/ignored prompt inputs, dependency trees and symlink exclusion.
+- Committed completion ledgers, immutable requirements and product fingerprints.
+- Explicit project selection, adoption of human edits and repeated iterations.
+- Failed planning/commit hooks, external regressions and missing checkpoints.
 
 A passing factory suite validates the orchestrator against those scenarios.
 It does not establish that a particular model can finish arbitrary projects.
+Iteration scenarios run a complete project, extend the same repository, and
+check real Git history, old and new behavior, blocked-work recovery and repeat
+requests. Hook tests also reject a product changed after verification.
 
 ## Validate a model profile
 

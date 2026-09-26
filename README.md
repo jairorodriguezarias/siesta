@@ -95,6 +95,31 @@ without `--resume`. A changed idea that collides with an existing project
 directory is rejected. Put a `stop.md` file in the generated project to stop
 at the next issue boundary; remove it before continuing.
 
+Select an existing Siesta project directly, or plan an additional request:
+
+```bash
+./factory/bin/siesta.sh --project factory/projects/PROJECT --resume
+./factory/bin/siesta.sh --project factory/projects/PROJECT --iterate 'Add JSON output and regression tests'
+```
+
+An iteration appends a specification amendment and uniquely numbered issues.
+Existing issue requirements and Git history are preserved. Repeating the latest
+request resumes it; a different request requires finishing the active work first.
+The target must be a Siesta Git root with its intent, specification, plan and
+checkpoint. Importing arbitrary repositories is not supported.
+
+Local product edits stop startup without changing files or project knowledge.
+Commit them yourself, or explicitly adopt them before continuing:
+
+```bash
+./factory/bin/siesta.sh --project factory/projects/PROJECT --adopt-changes --resume
+```
+
+Completed issues cannot be edited or removed; add a new issue or use `--iterate`.
+An altered completion ledger or missing checkpoint requires reconciliation with
+the committed KB and run evidence before resuming. See
+[repository iterations](docs/repository-iterations.md) for the full contract.
+
 Results appear under `factory/projects/<project>/`, or under the selected
 profile's `factory/projects/`:
 
@@ -105,6 +130,7 @@ profile's `factory/projects/`:
 | `kb/graph.json` | Decisions, completed issues and blockers |
 | `verify_verdict.txt` | Persisted verification result |
 | `.pipeline-checkpoint` | Resume position |
+| `.git/siesta-state.json` | Product fingerprints for review and verification |
 | `*_output.txt`, `regression_*.log` | Local execution evidence |
 | `.git/` | Project commits and recovery archives |
 
@@ -118,10 +144,20 @@ Each issue loads relevant KB summaries and standing principles. The worker
 implements and tests it; Python checks the suite before recording completion.
 A blocked issue's uncommitted changes are archived before cleanup, and successful
 regression repairs are committed before further work begins.
+Cleanup applies to failed worker edits from the active run. Unknown edits found
+on resume are preserved. Failed commits halt execution and cannot authorize
+issue or project completion.
 
 Review requires an explicit passing marker and proxy approval. Verification
 reruns tests and, where supported, a runtime smoke check. Empty suites,
 unmarked responses and quoted protocol examples cannot establish success.
+Evidence is tied to product contents and executable modes, excluding KB
+bookkeeping and ignored artifacts. Product changes, including external commits,
+require a fresh review and verification; legacy projects without fingerprints
+are checked again. Unchanged completed projects do not repeat work or learning.
+
+Prompt gathering excludes ignored, private, dependency and runtime files, plus
+symlinks. This filters model context; the worker's enabled tools are not sandboxed.
 
 The learner records patterns and may update the five factory skills.
 The global KB is local runtime data, initialized from the six principles in

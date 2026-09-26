@@ -51,6 +51,8 @@ echo -e "${NC}"
 if [ -z "$1" ]; then
   echo -e "${YELLOW}Usage:${NC}"
   echo "  ./factory/bin/siesta.sh \"<project idea>\" [--auto]"
+  echo "  ./factory/bin/siesta.sh --project PATH --resume"
+  echo "  ./factory/bin/siesta.sh --project PATH --iterate \"<additional request>\""
   echo ""
   echo -e "${YELLOW}Examples:${NC}"
   echo "  ./factory/bin/siesta.sh \"Build a CLI pomodoro timer in Python\""
@@ -65,11 +67,15 @@ if [ -z "$1" ]; then
 fi
 
 echo -e "${BLUE}━━━ Starting Siesta 💤 ━━━${NC}"
-IDEA="${@: -1}"  # flags may come first; show the idea, not "--auto"
-echo -e "${BLUE}Idea:${NC} $IDEA"
-echo ""
+EXISTING_PROJECT=false
+for argument in "$@"; do
+  case "$argument" in --project|--project=*) EXISTING_PROJECT=true ;; esac
+done
 
-if [[ "$*" == *"--auto"* ]]; then
+if $EXISTING_PROJECT; then
+  echo -e "${CYAN}Continuing an existing project with its recorded intent.${NC}"
+  echo ""
+elif [[ "$*" == *"--auto"* ]]; then
   echo -e "${CYAN}Auto mode: skipping interview. Using idea as intent directly.${NC}"
   echo ""
 else
