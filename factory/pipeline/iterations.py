@@ -105,4 +105,3 @@ def _plan(proj: Path, context: str, spec: str, first: int) -> str:
         directive = (f'ITERATION_PLAN: Previous output was rejected. Start at ## Issue #{first}: Title '
                      'and use consecutive unique numbers, only new issues with tests. No code.')
     raise RuntimeError('Iteration plan rejected after two attempts; previous plan preserved')
-
