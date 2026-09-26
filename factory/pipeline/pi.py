@@ -166,19 +166,24 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
         # pi/Ollama call must not freeze phase 0 forever. The human can
         # still leave naturally (EOF ends the stream; wait returns fast).
         chunks: list[str] = []
-        with subprocess.Popen(args, stdout=subprocess.PIPE, text=True,
+        errors: list[str] = []
+        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                               cwd=where, env=env, start_new_session=True) as p:
             expired = threading.Event()
 
             def expire():
                 expired.set()
-                try:
-                    os.killpg(p.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                _kill_group(p.pid)
+
+            def read_errors():
+                for line in p.stderr:
+                    errors.append(line)
+                    print(line, end='', file=sys.stderr, flush=True)
 
             timer = threading.Timer(PI_TIMEOUT, expire)
             timer.daemon = True
+            stderr_reader = threading.Thread(target=read_errors, daemon=True)
+            stderr_reader.start()
             timer.start()
             try:
                 for line in p.stdout:
@@ -188,34 +193,53 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
             finally:
                 timer.cancel()
                 timer.join()
+                _kill_group(p.pid)
+                stderr_reader.join()
             if expired.is_set():
                 err(f"interactive pi call timed out after {PI_TIMEOUT}s "
                     f"— treating as no answer")
-        text_out = "".join(chunks)
-        _maybe_write(artifact, text_out)
+        text_out, stderr_out = ''.join(chunks), ''.join(errors)
+        if expired.is_set() or p.returncode:
+            reason = 'TIMEOUT' if expired.is_set() else f'EXIT_STATUS: {p.returncode}'
+            return _rejected(artifact, text_out, stderr_out, reason)
+        _maybe_write(artifact, text_out, stderr_out)
         return text_out
-    try:
-        result = subprocess.run(args, capture_output=True, text=True, cwd=where,
-                                env=env, timeout=PI_TIMEOUT)
+    with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, cwd=where, env=env, start_new_session=True) as proc:
+        try:
+            text_out, stderr_out = proc.communicate(timeout=PI_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            _kill_group(proc.pid)
+            text_out, stderr_out = proc.communicate()
+            err(f"pi call timed out after {PI_TIMEOUT}s — treating as no answer")
+            return _rejected(artifact, text_out, stderr_out, 'TIMEOUT')
+        finally:
+            _kill_group(proc.pid)
         # Hardening (round-7): stdout is the model's answer; stderr is
         # provider noise (pi warnings polluted the pomodoro run's parsed
         # artifacts — and could falsify markers). Parse stdout only; keep
         # stderr as evidence below a PROVIDER_LOG: separator.
-        text_out = result.stdout or ""
-        stderr_out = (result.stderr or "").strip()
+        stderr_out = (stderr_out or "").strip()
         if stderr_out:
             warn("pi stderr: " + " / ".join(stderr_out.splitlines()[:3]))
-        if result.returncode:
-            warn(f"pi exited with status {result.returncode}; answer rejected")
-            stderr_out += f"\nEXIT_STATUS: {result.returncode}\nPARTIAL_OUTPUT: {text_out}"
-            text_out = ""
-    except subprocess.TimeoutExpired:
-        # #10: a timed-out call is "no answer" — the empty return flows into
-        # the degenerate-output guards, which treat it as a failed attempt.
-        err(f"pi call timed out after {PI_TIMEOUT}s — treating as no answer")
-        text_out, stderr_out = "", ""
+        if proc.returncode:
+            warn(f"pi exited with status {proc.returncode}; answer rejected")
+            return _rejected(artifact, text_out, stderr_out, f'EXIT_STATUS: {proc.returncode}')
     _maybe_write(artifact, text_out, stderr_out)
     return text_out
+
+
+def _kill_group(pid: int) -> None:
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _rejected(artifact: Path | None, stdout: str, stderr: str, reason: str) -> str:
+    evidence = reason + '\nPARTIAL_OUTPUT:\n' + stdout + '\n' + stderr
+    _maybe_write(artifact, '', evidence)
+    return ''
 
 
 def _maybe_write(artifact: Path | None, text_out: str, stderr_out: str = "") -> None:
@@ -223,5 +247,8 @@ def _maybe_write(artifact: Path | None, text_out: str, stderr_out: str = "") -> 
         return
     content = text_out
     if stderr_out:
-        content += f"\nPROVIDER_LOG: {stderr_out}\n"
+        # Saved artifacts can be parsed again on resume. Provider lines and
+        # rejected partial answers must never become protocol markers.
+        evidence = "\n".join("| " + line for line in stderr_out.splitlines())
+        content += f"\nPROVIDER_LOG:\n{evidence}\n"
     artifact.write_text(content)

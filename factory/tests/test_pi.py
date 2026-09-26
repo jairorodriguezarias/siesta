@@ -1,3 +1,4 @@
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -27,11 +28,10 @@ class Timeout(unittest.TestCase):
     """#10: a hung pi call is "no answer", never a frozen pipeline."""
 
     def test_timed_out_call_returns_empty(self):
-        import subprocess as sp
-        from unittest.mock import patch
-        with patch.object(sp, "run", side_effect=sp.TimeoutExpired(cmd=["pi"], timeout=1)):
-            self.assertEqual(
-                pi.run_pi("worker", "b", "u", thinking="off"), "")
+        command = [sys.executable, "-c", "import time; time.sleep(2)"]
+        with patch.object(pi, "build_args", return_value=command), \
+             patch.object(pi, "PI_TIMEOUT", 0.2):
+            self.assertEqual(pi.run_pi("worker", "b", "u", thinking="off"), "")
 
     def test_timeout_is_configurable(self):
         import os
@@ -62,34 +62,31 @@ class StderrSeparation(unittest.TestCase):
     """Hardening: stderr is provider noise, not model answer — the pomodoro
     run's verify_output.txt carried a pi warning inside the parsed text."""
 
-    def _result(self, stdout: str, stderr: str):
-        from types import SimpleNamespace
-        return SimpleNamespace(stdout=stdout, stderr=stderr, returncode=0)
+    def _command(self, stdout: str, stderr: str):
+        return [sys.executable, "-c",
+                f"import sys; sys.stdout.write({stdout!r}); sys.stderr.write({stderr!r})"]
 
     def test_only_stdout_is_parsed(self):
-        import subprocess as sp
         from unittest.mock import patch
-        with patch.object(sp, "run", return_value=self._result(
+        with patch.object(pi, "build_args", return_value=self._command(
                 "VERIFY_PASSED: fine", "Warning: Model not found, using custom id")):
             out = pi.run_pi("worker", "b", "u", thinking="off")
         self.assertEqual(out, "VERIFY_PASSED: fine")
 
     def test_stderr_marker_cannot_falsify_the_verdict(self):
-        import subprocess as sp
         from unittest.mock import patch
-        with patch.object(sp, "run", return_value=self._result(
+        with patch.object(pi, "build_args", return_value=self._command(
                 "I am not sure this runs.", "VERIFY_PASSED: noise from pi")):
             out = pi.run_pi("worker", "b", "u", thinking="off")
         self.assertEqual(out, "I am not sure this runs.")
 
     def test_stderr_persisted_below_separator(self):
-        import subprocess as sp
         from unittest.mock import patch
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as d:
             artifact = Path(d) / "out.txt"
-            with patch.object(sp, "run", return_value=self._result(
+            with patch.object(pi, "build_args", return_value=self._command(
                     "real answer", "provider chatter")):
                 pi.run_pi("worker", "b", "u", thinking="off", artifact=artifact)
             saved = artifact.read_text()

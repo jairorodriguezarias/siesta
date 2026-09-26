@@ -146,8 +146,9 @@ class RealInterviewDeadline(unittest.TestCase):
                  patch.object(pi, 'PI_TIMEOUT', 0.2):
                 result = pi.run_pi('planner', '', '', interactive=True, artifact=artifact)
             self.assertLess(time.monotonic() - started, 1.5)
-            self.assertEqual(result, 'partial')
-            self.assertEqual(artifact.read_text(), 'partial')
+            self.assertEqual(result, '')
+            self.assertIn('partial', artifact.read_text())
+            self.assertIn('TIMEOUT', artifact.read_text())
 
     def test_failed_provider_marker_is_not_an_answer(self):
         command = [sys.executable, '-c',
