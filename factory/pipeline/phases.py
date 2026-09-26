@@ -11,7 +11,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-from pipeline import learn, text
+from pipeline import learn, repository, text
+from pipeline.files import source_files as _project_files
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY_SKILLS, GLOBAL_KB, SKILLS, err, log,
                          ok, run_pi, warn)
@@ -25,20 +26,6 @@ SOURCE_EXTS = {"html", "css", "js", "ts", "py", "go", "rs", "json", "md",
 
 
 # ─── Context gathering ───────────────────────────────────────────────────
-
-def _project_files(proj: Path):
-    # os.walk (topdown, with pruned dirs) instead of rglob: git's auto-gc
-    # can delete .git/objects/* while a walk is inside them — rglob then
-    # raises FileNotFoundError mid-iteration (live flake in test runs).
-    pruned = {".git", "kb", ".pytest_cache", "__pycache__"}
-    for root, dirs, files in os.walk(proj):
-        dirs[:] = [d for d in dirs if d not in pruned]
-        for name in sorted(files):
-            f = Path(root) / name
-            if f.name in (".DS_Store", ".pipeline-checkpoint"):
-                continue
-            yield f
-
 
 # #39: total prompt budget for gather() — per-file caps alone let the
 # worker prompt grow unbounded on big projects and flood the model's
@@ -56,7 +43,8 @@ def gather(proj: Path) -> str:
             parts.append(f"\n\n--- TRUNCATED: {len(files) - i} further "
                          f"source files not shown (context budget) ---")
             break
-        content = text.head(f.read_text(errors="replace"), 500)
+        with f.open(errors="replace") as stream:
+            content = text.head(stream.read(remaining), 500)
         header = f"\n\n--- File: {f.relative_to(proj)} ---\n"
         if len(header) + len(content) > remaining:
             cut = "\n--- (file cut mid-way: context budget) ---"
@@ -78,13 +66,7 @@ def _git(proj: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def _commit(proj: Path, msg: str) -> None:
-    # round-5: a failed commit used to pass silently — the run "completed"
-    # with an empty repo and no trace of why.
-    _git(proj, "add", "-A")
-    proc = _git(proj, "commit", "-m", msg)
-    if proc.returncode != 0:
-        warn(f"git commit failed in {proj}: "
-             f"{proc.stderr.decode(errors='replace').strip()}")
+    repository.commit(proj, msg)
 
 
 # ─── Per-issue hooks (KB context before, decision + commit after) ────────
@@ -106,8 +88,12 @@ def post_issue(proj: Path, n: int, output: str, kb: Graph) -> str:
     # round-5: takes the FINAL worker output, not issue_{n}_output.txt — a
     # success that arrived via retry/diagnosis used to log the degenerate
     # first attempt as the completion record.
-    node_id = kb.node("decision", f"Issue #{n} completed", text.head(output, 200))
-    _commit(proj, f"🔧 Issue #{n}: implemented")
+    body = repository.read_plan(proj)[n]
+    with repository.completion_record(proj, kb):
+        node_id = kb.node("decision", f"Issue #{n} completed", json.dumps({
+            "issue_sha256": repository.issue_digest(body), "output": text.head(output, 200),
+        }))
+        _commit(proj, f"🔧 Issue #{n}: implemented")
     return node_id
 
 
@@ -150,16 +136,18 @@ def phase0(proj: Path, name: str, idea: str, auto: bool,
     out = proj / "interview_output.txt"
     if auto:
         log("Auto mode: using idea description as intent (no interview)")
-        out.write_text(f"INTENT_FINALIZED: {idea}")
+        interview_out = f"INTENT_FINALIZED: {idea}"
+        out.write_text(interview_out)
     else:
         print("━━━ Interactive Session — Human + Agent ━━━")
         print("The agent will ask questions to clarify your idea.\n")
-        run_pi("planner", INTERVIEW_PROMPT.format(idea=idea), idea,
+        interview_out = run_pi("planner", INTERVIEW_PROMPT.format(idea=idea), idea,
                skills=(SKILLS / "interview-me",), interactive=True, artifact=out,
                cwd=proj, tools="no")
+        if not interview_out and out.exists():
+            (proj / "interview_failed_output.txt").write_bytes(out.read_bytes())
         print("\n")
         ok("Interactive phase complete. Human is leaving.")
-    interview_out = out.read_text()
     if not text.INTENT.search(interview_out):
         # #45: the human leaving mid-interview must not collapse the intent
         # to the raw one-liner — the planner closes it out autonomously once.
@@ -643,7 +631,7 @@ def _repair_regression(proj: Path, n: int, issue_text: str, source: str) -> bool
 
 def execute(proj: Path, kb: Graph) -> list[int]:
     """Run every issue; return the numbers that stayed blocked."""
-    issues = dict(text.split_issues((proj / "issues.md").read_text()))
+    issues = repository.read_plan(proj)
     log(f"Found {len(issues)} issues to execute")
     gkb = Graph(GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json"))
     blocked, fails, history = [], {}, {}
@@ -652,9 +640,9 @@ def execute(proj: Path, kb: Graph) -> list[int]:
     # #9: per-issue idempotency — a resume skips issues whose completion node
     # is already on disk (post_issue writes "Issue #N completed" decisions).
     # Blocked issues have no node, so they naturally get retried.
-    completed = {n["summary"] for n in kb.query(type_="decision")}
+    completed = repository.completed_issues(proj)
     for num in sorted(issues):
-        if f"Issue #{num} completed" in completed:
+        if num in completed:
             log(f"Issue #{num} already completed (resume) — skipping")
             continue
         if (proj / "stop.md").exists():
@@ -665,13 +653,9 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         log(f"Executing issue #{num}...")
         issue_text = issues[num]
 
-        # #49 (b): never build on a tree that contradicts the committed base —
-        # residue from a blocked issue of a previous run gets restored, not
-        # silently inherited (untracked run evidence is not a contradiction).
-        if not _tree_is_clean(proj):
-            warn(f"Working tree is dirty before issue #{num} — restoring "
-                 "uncommitted changes to the last commit")
-            _discard_residue(proj, num, "dirty tree before issue")
+        # Only known failures created during this run may enter recovery.
+        repository.require_clean(proj)
+        repository.require_committed_ledger(proj)
 
         if num > 1:
             status = run_regression(proj, num)
@@ -683,7 +667,11 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                 if _repair_regression(proj, num, issue_text, source_now):
                     # Preserve the tested base before later issue recovery
                     # can discard that issue's uncommitted changes.
-                    _commit(proj, f"Regression repaired before issue #{num}")
+                    try:
+                        _commit(proj, f"Regression repaired before issue #{num}")
+                    except RuntimeError as exc:
+                        raise RuntimeError('Regression repair remains uncommitted; '
+                                           'fix Git before resuming') from exc
                     if not _tree_is_clean(proj):
                         raise RuntimeError("Regression repair remains uncommitted; "
                                            "fix Git and commit it before resuming")
@@ -762,6 +750,16 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         stuck, output = _escalate(proj, num, output, issue_text, kb_summaries,
                                    source, kb, fails, history, blocked)
         if not stuck:
+            try:
+                unchanged_plan = repository.read_plan(proj) == issues
+            except (RuntimeError, OSError):
+                unchanged_plan = False
+            if not unchanged_plan:
+                blocked.append(num)
+                kb.node('blocker', f'Issue #{num} changed the plan',
+                        'Worker changed issue requirements during implementation')
+                _discard_residue(proj, num, 'worker changed the plan')
+                continue
             suite = run_regression(proj, num)
             if suite != "passed":
                 blocked.append(num)
@@ -770,6 +768,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                 _discard_residue(proj, num, "post-issue tests not passing")
                 continue
             ok(f"Issue #{num} executed and tested")
+            repository.require_committed_ledger(proj)
             post_issue(proj, num, output, kb)
             # micro-learning after every issue (the per-issue learner)
             learn.learn_issue(proj, num, issue_text, kb, gkb)
@@ -891,6 +890,7 @@ with the marker. A decision line without a marker counts as NOT approved."""
 
 def review(proj: Path, kb: Graph) -> None:
     """One fix attempt, followed by a fresh review and explicit proxy approval."""
+    plan = (proj / 'issues.md').read_bytes()
     kb_summaries = kb.compact()
     for attempt in range(2):
         source = gather(proj)
@@ -923,6 +923,10 @@ def review(proj: Path, kb: Graph) -> None:
                 "Fix review issues", skills=REVIEW_SKILLS + RETRY_SKILLS,
                 artifact=proj / "review_fixes_output.txt", cwd=proj)
             # Save applied work; a commit is not an approval.
+            if not (proj / 'issues.md').exists() or (proj / 'issues.md').read_bytes() != plan:
+                _discard_residue(proj, 0, 'review changed the issue plan')
+                raise RuntimeError('Review fixes changed the issue plan; work archived for recovery')
+            repository.require_committed_ledger(proj)
             _commit(proj, "Review fixes awaiting approval")
     kb.node("blocker", "Review not approved", feedback)
     err("Review remains unapproved after fixes; resume will retry the review")

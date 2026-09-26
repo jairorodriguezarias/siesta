@@ -163,7 +163,7 @@ class RecoveryGates(unittest.TestCase):
     def reset_case(self, checkpoint):
         # Each subcase starts from the same real committed product and KB;
         # a false completion in one case must not skip the next reproduction.
-        self.git("restore", f"--source={self.seed_commit}", "--staged", "--worktree", ".")
+        self.git("reset", "--hard", self.seed_commit)
         self.calls_file.write_text("")
         (self.proj / ".pipeline-checkpoint").write_text(checkpoint + "\n")
 
