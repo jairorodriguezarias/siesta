@@ -34,7 +34,10 @@ an advisory factory lock; Windows without WSL is not supported.
   For the interview's final summary, type `yes` or explain what should change.
   Stop ends the active process and leaves its current evidence for recovery.
 - **Projects:** inspect saved projects, specifications, issue plans, design
-  reviews and requirement evidence. Resume uses the recorded original idea.
+  reviews and requirement evidence. Resume preserves the selected directory and
+  its saved model routes, including imported projects. Canonical projects can
+  resume an unfinished interview by their original idea; imported projects use
+  the CLI's committed-project validation.
   A completed project uses the pipeline's existing recheck/resume behavior.
   Edit changes its visible name without moving its Git directory. Delete moves
   it to `factory/projects/.trash/` after confirmation; it disappears from the

@@ -235,9 +235,24 @@ class Desktop:
             return {'deleted': name}
 
     def start(self, idea, *, auto=False, command=None, model_selection=None,
-              review_policy=None, display_name=None):
+              review_policy=None, display_name=None, project=None):
+        if project is not None:
+            project_path = self._project(project)
+            if not self._managed_project(project_path):
+                raise ValueError('Project not found')
+            if display_name is not None:
+                raise ValueError('Rename projects from Projects before resuming')
+            saved_idea = read_text(self._file(project_path, '.pipeline-idea')).strip()
+            idea = saved_idea or project
         if not isinstance(idea, str) or not idea.strip() or len(idea) > 12000 or '\x00' in idea:
             raise ValueError('Describe an idea using 1–12000 characters')
+        idea = idea.strip()
+        name = project if project is not None else slug(idea)
+        project_path = self._project(name)
+        # Early canonical projects can resume their interview by idea. Imported
+        # roots use --project so the CLI validates their committed identity.
+        target = (['--project', str(project_path)] if project is not None
+                  and (not saved_idea or name != slug(idea)) else ['--', idea])
         if not isinstance(auto, bool):
             raise ValueError('auto must be a boolean')
         if review_policy is not None and review_policy not in ('normal', 'deep'):
@@ -251,7 +266,7 @@ class Desktop:
             try:
                 from .. import model_selection as selections
                 defaults = json.loads((self.factory / 'config' / 'models.json').read_text())
-                existing = selections.load_project(self._project(slug(idea)))
+                existing = selections.load_project(project_path)
                 normalized = selections.from_overrides(model_selection,
                                                        role_defaults=(existing or {}).get(
                                                            'role_defaults', defaults))
@@ -274,9 +289,6 @@ class Desktop:
         with self.lock:
             if self._active():
                 raise Conflict('Siesta is already working on a project')
-            idea = idea.strip()
-            name = slug(idea)
-            project_path = self._project(name)
             idea_file = project_path / '.pipeline-idea'
             if display_name is not None and (idea_file.exists() or idea_file.is_symlink()
                                              or (project_path / '.git').exists()):
@@ -300,7 +312,7 @@ class Desktop:
                 + (['--name', display_name] if display_name else [])
                 + (['--model-selection', str(selection_file)] if selection_file else [])
                 + (['--review-policy', review_policy] if review_policy else [])
-                + (['--auto'] if auto else []) + ['--', idea])
+                + (['--auto'] if auto else []) + target)
             with log.open('wb') as output:
                 process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=output,
                                            stderr=subprocess.STDOUT, env=env,
@@ -324,6 +336,8 @@ class Desktop:
                 state = json.loads(read_text(self.status_file) or '{}')
             except (ValueError, OSError):
                 pass
+            if not isinstance(state, dict):
+                state = {}
             if state.get('project'):
                 self._project(state['project'])
                 self.run['project'] = state['project']
@@ -379,30 +393,28 @@ class Desktop:
                     or self.process.poll() is not None):
                 raise Conflict('This run is no longer active')
             self.user_stopped = True
+            self._terminate()
+            return self.snapshot()
+
+    def _terminate(self):
+        """Try graceful shutdown, then force it; tolerate exit between signals."""
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(self.process.pid, signal.SIGTERM)
+                os.killpg(self.process.pid, sig)
             except ProcessLookupError:
                 pass
             try:
                 self.process.wait(timeout=3)
+                return
             except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
-                self.process.wait(timeout=3)
-            return self.snapshot()
+                if sig == signal.SIGKILL:
+                    raise
 
     def close(self):
         with self.lock:
             if self.process is not None:
                 if self._active():
-                    try:
-                        os.killpg(self.process.pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        self.process.wait(timeout=3)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(self.process.pid, signal.SIGKILL)
-                        self.process.wait(timeout=3)
+                    self._terminate()
                 if self.process.stdin:
                     self.process.stdin.close()
             self.runtime.cleanup()

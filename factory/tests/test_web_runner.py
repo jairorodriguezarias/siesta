@@ -3,6 +3,7 @@ import os
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import time
 import unittest
@@ -70,6 +71,70 @@ class DesktopTests(unittest.TestCase):
         (project / '.pipeline-idea').write_text('test project')
         with self.assertRaises(Conflict):
             self.desktop.start('test project', display_name='Another title')
+
+    def test_resume_uses_selected_directory_not_idea_slug(self):
+        project = self.factory / 'projects/imported-project'
+        project.mkdir(parents=True)
+        (project / '.pipeline-idea').write_text('Original idea')
+        process = Mock()
+        process.poll.return_value = 0
+        with patch('pipeline.web.runner.subprocess.Popen', return_value=process) as popen:
+            state = self.desktop.start('Original idea', project='imported-project')
+        args = popen.call_args.args[0]
+        self.assertEqual(args[args.index('--project') + 1], str(project))
+        self.assertEqual(state['project'], 'imported-project')
+
+    def test_legacy_resume_without_idea_uses_committed_identity(self):
+        project = self.factory / 'projects/legacy-app'
+        (project / '.git').mkdir(parents=True)
+        (project / 'kb').mkdir()
+        (project / 'kb/graph.json').write_text('{"nodes":[],"edges":[]}')
+        process = Mock()
+        process.poll.return_value = 0
+        with patch('pipeline.web.runner.subprocess.Popen', return_value=process) as popen:
+            self.desktop.start('', project='legacy-app')
+        args = popen.call_args.args[0]
+        self.assertEqual(args[args.index('--project') + 1], str(project))
+
+    def test_resume_reuses_routes_from_selected_directory(self):
+        from pipeline import model_selection
+        project = self.factory / 'projects/imported-project'
+        project.mkdir(parents=True)
+        (project / '.pipeline-idea').write_text('Original idea')
+        config = self.factory / 'config'
+        config.mkdir()
+        defaults = {role: {'model': 'default-model', 'provider': 'ollama'}
+                    for role in ('planner', 'worker', 'consultant')}
+        (config / 'models.json').write_text(json.dumps(defaults))
+        overrides = {'phases': {'planning': {'model': 'saved-model', 'provider': 'ollama'}}}
+        model_selection.save_project(project, model_selection.normalize_selection(
+            overrides, role_defaults=defaults))
+        process = Mock()
+        process.poll.return_value = 0
+        with patch('pipeline.web.runner.subprocess.Popen', return_value=process), \
+             patch('pipeline.model_catalog.catalog', return_value={'models': []}):
+            self.desktop.start('Original idea', project='imported-project',
+                               model_selection=overrides)
+
+    def test_stop_handles_process_exiting_before_forced_kill(self):
+        run = self.launch("print('done')")
+        self.wait_for(lambda s: s['returncode'] is not None)
+        self.desktop.process.stdin.close()
+        process = Mock()
+        process.poll.side_effect = [None, 0]
+        process.wait.side_effect = [subprocess.TimeoutExpired('worker', 3), 0]
+        self.desktop.process = process
+        with patch('pipeline.web.runner.os.killpg', side_effect=[None, ProcessLookupError]):
+            self.assertEqual(self.desktop.stop(run['id'])['status'], 'stopped')
+        self.desktop.process = None
+
+    def test_non_object_status_does_not_break_activity(self):
+        self.launch("print('done')")
+        self.wait_for(lambda s: s['returncode'] is not None)
+        for content in ('[]', 'null', '42', '"text"'):
+            with self.subTest(content=content):
+                self.desktop.status_file.write_text(content)
+                self.assertEqual(self.desktop.snapshot()['status'], 'incomplete')
 
     def test_legacy_project_can_be_renamed_without_idea_sidecar(self):
         project = self.factory / 'projects/legacy-app'

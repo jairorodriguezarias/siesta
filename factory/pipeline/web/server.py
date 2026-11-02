@@ -121,7 +121,8 @@ def make_server(desktop, port=8765):
                     state = desktop.start(idea, auto=body.get('auto', False),
                                           model_selection=body.get('model_selection'),
                                           review_policy=body.get('review_policy'),
-                                          display_name=display_name)
+                                          display_name=display_name,
+                                          project=body.get('project'))
                 elif self.path == '/api/reply':
                     state = desktop.reply(body.get('run_id'), body.get('input_id'), body.get('answer'))
                 elif self.path == '/api/stop':

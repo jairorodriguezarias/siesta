@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pipeline.kb import Graph
 from pipeline.web.runner import Desktop
@@ -70,7 +70,7 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         start.assert_called_once_with('A small CLI', auto=False,
                                      model_selection=selection, review_policy=None,
-                                     display_name='Small CLI')
+                                     display_name='Small CLI', project=None)
 
     def test_model_catalog_and_check_keep_server_token_boundary(self):
         from pipeline import model_catalog
@@ -106,7 +106,24 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         start.assert_called_once_with('Review deeply', auto=False,
                                       model_selection=None, review_policy='deep',
-                                      display_name='Deep review')
+                                      display_name='Deep review', project=None)
+
+    def test_resume_keeps_the_selected_project_directory(self):
+        project = self.desktop.factory / 'projects/imported-project'
+        project.mkdir(parents=True)
+        (project / '.pipeline-idea').write_text('Original idea')
+        _, session, _ = self.request('/api/session')
+        process = Mock()
+        process.poll.return_value = 0
+        with patch('pipeline.web.runner.subprocess.Popen', return_value=process) as popen:
+            status, _, _ = self.request('/api/run', method='POST',
+                body=json.dumps({'project': 'imported-project'}), headers={
+                    'Content-Type': 'application/json',
+                    'X-Siesta-Token': json.loads(session)['token']})
+        self.assertEqual(status, 200)
+        args = popen.call_args.args[0]
+        self.assertIn('--project', args)
+        self.assertEqual(args[args.index('--project') + 1], str(project))
 
     def test_project_management_and_stop_require_token_and_name(self):
         _, session, _ = self.request('/api/session')

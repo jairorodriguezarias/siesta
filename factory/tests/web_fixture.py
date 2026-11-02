@@ -10,10 +10,10 @@ from pipeline.web.runner import Desktop
 from pipeline.web.server import make_server
 
 
-def child(idea, display_name=''):
+def child(idea, display_name='', project_name=''):
     from pipeline.phases import _read_answer
     from pipeline.pi import FACTORY, phase
-    project = FACTORY / 'projects' / slug(idea)
+    project = FACTORY / 'projects' / (project_name or slug(idea))
     project.mkdir(parents=True, exist_ok=True)
     if display_name:
         from pipeline.project_metadata import write_name
@@ -42,12 +42,13 @@ def child(idea, display_name=''):
 
 class FixtureDesktop(Desktop):
     def start(self, idea, *, auto=False, command=None, model_selection=None,
-              review_policy=None, display_name=None):
+              review_policy=None, display_name=None, project=None):
         return super().start(idea, auto=auto,
                              command=[sys.executable, '-u', __file__, '--child', idea,
-                                      display_name or ''],
+                                      display_name or '', project or ''],
                              model_selection=model_selection,
-                             review_policy=review_policy, display_name=display_name)
+                             review_policy=review_policy, display_name=display_name,
+                             project=project)
 
 
 def serve():
@@ -70,6 +71,7 @@ def serve():
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--child':
-        child(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else '')
+        child(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else '',
+              sys.argv[4] if len(sys.argv) > 4 else '')
     else:
         serve()
