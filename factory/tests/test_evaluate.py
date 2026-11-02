@@ -10,10 +10,37 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pipeline import phases, pi
-from pipeline.evaluate import CASES, _run, check_product
+from pipeline.evaluate import CASES, _run, check_product, evaluate
 
 
 class IndependentChecks(unittest.TestCase):
+    def test_profile_routes_are_copied_and_reported_per_live_case(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            models = root / 'models.json'
+            models.write_text(json.dumps({role: {'model': 'local:latest', 'provider': 'ollama'}
+                                          for role in ('planner', 'worker', 'consultant')}))
+            selection = root / 'selection.json'
+            selection.write_text(json.dumps({'phases': {'review': {
+                'model': 'cloud:cloud', 'provider': 'ollama'}}}))
+            target = root / 'case'
+            target.mkdir()
+            seen = []
+            def fake_run(command, env, timeout, log):
+                seen.append(command)
+                self.assertEqual(json.loads((target / 'factory/config/models.json').read_text())
+                                 ['worker']['model'], 'local:latest')
+                self.assertEqual(json.loads((target / 'model-selection.json').read_text())
+                                 ['phases']['review']['model'], 'cloud:cloud')
+                return 1, 0.01
+            with patch('pipeline.evaluate._run', side_effect=fake_run):
+                result = evaluate('sum', target, 1, models_config=models,
+                                  selection_file=selection)
+            self.assertEqual(result['models']['worker']['model'], 'local:latest')
+            self.assertEqual(result['selection']['phases']['review']['model'], 'cloud:cloud')
+            self.assertEqual(seen[0][seen[0].index('--model-selection') + 1],
+                             str((target / 'model-selection.json').resolve()))
+
     def test_evaluation_timeout_stops_child_processes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

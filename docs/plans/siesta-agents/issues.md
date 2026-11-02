@@ -562,7 +562,7 @@ exit 0.
 
 ## Issue #17: Compatibilidad, validación integral y documentación
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #1–#16.
 
 Completar migración de proyectos existentes, evaluaciones y documentación.
@@ -580,3 +580,14 @@ Completar migración de proyectos existentes, evaluaciones y documentación.
 
 **Verificación:** suite completa, migraciones, navegador y evaluaciones reales
 con comprobaciones externas al código generado.
+
+**Evidencia:** `migration.py` fija hashes de skills, rutas y política y
+revalida issues activas sin evidencia previa antes de continuar. Los tests con
+Git real comprueban conservación del ledger, aprobaciones históricas,
+reanudación y proyectos terminados sin aprendizaje ni commits duplicados.
+`evaluate.py` copia rutas locales/cloud/mixtas a cada fábrica aislada y
+registra los modelos efectivos. Suite Python: 475 tests, exit 0; Snake: 5/5;
+`web_smoke.mjs`: exit 0. La [evaluación real](../../evaluations/2026-11-02-siesta-agents.md)
+registra tres rutas, resultados externos y bloqueos sin atribuirles una
+aprobación. El caso local se ejecutó con un candidato previo a la corrección
+del parser y queda identificado como límite de esa evaluación.

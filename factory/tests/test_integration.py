@@ -89,7 +89,7 @@ case "$model" in
         # EOF after this turn and the close-out finalizes with defaults.
         printf 'Q: What kind of user interface do you want?\nGUESS: terminal CLI — simplest to verify.\n' ;;
     esac ;;
-  consultant-model)
+  consultant-model|new-review-model)
     case "$*" in
       *"Agent identity: intent-critic"*)
         case "$FAKE_PI_SCENARIO" in
@@ -898,6 +898,24 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(
             len(self.kb("factory/kb/global-graph.json")["nodes"]), gkb_nodes)
         self.assertIn("already complete", second.stderr)
+
+    def test_completed_project_model_revision_revalidates_without_duplicate_completion(self):
+        first = self.siesta("--auto", self.idea)
+        self.assertEqual(first.returncode, 0, first.stderr[-3000:])
+        proj = self.proj()
+        global_before = len(self.kb("factory/kb/global-graph.json")["nodes"])
+        selection = self.tmp / "revised-models.json"
+        selection.write_text(json.dumps({"phases": {"review": {
+            "model": "new-review-model", "provider": "ollama"}}}))
+        (self.tmp / "pi_calls.log").write_text("")
+        second = self.siesta("--auto", "--model-selection", str(selection), self.idea)
+        self.assertEqual(second.returncode, 0, second.stderr[-3000:])
+        log = subprocess.run(["git", "-C", str(proj), "log", "--oneline"],
+                             capture_output=True, text=True).stdout
+        self.assertEqual(log.count("Project verified"), 1)
+        self.assertEqual(len(self.kb("factory/kb/global-graph.json")["nodes"]), global_before)
+        self.assertIn("--model new-review-model", (self.tmp / "pi_calls.log").read_text())
+        self.assertEqual((proj / ".pipeline-checkpoint").read_text().strip(), "complete")
 
     def test_generated_project_has_hygiene_gitignore(self):
         # #7: `git add -A` must not commit .DS_Store/__pycache__/checkpoint

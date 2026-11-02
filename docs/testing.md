@@ -37,6 +37,8 @@ requires live model access. Backend HTTP/process tests run in the normal suite.
 - Product changes during verification, failed completion commits and legacy resume gates.
 - Existing-project selection, explicit adoption, append-only iterations, repeated
   requests, immutable prior issues and evidence for old and new requirement IDs.
+- Persisted review call/time budgets, model picker routes, skill activation
+  recovery and legacy issue revalidation without duplicate completion nodes.
 
 When Pi and Node are installed, the native isolation test also exercises Pi's
 actual argument parser and resource loader with temporary sentinel files. It
@@ -71,6 +73,14 @@ checks, resume behavior and a hash of the tested pipeline sources. Console
 logs and projects remain beside it. The harness is noninteractive, so its
 human-intervention count is zero. Timeouts fail the case and stop its processes.
 
+For local, cloud or mixed profiles, pass a role configuration JSON with
+`--models-config PATH` and optional phase/agent overrides with
+`--model-selection PATH`. Both files are copied into each isolated case, and
+the exact routes are recorded with its result. The Pi profile selected by
+`PI_CODING_AGENT_DIR` must contain those exact model IDs. Record cases that
+cannot be run as unexecuted; registration or installation alone does not
+establish tool compatibility.
+
 Run format and simulated checks with `python -m pipeline.evaluate`, passing
 `--skill-scenarios PATH_TO_FACTORY_SKILL/test_scenarios.yaml` and a fresh
 `--output` directory.
@@ -85,7 +95,9 @@ tool-use claims fail unless a runner explicitly returns them.
 Token counts and monetary cost are **unknown**, not zero: Pi's text mode does
 not expose those totals. Model-call duration is not provider billing latency.
 These tiny cases establish observed behavior only, not a general success rate.
-See [the recorded evaluation](evaluations/2026-11-02.md).
+See the [completed cloud evaluation](evaluations/2026-11-02.md) and the
+[agent-routing evaluation](evaluations/2026-11-02-siesta-agents.md), which
+also records local and mixed runs that were blocked by their verification gates.
 
 The final requirement gate currently needs pytest IDs. Non-Python runners can
 still supply mechanical results but cannot establish requirement coverage.

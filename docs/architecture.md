@@ -74,9 +74,18 @@ Project and global KBs record observations and patterns. A project pins the
 factory and adapted skill contents in ignored `.siesta/` evidence and verifies
 those hashes on resume. The learner records complete factory skill candidates
 as pending proposals with the previous version, candidate, reason and evidence;
-it never activates them during that run. The adapted development skills remain
+an independent reviewer and format, simulated and real scenarios must approve
+a candidate before Python atomically activates it for future projects. The
+current project keeps its pinned skill. The adapted development skills remain
 repository-maintained. Learning is recorded advice, not evidence that
 performance improved.
+
+Project model routes resolve agent in phase, then phase, then a saved role
+default. The desktop shows Pi registration and Ollama installation separately
+and checks compatibility only when requested. Review budgets and policy persist
+in ignored evidence. Active legacy projects revalidate missing issue review
+evidence before later issues start; completed projects retain their existing
+completion and learning records.
 
 ## Source map
 
@@ -94,3 +103,6 @@ performance improved.
 | `pipeline/kb.py`, `pipeline/learn.py` | Memory and learning |
 | `pipeline/evaluate.py` | Isolated live-model evaluation cases |
 | `pipeline/skill_scenarios.py` | Strict YAML validation, simulated assertions and optional live skill evaluation |
+| `pipeline/skill_activation.py` | Independent candidate review, validation and atomic activation |
+| `pipeline/model_catalog.py` | Ollama/Pi model catalog and explicit compatibility checks |
+| `pipeline/migration.py` | Legacy project pinning and completed issue revalidation |

@@ -14,18 +14,18 @@ for inference on your own machine.
 | 0: Interview | Planner | Clarify intent; finish with `INTENT_FINALIZED:` |
 | 1: Specification | Planner | Write requirements and acceptance criteria |
 | 2: Plan | Planner | Produce atomic issues headed `## Issue #N:` |
-| 2b: Design review | Consultant | Independently check comprehension and implementation readiness |
+| 2b: Design review | Three specialists | Independently check comprehension, simplicity and implementation readiness |
 | 3: Execute | Worker | Implement and test each issue |
 | 3: Consult / proxy | Consultant | Resolve doubts or evaluate approval requests |
-| 4: Review | Worker + consultant | Review code, fix findings, obtain proxy approval |
+| 4: Review | Integration + quality reviewers, worker, proxy | Independently review code, fix findings, obtain proxy approval |
 | 5: Verify | Worker + Python checks | Run tests and applicable runtime checks |
 | 5: Requirement evidence | Consultant + Python | Map acceptance criteria to passing test IDs and source; flag drift |
 | 6: Completion | Python | Record the real verdict and commit |
 | 7: Learning | Consultant | Summarize patterns and propose skill updates |
 
-Per-issue learning also runs during execution. The reviewer persona is defined
-in [code-reviewer.md](.agents/agents/code-reviewer.md). These are roles within
-the pipeline; their model names come from configuration.
+Per-issue learning also runs during execution. Agent identities and tool
+permissions are defined in `factory/pipeline/agents.py` with required Markdown
+definitions in `factory/agents/`. Their model names come from project routing.
 
 The worker has file and shell tools during implementation, repair and review
 fixes. Advisory calls receive their context in the prompt. The consultant,
@@ -40,7 +40,8 @@ Python owns verification gates, Git commits and KB bookkeeping.
    uncommitted. Two consecutive unrepairable suites halt execution.
 3. Let the worker implement the issue, using TDD and the issue executor skill.
 4. Resolve consultations or approval requests, with bounded retries.
-5. Require a passing mechanical suite before `post_issue()` records completion.
+5. Require a passing mechanical suite and independent issue review before
+   `post_issue()` records completion.
 6. Commit and run per-issue learning.
 
 A worker requests advice using `CONSULT:`, `CONTEXT:` and `CODE:`.
@@ -68,14 +69,18 @@ Workers and review fixes cannot rewrite either `spec.md` or `issues.md`.
 ## Review, verification and resume
 
 - Specs define acceptance bullets `- R1: ...` with unique IDs; legacy acceptance
-  bullets receive stable IDs in document order. Design review uses two fresh,
+  bullets receive stable IDs in document order. Design review uses three fresh,
   tool-free calls with no KB or authoring conversation. Approval is bound to
   the exact intent, specification, plan and consultant routing.
 - Isolated calls disable context-file, skill, extension and prompt-template
   discovery, project approval and session persistence. Explicit system/append
   prompts also suppress implicit `SYSTEM.md` and `APPEND_SYSTEM.md` loading.
-- Review needs both `REVIEW_PASSED:` and explicit proxy approval. Fixes run
-  with write tools, are committed, and receive a fresh review.
+- Final review needs passing integration and quality reports plus explicit proxy
+  approval. Fixes run with write tools, are committed, and receive a fresh review.
+- Review policy is pinned per project: normal allows three rounds, two repairs,
+  20 calls and 60 active minutes; deep allows five rounds, two repairs, two
+  consecutive clean rounds, 40 calls and 120 active minutes. Retries, repairs,
+  proxy decisions and adjudications spend the same persisted budget.
 - Mechanical verification always reruns the suite, including after a model
   says `VERIFY_PASSED`. Red or absent tests fail verification; explicit model
   failure or a failed runtime smoke check also veto success.
@@ -91,6 +96,9 @@ Workers and review fixes cannot rewrite either `spec.md` or `issues.md`.
 - Resume uses issue completion nodes as its ledger. Pending issues invalidate
   downstream review and verification. Failed verification resumes at phase 5.
   Completed projects do not repeat completion commits or project learning.
+- Active legacy projects lacking issue review evidence revalidate completed
+  issues before new implementation. `.siesta/migration.json` records pinned
+  configuration and review progress without duplicating completion nodes.
 - `stop.md` is checked at issue boundaries. `SIESTA_PI_TIMEOUT` bounds every
   Pi call; timed-out calls are treated as no answer and partial output is
   preserved.
@@ -106,8 +114,11 @@ Invalid project selection and rejected dirty work do not mutate the project KB.
 ## Model configuration and invocation
 
 [`factory/config/models.json`](factory/config/models.json) maps `planner`,
-`worker` and `consultant` to `model` and `provider`. The proxy and learner
-use the consultant route. Models are selected manually at startup.
+`worker` and `consultant` to default `model` and `provider` routes. CLI and
+desktop selections can override routes by phase and agent; saved project
+selections take precedence on resume. The desktop catalog combines the active
+Pi profile with Ollama's installed tags and offers an explicit compatibility
+check. An unprepared model is never silently substituted.
 
 [`pipeline/pi.py`](factory/pipeline/pi.py) is the single invocation wrapper:
 
@@ -175,12 +186,12 @@ reviewers receive no skills. The repository contains ten adapted skills under
 `.agents/skills/` and five factory skills under `factory/skills/`. No separate
 installation or runtime view is needed. See [skills and context](docs/skills-and-context.md).
 
-The learner may update or create factory skills only. It cannot modify the
-adapted skills; those require a repository change. Python applies supported
-learning blocks after fence-aware parsing. Replacement bodies preserve Markdown
-examples without treating them as actions; outer update markers must be
-unindented. A new skill proposal is a KB record
-unless it supplies the complete content required for a file update.
+The learner may propose updates or new factory skills only. It cannot modify
+the adapted skills; those require a repository change. Python parses supported
+learning blocks with fence awareness and records complete replacement proposals
+in the KB. An independent `skill-reviewer` compares candidate, previous version
+and evidence; scenario tests, including real model behavior, must pass before
+atomic activation for future projects. Current projects retain pinned skills.
 
 Git workflow and skill discovery are for interactive repository development;
 the pipeline implements those operations directly in Python. Follow the
@@ -204,6 +215,9 @@ model routing and actual skill attachments aligned. Preserve license notices.
 | [`pipeline/text.py`](factory/pipeline/text.py) | Protocol markers and parsers |
 | [`pipeline/kb.py`](factory/pipeline/kb.py) | Graph storage and CLI |
 | [`pipeline/learn.py`](factory/pipeline/learn.py) | Per-issue and project learning |
+| [`pipeline/skill_activation.py`](factory/pipeline/skill_activation.py) | Independent skill validation and activation |
+| [`pipeline/model_catalog.py`](factory/pipeline/model_catalog.py) | Pi/Ollama model discovery and compatibility checks |
+| [`pipeline/migration.py`](factory/pipeline/migration.py) | Legacy project evidence and revalidation |
 | [`factory/tests/`](factory/tests/) | Unit, real-Git and fake-Pi integration tests |
 
 See [testing.md](docs/testing.md) for validation commands and limitations.

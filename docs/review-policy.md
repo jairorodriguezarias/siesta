@@ -39,16 +39,24 @@ the ledger; oversized responses keep a preview, character count and SHA-256.
 
 ## Policies and repairs
 
-| Policy | Maximum rounds | Maximum repairs | Clean rounds required |
-|---|---:|---:|---:|
-| Normal | 3 | 2 | 1 |
-| Deep | 5 | 2 | 2 consecutive rounds on the same version |
+| Policy | Maximum rounds | Maximum repairs | Clean rounds required | Calls | Active minutes |
+|---|---:|---:|---:|---:|---:|
+| Normal | 3 | 2 | 1 | 20 | 60 |
+| Deep | 5 | 2 | 2 consecutive rounds on the same version | 40 | 120 |
 
 The review ledger fixes its policy and author at creation. A repair records its
 old and new version identifiers, the findings it addresses, a repair evidence
 note and the checks that must run again. Each required check needs a passing
 result with evidence before another review round can start. Failed check
 results remain in the ledger.
+
+The policy is chosen before a project starts with `--review-policy` or in the
+desktop and saved in `.siesta/review-policy.json`. Its budget persists on
+resume. Reviewer attempts, retries, worker repair calls, proxy calls and
+adjudications all spend calls. Active time is measured around those calls;
+waiting for user input or between runs does not spend active minutes. When a
+limit is exhausted, the review blocks. Token and cost data remain unknown when
+Pi does not supply trustworthy totals.
 
 An author may attach counterevidence to a finding. It cannot dismiss the
 finding: an independent adjudicator must record an evidence-based upheld or
@@ -90,8 +98,8 @@ Issue bodies may declare `Review: standard` or `Review: extended`. Standard
 review requires the integration reviewer. Authentication or authorization,
 migrations, and public APIs or interfaces require the extended declaration;
 design validation rejects a sensitive issue marked standard. Extended review
-also requires the independent quality reviewer. Both modes use the normal
-bounded policy and rerun the product regression suite after each repair. Issue
+also requires the independent quality reviewer. Both modes use the project's
+chosen bounded policy and rerun the product regression suite after each repair. Issue
 review approval is bound to the active issue, committed base, product content,
 reviewer definitions and model routes.
 

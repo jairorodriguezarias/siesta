@@ -65,6 +65,7 @@ class ModelCatalogTest(unittest.TestCase):
             failed = model_catalog.check_compatibility(self.factory, model="cloud:cloud")
         self.assertEqual(failed["status"], "incompatible")
         self.assertFalse(failed["tools"])
+        self.assertIn("native write tool", failed["reason"])
 
     def test_native_write_uses_temp_dir_and_exact_requested_route(self):
         listing = {"models": [{"id": "local:latest", "pi_registered": True,

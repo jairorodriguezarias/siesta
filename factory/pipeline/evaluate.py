@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from pipeline.__main__ import slug
+from pipeline import model_selection
 from pipeline.pi import FACTORY, ROLE
 
 
@@ -87,11 +88,17 @@ def _run(command: list[str], env: dict, timeout: int, log: Path) -> tuple[int, f
     return code, round(time.monotonic() - started, 3)
 
 
-def evaluate(case_id: str, destination: Path, timeout: int) -> dict:
+def evaluate(case_id: str, destination: Path, timeout: int, *,
+             models_config: Path | None = None,
+             selection_file: Path | None = None) -> dict:
     case = CASES[case_id]
     factory = destination / 'factory'
     for name in ('agents', 'config', 'skills', 'pipeline'):
         shutil.copytree(FACTORY / name, factory / name)
+    if models_config is not None:
+        shutil.copy2(models_config, factory / 'config/models.json')
+    effective_models = json.loads((factory / 'config/models.json').read_text())
+    model_selection.normalize_selection({}, role_defaults=effective_models)
     (factory / 'kb').mkdir()
     for name in ('schema.json', 'global-seed.json'):
         shutil.copy2(FACTORY / 'kb' / name, factory / 'kb' / name)
@@ -101,7 +108,14 @@ def evaluate(case_id: str, destination: Path, timeout: int) -> dict:
            'SIESTA_PI_TIMEOUT': str(min(timeout, 180)),
            'GIT_AUTHOR_NAME': 'Siesta Evaluation', 'GIT_AUTHOR_EMAIL': 'evaluation@example.invalid',
            'GIT_COMMITTER_NAME': 'Siesta Evaluation', 'GIT_COMMITTER_EMAIL': 'evaluation@example.invalid'}
-    command = [sys.executable, '-B', '-m', 'pipeline', '--auto', case['idea']]
+    command = [sys.executable, '-B', '-m', 'pipeline', '--auto']
+    if selection_file is not None:
+        copied_selection = destination / 'model-selection.json'
+        shutil.copy2(selection_file, copied_selection)
+        model_selection.from_overrides(json.loads(copied_selection.read_text()),
+                                       role_defaults=effective_models)
+        command += ['--model-selection', str(copied_selection.resolve())]
+    command.append(case['idea'])
     code, elapsed = _run(command, env, timeout, destination / 'console.log')
     proj = factory / 'projects' / slug(case['idea'])
     checks = check_product(proj, case)
@@ -125,6 +139,9 @@ def evaluate(case_id: str, destination: Path, timeout: int) -> dict:
     for path in sorted(source_files):
         source_digest.update(path.name.encode() + b'\0' + path.read_bytes())
     return {'case': case_id, 'passed': success, 'exit_code': code, 'seconds': elapsed,
+            'models': effective_models,
+            'selection': json.loads((destination / 'model-selection.json').read_text())
+            if selection_file is not None else None,
             'source_sha256': source_digest.hexdigest(),
             'model_calls': len(calls), 'tokens': None, 'cost': None,
             'human_interventions': 0, 'resume_unchanged': resume, 'checks': checks}
@@ -135,6 +152,10 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--case', choices=CASES, action='append')
     parser.add_argument('--timeout', type=int, default=600, help='Maximum seconds per case')
+    parser.add_argument('--models-config', type=Path,
+                        help='role model JSON copied into each isolated evaluation factory')
+    parser.add_argument('--model-selection', type=Path,
+                        help='phase and agent model routes copied into each evaluation case')
     parser.add_argument('--skill-scenarios', type=Path,
                         help='Run a factory skill test_scenarios.yaml suite')
     parser.add_argument('--real-skill-scenarios', action='store_true',
@@ -165,11 +186,18 @@ def main(argv=None):
                   and (not args.real_skill_scenarios
                        or result['real']['status'] == 'passed'))
         raise SystemExit(0 if passed else 1)
-    report = {'date': datetime.now(timezone.utc).isoformat(), 'models': ROLE, 'results': [],
+    defaults = (json.loads(args.models_config.read_text()) if args.models_config else ROLE)
+    model_selection.normalize_selection({}, role_defaults=defaults)
+    if args.model_selection:
+        model_selection.from_overrides(json.loads(args.model_selection.read_text()),
+                                       role_defaults=defaults)
+    report = {'date': datetime.now(timezone.utc).isoformat(), 'models': defaults, 'results': [],
               'measurement': 'Wall time and call count measured; text-mode Pi exposes no token/cost totals.'}
     for index, case in enumerate(args.case or CASES, 1):
         destination = args.output / f'{index}-{case}'
-        report['results'].append(evaluate(case, destination, args.timeout))
+        report['results'].append(evaluate(case, destination, args.timeout,
+                                          models_config=args.models_config,
+                                          selection_file=args.model_selection))
         (args.output / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report['results'][-1]), flush=True)
     raise SystemExit(0 if all(row['passed'] for row in report['results']) else 1)

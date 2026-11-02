@@ -126,6 +126,17 @@ class DesignGate(unittest.TestCase):
             with self.subTest(plan=plan), self.assertRaises(ValueError):
                 design.validate_plan_coverage(SPEC, plan)
 
+    def test_markdown_bold_issue_labels_keep_their_protocol_meaning(self):
+        plan = ('## Issue #1: Public timer API\n'
+                'R1: Print elapsed seconds.\n'
+                '**Test strategy:** Run the CLI and assert exact stdout.\n'
+                '**Dependencies:** none.\n'
+                '**Review: extended**\n'
+                'Expose a public interface.\n')
+        issues = design.validate_plan_coverage(SPEC, plan)
+        self.assertEqual(list(issues), [1])
+        self.assertEqual(repository.issue_review_level(issues[1]), 'extended')
+
     def test_plan_rejects_self_forward_and_missing_dependencies(self):
         cases = (
             '## Issue #1: First\nR1\nTest strategy: assert output\nDependencies: #1\n',

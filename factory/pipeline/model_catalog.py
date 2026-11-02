@@ -171,8 +171,8 @@ def check_compatibility(factory: Path, *, model: str, provider: str = "ollama",
                     reason = "Model did not perform the required native write tool action"
             if not text_ok:
                 reason = "Model call or authentication failed; no expected response"
-            elif tool_ok is False and not reason:
-                reason = "Native write tool check failed"
+            elif tool_ok is False:
+                reason = reason or "Native write tool check failed"
             else:
                 reason = "Compatible with the requested checks"
         except (OSError, ValueError, RuntimeError) as exc:

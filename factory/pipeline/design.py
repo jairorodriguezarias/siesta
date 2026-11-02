@@ -56,7 +56,7 @@ def validate_plan_coverage(spec: str, plan: str) -> dict[int, str]:
             raise ValueError(f"Issue #{number} references unknown requirement(s): "
                              + ", ".join(sorted(unknown)))
         covered.update(identifiers)
-        if not re.search(r"(?im)^[ \t]*Test strategy:[ \t]*\S.*$", body):
+        if not re.search(r"(?im)^[ \t]*(?:\*\*)?Test strategy:(?:\*\*)?[ \t]*\S.*$", body):
             raise ValueError(f"Issue #{number} has no concrete test strategy")
 
     missing = set(criteria) - covered
@@ -67,7 +67,8 @@ def validate_plan_coverage(spec: str, plan: str) -> dict[int, str]:
     issue_numbers = set(issues)
     issue_order = {number: index for index, number in enumerate(issues)}
     for number, body in visible.items():
-        dependency_lines = re.findall(r"(?im)^[ \t]*Dependencies[ \t]*:[ \t]*(.*)$", body)
+        dependency_lines = re.findall(
+            r"(?im)^[ \t]*(?:\*\*)?Dependencies[ \t]*:(?:\*\*)?[ \t]*(.*)$", body)
         if len(dependency_lines) != 1:
             raise ValueError(f"Issue #{number} must declare a dependency line exactly once")
         for dependency_text in dependency_lines:

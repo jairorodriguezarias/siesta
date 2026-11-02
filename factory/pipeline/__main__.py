@@ -12,8 +12,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from pipeline import (design, events, iterations, learn, model_selection,
-                      reviews, skill_versions,
+from pipeline import (design, events, iterations, learn, migration,
+                      model_selection, reviews, skill_versions,
                       phases, repository, text)
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY, GLOBAL_KB, ROLE, _declared_context,
@@ -213,7 +213,11 @@ def _failure_learn(args, e) -> None:
         state.clear()
         repository.save_state(proj, state)
         (proj / 'verify_verdict.txt').write_text('VERIFY_FAILED\n')
-        checkpoint.write_text('phase-3\n')
+        # A failed resume may still be at phase 2 while revalidating old
+        # issues. Invalidating a stale verdict must never advance its phase.
+        if (last in PHASE_ORDER
+                and PHASE_ORDER.index(last) > PHASE_ORDER.index('phase-3')):
+            checkpoint.write_text('phase-3\n')
     warn(f"Pipeline failed ({type(e).__name__}: {e}). Logging failure to KB...")
     try:
         repository.require_committed_ledger(proj)
@@ -260,7 +264,12 @@ def _run(args) -> None:
     name = proj.name
     events.update(project=name)
     checkpoint = proj / ".pipeline-checkpoint"
-    if checkpoint.exists():
+    was_existing = checkpoint.exists()
+    was_complete = was_existing and checkpoint.read_text().strip() == "complete"
+    legacy_configuration = was_existing and any(not (proj / name).is_file() for name in (
+        ".siesta/skill-versions.json", ".siesta/model-selection.json",
+        ".siesta/review-policy.json"))
+    if was_existing:
         log(f"Resuming project: {name} (checkpoint: "
             f"{checkpoint.read_text().strip() or 'unknown'})")
     else:
@@ -271,8 +280,8 @@ def _run(args) -> None:
     reviews.pin_project_policy(proj, getattr(args, "review_policy", None))
     previous_selection = model_selection.load_project(proj)
     model_selection.save_project(proj, args.model_selection_data)
-    _invalidate_model_approvals(proj, previous_selection, args.model_selection_data,
-                                checkpoint)
+    selection_changed = _invalidate_model_approvals(
+        proj, previous_selection, args.model_selection_data, checkpoint)
     _warn_context_mismatches(args.model_selection_data)
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same
@@ -295,6 +304,22 @@ def _run(args) -> None:
         phases._git(proj, "init")
     if not checkpoint.exists():
         checkpoint.write_text("initialized\n")
+    entry_pending = (set(repository.read_plan(proj)) - repository.completed_issues(proj)
+                     if was_existing and (proj / "issues.md").is_file() else set())
+    completed_recheck_only = was_complete and not args.iterate and not entry_pending
+    migrated = migration.prepare(proj, was_existing=was_existing,
+                                 was_complete=completed_recheck_only,
+                                 legacy_configuration=legacy_configuration)
+    state_at_entry = repository.load_state(proj) if was_existing else {}
+    current_product = repository.fingerprint(proj) if was_existing else None
+    if (completed_recheck_only and not selection_changed
+            and (proj / "verify_verdict.txt").is_file()
+            and (proj / "verify_verdict.txt").read_text().strip() == "VERIFY_PASSED"
+            and state_at_entry.get("reviewed_product") == current_product
+            and state_at_entry.get("verified_product") == current_product):
+        log("Project already complete (resume mode) — no completion or learning work repeated")
+        _summary(proj, name, kb, [])
+        return
 
     def done(ph: str) -> bool:
         # Monotonic: checkpoint "phase-2" skips 0 and 1 too — the bash
@@ -377,6 +402,14 @@ def _run(args) -> None:
         review_intent = intent + ("\nAuthorized additional request: " + request['request'] if request else '')
         design.review(proj, review_intent)
 
+    if migrated and migrated.get("status") == "pending":
+        log("Revalidating completed legacy issues before implementation continues")
+        migration.revalidate_completed(
+            proj, migrated, run_regression=phases.run_regression,
+            run_pi=phases.run_pi, gather_fn=phases.gather,
+            repair_skills=phases.REVIEW_SKILLS + phases.RETRY_SKILLS,
+            worker_thinking=phases.WORKER_THINKING)
+
     # ─── PHASE 3: EXECUTE (per-issue loop) ───────────────────────────────
     if done("phase-3"):
         log("Phase 3 already complete (resume mode), skipping...")
@@ -424,6 +457,15 @@ def _run(args) -> None:
             state.pop('verified_product', None)
         repository.save_state(proj, state)
     mark("phase-5")
+
+    if completed_recheck_only:
+        if verdict != "VERIFY_PASSED":
+            checkpoint.write_text("phase-4\n")
+            raise RuntimeError("Completed project did not pass revalidation")
+        checkpoint.write_text("complete\n")
+        log("Completed project revalidated — completion and learning records preserved")
+        _summary(proj, name, kb, blocked)
+        return
 
     # ─── PHASE 6: DONE ───────────────────────────────────────────────────
     if done("complete"):

@@ -9,7 +9,8 @@ from pathlib import Path
 
 from pipeline import text
 
-_REVIEW_DECLARATION = re.compile(r"(?im)^\s*Review\s*:\s*(.*?)\s*$")
+_REVIEW_DECLARATION = re.compile(
+    r"(?im)^[ \t]*(?:\*\*)?Review[ \t]*:[ \t]*(?:\*\*)?(.*?)[ \t]*$")
 _EXTENDED_REVIEW_RISK = re.compile(
     r"\b(?:authentication|authorization|migrations?|migrate|public\s+(?:api|interface|endpoint)s?)\b",
     re.I,
@@ -22,7 +23,7 @@ def issue_review_level(body: str) -> str:
     declarations = _REVIEW_DECLARATION.findall(visible)
     if len(declarations) > 1:
         raise ValueError("Issue may declare its review level only once")
-    level = declarations[0].strip().lower() if declarations else "standard"
+    level = declarations[0].strip().strip("*").strip().lower() if declarations else "standard"
     if level not in {"standard", "extended"}:
         raise ValueError("Issue review level must be 'standard' or 'extended'")
     if _EXTENDED_REVIEW_RISK.search(visible) and level != "extended":
