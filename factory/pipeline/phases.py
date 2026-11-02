@@ -193,7 +193,7 @@ def _interview_dialog(proj: Path, idea: str, out: Path) -> str:
                      feedback or ASK_DIRECTIVE,
                      skills=(SKILLS / "interview-me",),
                      cwd=proj, tools="no",
-                     artifact=failed).strip()
+                     artifact=failed, phase_name="interview").strip()
         if not raw:
             # A failed process is not an answer: the runner preserved its
             # partial output as evidence and the dialog hands over to the
@@ -289,7 +289,8 @@ def phase0(proj: Path, name: str, idea: str, auto: bool,
         closeout = run_pi("planner",
                           CLOSEOUT_PROMPT.format(idea=idea, transcript=text.head(interview_out, 100)),
                           "Close out the interview now", skills=(SKILLS / "interview-me",),
-                          cwd=proj, tools="no", artifact=proj / "interview_closeout.txt")
+                          cwd=proj, tools="no", artifact=proj / "interview_closeout.txt",
+                          phase_name="interview")
         if text.INTENT.search(closeout):
             interview_out = closeout
             out.write_text(interview_out)
@@ -383,7 +384,8 @@ def phase1(proj: Path, name: str, intent: str, intent_node: str, kb: Graph) -> s
                               models=CONFIG.read_text())
     out = run_pi("planner", body, SPEC_DIRECTIVE,
                  skills=(SKILLS / "spec-driven-development", FACTORY_SKILLS / "kb-manager"),
-                 artifact=proj / "spec_output.txt", cwd=proj, tools="no")
+                 artifact=proj / "spec_output.txt", cwd=proj, tools="no",
+                 phase_name="specification")
     doc = text.spec_doc(out)
     if doc is not None and not text.shares_content(intent, doc):
         # round-3 + #40: a format-valid spec that names (almost) none of the
@@ -395,7 +397,8 @@ def phase1(proj: Path, name: str, intent: str, intent_node: str, kb: Graph) -> s
         out = run_pi("planner", body, SPEC_RETRY_DIRECTIVE,
                      skills=(SKILLS / "spec-driven-development",
                              FACTORY_SKILLS / "kb-manager"),
-                     artifact=proj / "spec_retry_output.txt", cwd=proj, tools="no")
+                     artifact=proj / "spec_retry_output.txt", cwd=proj, tools="no",
+                     phase_name="specification")
         doc = text.spec_doc(out)
         if doc is not None and not text.shares_content(intent, doc):
             warn("Spec still off-intent after retry — rejecting")
@@ -477,7 +480,8 @@ def phase2(proj: Path, name: str, spec_node: str, kb: Graph) -> int:
                           if (proj / "interview_output.txt").exists() else "", name))
     out = run_pi("planner", body, PLAN_DIRECTIVE,
                  skills=(SKILLS / "planning-and-task-breakdown",),
-                 artifact=proj / "plan_output.txt", cwd=proj, tools="no")
+                 artifact=proj / "plan_output.txt", cwd=proj, tools="no",
+                 phase_name="planning")
     doc = text.issues_doc(out)
     if doc is None:
         # round-3: the model drifted to '### 1.' / priority sections — one
@@ -485,7 +489,8 @@ def phase2(proj: Path, name: str, spec_node: str, kb: Graph) -> int:
         warn("Plan output has no '## Issue #N:' headers. Retrying once with feedback...")
         out = run_pi("planner", body, PLAN_RETRY_DIRECTIVE,
                      skills=(SKILLS / "planning-and-task-breakdown",),
-                     artifact=proj / "plan_retry_output.txt", cwd=proj, tools="no")
+                     artifact=proj / "plan_retry_output.txt", cwd=proj, tools="no",
+                     phase_name="planning")
         doc = text.issues_doc(out)
     if doc is not None:
         (proj / "issues.md").write_text(doc + "\n")
@@ -708,7 +713,8 @@ VERIFY_SKILLS = (SKILLS / "test-driven-development",
 
 def _worker(proj: Path, skills, body, issue_text, artifact: Path | None = None):
     return run_pi("worker", body, issue_text, skills=skills,
-                  thinking=WORKER_THINKING, cwd=proj, artifact=artifact)
+                  thinking=WORKER_THINKING, cwd=proj, artifact=artifact,
+                  phase_name="implementation")
 
 
 def _discard_residue(proj: Path, num: int, why: str) -> None:
@@ -795,7 +801,8 @@ def _repair_regression(proj: Path, n: int, issue_text: str, source: str) -> bool
                  f"Repair the failing regression suite before issue #{n}",
                  skills=REPAIR_SKILLS,
                  thinking=WORKER_THINKING, cwd=proj,
-                 artifact=proj / f"regression_repair_{n}.txt")
+                 artifact=proj / f"regression_repair_{n}.txt",
+                 phase_name="implementation")
     spoken = text.without_fences(fix)
     if text.CONSULT.search(spoken) or text.PROXY.search(spoken):
         warn("Repair needs advice or approval; no handoff is available in this attempt")
@@ -975,7 +982,8 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                 "consultant", PROXY_PROMPT.format(
                     request=request, kb=_approval_context(proj, kb) + f"\n\nActive issue:\n{issue_text}"),
                 request, skills=(FACTORY_SKILLS / "human-proxy", FACTORY_SKILLS / "kb-manager"),
-                cwd=proj, tools="no", artifact=proj / f"proxy_{num}_output.txt")
+                cwd=proj, tools="no", artifact=proj / f"proxy_{num}_output.txt",
+                phase_name="implementation")
             kb.node("proxy_decision", f"Proxy decision for issue #{num}", decision)
             signal_text = text.without_fences(decision)
             if text.REJECTED.search(signal_text):
@@ -1004,7 +1012,8 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                     f"Diagnose issue #{num}", skills=(
                         FACTORY_SKILLS / "consultant-protocol",
                         FACTORY_SKILLS / "human-proxy", FACTORY_SKILLS / "kb-manager"),
-                    cwd=proj, tools="no", artifact=proj / f"diagnosis_{num}_output.txt")
+                    cwd=proj, tools="no", artifact=proj / f"diagnosis_{num}_output.txt",
+                    phase_name="implementation")
                 kb.node("consultation", f"Deep diagnosis for issue #{num}", diagnosis)
                 signal_text = text.without_fences(diagnosis)
                 if text.SKIP.search(signal_text) or text.CRITICAL.search(signal_text):
@@ -1023,7 +1032,8 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
                     "consultant", CONSULT_PROMPT.format(consult=consult, kb=kb_summaries),
                     consult, skills=(FACTORY_SKILLS / "consultant-protocol",
                                      FACTORY_SKILLS / "kb-manager"),
-                    cwd=proj, tools="no", artifact=proj / f"consult_{num}_output.txt")
+                    cwd=proj, tools="no", artifact=proj / f"consult_{num}_output.txt",
+                    phase_name="implementation")
                 kb.node("consultation", f"Consultation for issue #{num}", consult)
                 output = retry(
                     f"A senior engineer provided this guidance:\n\n{resolution}\n\n"
@@ -1071,7 +1081,8 @@ def review(proj: Path, kb: Graph) -> None:
         review_out = run_pi(
             "worker", REVIEW_PROMPT.format(kb=kb_summaries, source=source),
             "Review the code in this project", skills=REVIEW_SKILLS,
-            artifact=proj / "review_output.txt", cwd=proj, tools="no")
+            artifact=proj / "review_output.txt", cwd=proj, tools="no",
+            phase_name="review")
         spoken = text.without_fences(review_out)
         passed = bool(text.REVIEW_PASSED.search(spoken)
                       and not text.REVIEW_FAILED.search(spoken))
@@ -1081,7 +1092,8 @@ def review(proj: Path, kb: Graph) -> None:
                 "consultant",
                 PROXY_REVIEW_PROMPT.format(review=review_out, kb=_approval_context(proj, kb)),
                 review_out, skills=(FACTORY_SKILLS / "human-proxy",),
-                artifact=proj / "proxy_review_output.txt", cwd=proj, tools="no")
+                artifact=proj / "proxy_review_output.txt", cwd=proj, tools="no",
+                phase_name="review")
             kb.node("proxy_decision", "Proxy review approval", proxy_out)
             approval = text.without_fences(proxy_out)
             if (text.APPROVED.search(approval) and not text.REJECTED.search(approval)
@@ -1095,7 +1107,8 @@ def review(proj: Path, kb: Graph) -> None:
                 "worker", f"Review feedback: {feedback}\n\nSource files:\n{source}\n\n"
                 "Apply the fixes in files and run tests. Report what changed.",
                 "Fix review issues", skills=REVIEW_SKILLS + RETRY_SKILLS,
-                artifact=proj / "review_fixes_output.txt", cwd=proj)
+                artifact=proj / "review_fixes_output.txt", cwd=proj,
+                phase_name="review")
             spoken = text.without_fences(fix)
             if text.CONSULT.search(spoken) or text.PROXY.search(spoken):
                 _discard_residue(proj, 0, 'review fix needs advice or approval')
@@ -1271,7 +1284,8 @@ def verify(proj: Path) -> str:
     out = run_pi("worker", VERIFY_PROMPT.format(source=source),
                  "Verify this project runs locally",
                  skills=VERIFY_SKILLS,
-                 artifact=proj / "verify_output.txt", cwd=proj, tools="no")
+                 artifact=proj / "verify_output.txt", cwd=proj, tools="no",
+                 phase_name="verification")
     try:
         status, detail = runtime_smoke(proj)
     except Exception as e:

@@ -97,7 +97,8 @@ def make_server(desktop, port=8765):
                     idea = body.get('idea')
                     if 'project' in body:
                         idea = desktop.project(body['project'])['idea']
-                    state = desktop.start(idea, auto=body.get('auto', False))
+                    state = desktop.start(idea, auto=body.get('auto', False),
+                                          model_selection=body.get('model_selection'))
                 elif self.path == '/api/reply':
                     state = desktop.reply(body.get('run_id'), body.get('input_id'), body.get('answer'))
                 else:

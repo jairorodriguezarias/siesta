@@ -67,7 +67,7 @@ TEST
 }
 
 case "$model" in
-  planner-model)
+  planner-model|planning-agent-model)
     case "$*" in
       *"You are a software architect."*)
         # No file writes: the model prints the document, the pipeline saves it.
@@ -257,6 +257,24 @@ class PipelineRun(unittest.TestCase):
                               capture_output=True, text=True, env=env,
                               cwd=self.tmp, stdin=subprocess.DEVNULL,
                               timeout=timeout)
+
+    def test_cli_saves_and_uses_phase_agent_model_selection(self):
+        selection_path = self.tmp / "model-selection.json"
+        selection_path.write_text(json.dumps({
+            "phases": {"planning": {"model": "planning-phase-model",
+                                     "provider": "ollama"}},
+            "agents": {"planning": {"planner": {
+                "model": "planning-agent-model", "provider": "ollama"}}},
+        }))
+        result = self.siesta("--auto", "--model-selection", str(selection_path), self.idea)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.tmp / "pi_calls.log").read_text()
+        self.assertIn("--model planning-agent-model", calls)
+        self.assertNotIn("--model planning-phase-model", calls)
+        saved = json.loads((self.proj() / ".siesta/model-selection.json").read_text())
+        self.assertEqual(saved["agents"]["planning"]["planner"]["model"],
+                         "planning-agent-model")
+        self.assertEqual(saved["role_defaults"]["planner"]["model"], "planner-model")
 
     def proj(self) -> Path:
         return self.tmp / "factory/projects" / self.name

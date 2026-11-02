@@ -1,10 +1,12 @@
 """Desktop process lifecycle, verdicts and file boundaries."""
 import os
+import json
 from pathlib import Path
 import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 
 from pipeline.web.runner import Desktop, Conflict
 
@@ -45,6 +47,37 @@ class DesktopTests(unittest.TestCase):
         final = self.wait_for(lambda s: s['status'] not in ('running', 'waiting'))
         self.assertIn('ANSWER:a timer', final['output'])
         self.assertEqual(final['status'], 'incomplete')
+
+    def test_model_selection_is_validated_and_forwarded_to_cli(self):
+        config = self.factory / 'config'
+        config.mkdir()
+        source = Path(__file__).resolve().parents[1] / 'config/models.json'
+        (config / 'models.json').write_text(source.read_text())
+        process = Mock()
+        process.pid = 0
+        process.poll.return_value = None
+        selection = {'phases': {'interview': {
+            'model': 'local-interviewer', 'provider': 'ollama'}}}
+        with patch('pipeline.web.runner.subprocess.Popen', return_value=process) as popen:
+            self.desktop.start('select a model', auto=True, model_selection=selection)
+            process.poll.return_value = 0
+            args = popen.call_args.args[0]
+            path = Path(args[args.index('--model-selection') + 1])
+            written = json.loads(path.read_text())
+            self.assertEqual(written['phases'], selection['phases'])
+            self.assertEqual(written['agents'], {})
+            self.assertIn('--auto', args)
+
+    def test_invalid_model_selection_is_rejected_before_start(self):
+        config = self.factory / 'config'
+        config.mkdir()
+        source = Path(__file__).resolve().parents[1] / 'config/models.json'
+        (config / 'models.json').write_text(source.read_text())
+        with patch('pipeline.web.runner.subprocess.Popen') as popen:
+            with self.assertRaisesRegex(ValueError, 'unknown phase'):
+                self.desktop.start('reject bad model route', model_selection={
+                    'phases': {'not-a-phase': {'model': 'x', 'provider': 'ollama'}}})
+            popen.assert_not_called()
 
     def test_success_requires_complete_checkpoint_and_verdict(self):
         project = self.factory / 'projects/test-project'

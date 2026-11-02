@@ -113,11 +113,22 @@ class Desktop:
             raise ValueError('Document not found')
         return read_text(path)
 
-    def start(self, idea, *, auto=False, command=None):
+    def start(self, idea, *, auto=False, command=None, model_selection=None):
         if not isinstance(idea, str) or not idea.strip() or len(idea) > 12000 or '\x00' in idea:
             raise ValueError('Describe an idea using 1–12000 characters')
         if not isinstance(auto, bool):
             raise ValueError('auto must be a boolean')
+        selection_file = None
+        if model_selection is not None:
+            if command is not None:
+                raise ValueError('model selection requires the Siesta CLI runner')
+            try:
+                from .. import model_selection as selections
+                defaults = json.loads((self.factory / 'config' / 'models.json').read_text())
+                normalized = selections.from_overrides(model_selection,
+                                                       role_defaults=defaults)
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+                raise ValueError(f'Invalid model selection: {exc}') from exc
         with self.lock:
             if self.process is not None and self.process.poll() is None:
                 raise Conflict('Siesta is already working on a project')
@@ -129,12 +140,18 @@ class Desktop:
             run_dir.mkdir()
             status_file = run_dir / 'status.json'
             log = run_dir / 'console.log'
+            if model_selection is not None:
+                selection_file = run_dir / 'model-selection.json'
+                selection_file.write_text(json.dumps({
+                    'phases': normalized['phases'], 'agents': normalized['agents'],
+                }))
             env = {**os.environ, 'SIESTA_FACTORY': str(self.factory),
                    'SIESTA_STATUS_FILE': str(status_file), 'PYTHONUNBUFFERED': '1',
                    'PYTHONPATH': str(Path(__file__).resolve().parents[2])
                    + os.pathsep + os.environ.get('PYTHONPATH', '')}
             args = command if command is not None else (
                 [sys.executable, '-u', '-m', 'pipeline.web.worker']
+                + (['--model-selection', str(selection_file)] if selection_file else [])
                 + (['--auto'] if auto else []) + ['--', idea])
             with log.open('wb') as output:
                 process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=output,

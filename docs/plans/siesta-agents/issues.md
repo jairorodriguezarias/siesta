@@ -36,7 +36,7 @@ issues.
 
 ## Issue #2: Resolver modelos por fase y agente
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #1.
 
 Introducir configuración de ejecución seleccionable por CLI y frontal, con
@@ -53,6 +53,20 @@ selecciones por fase y excepciones por agente.
 
 **Verificación:** precedencia, rutas heredadas, selección efectiva en Pi,
 reanudación y aislamiento entre proyectos.
+
+**Evidencia de verificación:**
+
+- `tests.test_model_selection`: prioridad de ruta, selección efectiva en los
+  argumentos de Pi, defaults heredados, validación y persistencia del proyecto.
+- `tests.test_integration.PipelineRun.test_cli_saves_and_uses_phase_agent_model_selection`:
+  ejecución CLI con rutas seleccionadas y guardadas.
+- `tests.test_web_runner` y `tests.test_web`: validación y transferencia de
+  selección por la API local; los controles del navegador corresponden a I15.
+- `PYTHONPATH=tests python -B -m unittest test_iterations -v`: reanudación y
+  compatibilidad con iteraciones existentes.
+- `python -B -m unittest discover -s tests -v`: suite completa aprobada con el
+  entorno virtual temporal que proporciona `pytest 9.2.0`.
+- `docs/model-selection.md`: formato, precedencia, CLI y API.
 
 ## Issue #3: Crear el mecanismo común de revisión y corrección
 

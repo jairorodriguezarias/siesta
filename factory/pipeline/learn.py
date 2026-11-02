@@ -200,7 +200,8 @@ def learn_issue(proj: Path, n: int, issue_text: str, kb: Graph, gkb: Graph) -> s
     # two live runs — GLM holds the text protocol, so learning routes there.
     out = run_pi("consultant", body, f"Learn from issue #{n}", thinking="off",
                  skills=(FACTORY_SKILLS / "factory-learner", FACTORY_SKILLS / "kb-manager"),
-                 cwd=proj, tools="no", artifact=proj / f"learning_issue_{n}.txt")
+                 cwd=proj, tools="no", artifact=proj / f"learning_issue_{n}.txt",
+                 phase_name="learning")
 
     # Parse raw output: quoted actions are ignored, while examples inside a
     # replacement remain part of that file instead of becoming KB actions.
@@ -301,7 +302,8 @@ def learn_project(proj: Path, name: str, kb: Graph, gkb: Graph) -> str:
     # #46: same routing fix as learn_issue — GLM owns the strict format.
     out = run_pi("consultant", body, name, thinking="off",
                  skills=(FACTORY_SKILLS / "factory-learner", FACTORY_SKILLS / "kb-manager"),
-                 cwd=proj, tools="no", artifact=proj / "project_learning_output.txt")
+                 cwd=proj, tools="no", artifact=proj / "project_learning_output.txt",
+                 phase_name="learning")
 
     # Preserve replacement bodies while excluding their examples from actions.
     counts = act_on_learnings(out, gkb, None)

@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from pipeline.web.runner import Desktop
 from pipeline.web.server import make_server
@@ -54,6 +55,19 @@ class HTTPTests(unittest.TestCase):
         status, _, _ = self.request('/api/run', method='POST', body='[]', headers={
             'Content-Type': 'application/json', 'X-Siesta-Token': token})
         self.assertEqual(status, 400)
+
+    def test_model_selection_reaches_the_desktop_runner(self):
+        _, content, _ = self.request('/api/session')
+        token = json.loads(content)['token']
+        selection = {'phases': {'planning': {
+            'model': 'planner-local', 'provider': 'ollama'}}}
+        with patch.object(self.desktop, 'start', return_value={'status': 'running'}) as start:
+            status, _, _ = self.request('/api/run', method='POST',
+                body=json.dumps({'idea': 'A small CLI', 'model_selection': selection}),
+                headers={'Content-Type': 'application/json', 'X-Siesta-Token': token})
+        self.assertEqual(status, 200)
+        start.assert_called_once_with('A small CLI', auto=False,
+                                     model_selection=selection)
 
 
 if __name__ == '__main__':

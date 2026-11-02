@@ -5,13 +5,15 @@ final summary. Phase bodies live in pipeline/phases.py, learning in
 pipeline/learn.py.
 """
 import argparse
+import json
 import os
 import re
 import subprocess
 import time
 from pathlib import Path
 
-from pipeline import design, events, iterations, learn, phases, repository, text
+from pipeline import (design, events, iterations, learn, model_selection,
+                      phases, repository, text)
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY, GLOBAL_KB, ROLE, _declared_context,
                          warn_if_context_mismatch, err, log, ok, phase, warn)
@@ -70,17 +72,23 @@ def _blocked_from_kb(kb: Graph) -> list[int]:
     return sorted(blocked)
 
 
-def _warn_context_mismatches() -> None:
-    """Warn once per model if its served window is smaller than declared.
+def _warn_context_mismatches(selection: dict | None = None) -> None:
+    """Warn once per selected Ollama model if served context is below catalog.
     This is advisory: an unavailable probe must not halt the pipeline."""
-    seen: set[str] = set()
-    for role in ("planner", "worker", "consultant"):
-        model = ROLE[role]["model"]
-        if model in seen:
-            continue          # planner and consultant share GLM — warn once
-        seen.add(model)
+    if selection is None:
+        selection = model_selection.normalize_selection({}, role_defaults=ROLE)
+    routes = list(selection["role_defaults"].values())
+    routes.extend(selection["phases"].values())
+    routes.extend(route for agents in selection["agents"].values()
+                  for route in agents.values())
+    seen: set[tuple[str, str]] = set()
+    for route in routes:
+        key = (route["provider"], route["model"])
+        if key in seen or route["provider"] != "ollama":
+            continue
+        seen.add(key)
         try:
-            warn_if_context_mismatch(model, _declared_context(model))
+            warn_if_context_mismatch(route["model"], _declared_context(route["model"]))
         except Exception:
             pass
 
@@ -95,6 +103,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--iterate", help="additional request for an existing project")
     ap.add_argument("--adopt-changes", action="store_true",
                     help="explicitly commit local product edits before continuing")
+    ap.add_argument("--model-selection", type=Path,
+                    help="JSON file with per-phase and per-agent model overrides")
     ap.add_argument("idea", nargs="?")
     args = ap.parse_args(argv)
     if not args.idea and not args.project:
@@ -103,13 +113,12 @@ def main(argv: list[str] | None = None) -> None:
         ap.error('--project uses the saved intent; pass a new request with --iterate')
     if args.iterate is not None and (not args.project or not args.iterate.strip()):
         ap.error('--iterate requires --project and a nonempty request')
-    log(f"Model configuration: {os.path.relpath(CONFIG)}")
-    for role, route in ROLE.items():
-        log(f"Model {role}: {route['model']} (provider: {route['provider']})")
     # Selection and human-edit checks are read-only unless adoption is explicit.
     # Rejections here must not write failure nodes to someone else's project.
     try:
         args.proj, args.idea = _select_project(args)
+        args.model_selection_data = _selection_for_project(args)
+        _log_model_selection(args.model_selection_data)
         if (args.proj / 'stop.md').exists():
             warn('stop.md detected! Halting pipeline.')
             return
@@ -136,6 +145,29 @@ def main(argv: list[str] | None = None) -> None:
     except Exception as e:  # like bash's EXIT trap: any crash still learns
         _failure_learn(args, e)
         raise
+
+
+def _selection_for_project(args) -> dict:
+    if args.model_selection:
+        try:
+            overrides = json.loads(args.model_selection.read_text())
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"could not read model selection: {args.model_selection}") from exc
+        return model_selection.from_overrides(overrides, role_defaults=ROLE)
+    saved = model_selection.load_project(args.proj)
+    return saved or model_selection.normalize_selection({}, role_defaults=ROLE)
+
+
+def _log_model_selection(selection: dict) -> None:
+    log(f"Model configuration: {os.path.relpath(CONFIG)}")
+    for role, route in selection["role_defaults"].items():
+        log(f"Model {role}: {route['model']} (provider: {route['provider']})")
+    for phase_name, route in selection["phases"].items():
+        log(f"Model phase {phase_name}: {route['model']} (provider: {route['provider']})")
+    for phase_name, agent_routes in selection["agents"].items():
+        for agent, route in agent_routes.items():
+            log(f"Model agent {agent} in {phase_name}: "
+                f"{route['model']} (provider: {route['provider']})")
 
 
 def _select_project(args) -> tuple[Path, str]:
@@ -212,7 +244,8 @@ def _run(args) -> None:
         log(f"Creating project: {name}")
         proj.mkdir(parents=True, exist_ok=True)
         (proj / IDEA_FILE).write_text(idea + "\n")
-    _warn_context_mismatches()
+    model_selection.save_project(proj, args.model_selection_data)
+    _warn_context_mismatches(args.model_selection_data)
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same
     # hygiene ignore list the factory itself uses, from the very first commit.

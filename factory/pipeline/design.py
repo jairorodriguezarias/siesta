@@ -65,7 +65,9 @@ def review(proj: Path, intent: str) -> None:
             'findings contains BLOCKING defects only. If verdict is passed, findings MUST be []. '
             'Omit all non-blocking observations, cosmetics and hypothetical future risks. '
             'Do not require formal proofs or extra infrastructure for a small application.',
-            tools='no', isolated=True, cwd=proj, artifact=reports / f'design-{lens}_output.txt')
+            tools='no', isolated=True, cwd=proj,
+            artifact=reports / f'design-{lens}_output.txt',
+            phase_name='design_review')
         try:
             result = _json(answer)
             passed = result.get('verdict') == 'passed' and result.get('findings') == []
@@ -102,7 +104,9 @@ def verify(proj: Path, source: str, mechanical_passed: bool) -> bool:
             '"tests":["test_file.py::test_name"],"sources":["app.py"],"reason":"what the evidence proves"}],'
             '"drift":[]}. Use one row for every requirement. List only supplied passing test IDs '
             'and existing relative source paths. Missing evidence must be marked missing.',
-            tools='no', isolated=True, cwd=proj, artifact=reports / 'requirements_output.txt')
+            tools='no', isolated=True, cwd=proj,
+            artifact=reports / 'requirements_output.txt',
+            phase_name='verification')
         result = _json(answer)
         rows, drift = result.get('requirements'), result.get('drift')
         if not isinstance(rows, list) or not isinstance(drift, list):

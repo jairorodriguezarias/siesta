@@ -80,7 +80,8 @@ def _amendment(proj: Path, context: str, request: str, old_spec: str, criteria: 
         output = run_pi(
             'planner', context, directive,
             skills=(SKILLS / 'spec-driven-development',), tools='no', cwd=proj,
-            artifact=proj / f'iteration_spec_{attempt}_output.txt')
+            artifact=proj / f'iteration_spec_{attempt}_output.txt',
+            phase_name='iteration_specification')
         doc = text.spec_doc(output)
         if doc and text.shares_content(request, doc):
             try:
@@ -105,7 +106,8 @@ def _plan(proj: Path, context: str, spec: str, first: int) -> str:
         output = run_pi(
             'planner', context + '\nSpecification amendment:\n' + spec, directive,
             skills=(SKILLS / 'planning-and-task-breakdown',), tools='no', cwd=proj,
-            artifact=proj / f'iteration_plan_{attempt}_output.txt')
+            artifact=proj / f'iteration_plan_{attempt}_output.txt',
+            phase_name='iteration_planning')
         doc = text.issues_doc(output)
         try:
             issues = repository.parse_plan(doc or '')
