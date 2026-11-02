@@ -148,6 +148,21 @@ class RealCallDeadline(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 1.5)
         self.assertEqual(result, '')
 
+    def test_deadline_covers_open_stdout_and_retains_partial_line(self):
+        with TemporaryDirectory() as directory:
+            artifact = Path(directory) / 'interview.txt'
+            command = [sys.executable, '-c',
+                       "import sys,time; sys.stdout.write('partial'); sys.stdout.flush(); time.sleep(2)"]
+            started = time.monotonic()
+            with patch.object(pi, 'build_args', return_value=command), \
+                 patch.object(pi, 'PI_TIMEOUT', 0.2):
+                result = pi.run_pi('planner', '', '', artifact=artifact)
+            self.assertLess(time.monotonic() - started, 1.5)
+            self.assertEqual(result, '')
+            self.assertIn('partial', artifact.read_text())
+            self.assertIn('TIMEOUT', artifact.read_text())
+
+
     def test_failed_provider_marker_is_not_an_answer(self):
         command = [sys.executable, '-c',
                    "import sys; print('VERIFY_PASSED: partial'); sys.exit(1)"]

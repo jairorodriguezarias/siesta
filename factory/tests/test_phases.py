@@ -18,6 +18,15 @@ from pipeline.kb import Graph
 SPEC_TEXT = "# Spec\n\nA tiny caesar cipher CLI in Python, stdlib only.\n"
 
 
+def initialize_git(proj: Path) -> None:
+    from pipeline.__main__ import GITIGNORE
+    (proj / '.gitignore').write_text(GITIGNORE)
+    for args in (('init', '-q'), ('config', 'user.name', 'Test'),
+                 ('config', 'user.email', 'test@example.invalid'),
+                 ('add', '-A'), ('commit', '-qm', 'Test fixture')):
+        subprocess.run(['git', '-C', str(proj), *args], check=True, capture_output=True)
+
+
 class PhaseSlots(unittest.TestCase):
     """phase1/phase2 must put DATA in the body and the ORDER in the user slot."""
 
@@ -29,6 +38,7 @@ class PhaseSlots(unittest.TestCase):
         self.kb = Graph(self.proj / "kb" / "graph.json")
         # edge() now rejects dangling ids — fixture must use a real node id
         self.n1 = self.kb.node("intent", "fixture intent node")
+        initialize_git(self.proj)
 
     def test_phase1_intent_lives_in_body_user_is_output_directive(self):
         captured = {}
@@ -319,6 +329,9 @@ class InterviewDialog(unittest.TestCase):
         self.tmp = TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.proj = Path(self.tmp.name)
+        # phase 0 commits the captured intent for real, so the dialog
+        # tests exercise git too — the fixture needs a repo.
+        initialize_git(self.proj)
         self.kb = Graph(self.proj / "kb" / "graph.json")
         self.answers = []
 
@@ -468,6 +481,7 @@ class AbandonedInterview(unittest.TestCase):
         (self.proj / "interview_output.txt").write_text(
             "Q: What UI do you want for this pomodoro app?\n"
             "GUESS: menu bar, it lives in the corner.\n")
+        initialize_git(self.proj)
 
     def dialog_run(self, fake):
         # EOF on read: this session has no human at the terminal

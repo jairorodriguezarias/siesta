@@ -1,8 +1,10 @@
 """Model invocation, timeouts, served-context checks and logging."""
 import json
 import os
+import signal
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -122,7 +124,7 @@ def _child_env() -> dict:
 
 
 def build_args(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
-               tools: str | None = None) -> list[str]:
+               tools: str | None = None, isolated: bool = False) -> list[str]:
     """One canonical pi argument list — order matters only for readability.
 
     tools="no" adds --no-tools (text-protocol phases: the model must answer
@@ -146,6 +148,9 @@ def build_args(role: str, body: str, user: str, *, skills=(), thinking: str = "o
         args += ["--no-tools"]
     elif tools:
         args += ["--tools", tools]
+    if isolated:
+        args += ["--no-session", "--no-context-files", "--no-extensions",
+                 "--no-skills", "--no-prompt-templates"]
     for s in skills:
         args += ["--skill", f"{Path(s).as_posix().rstrip('/')}/"]
     args += [f"{body}\n\n{user}"]
@@ -154,38 +159,60 @@ def build_args(role: str, body: str, user: str, *, skills=(), thinking: str = "o
 
 def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
            artifact: Path | None = None,
-           cwd: Path | None = None, tools: str | None = None) -> str:
-    """Run pi for a role; return the output text, optionally saving an artifact.
-
-    cwd is the project dir — models write spec.md/issues.md/source relative
-    to it (bash did `cd "$PROJECT_DIR"` once for the whole run).
-    """
+           cwd: Path | None = None, tools: str | None = None,
+           isolated: bool = False) -> str:
+    """Run one bounded Pi turn and accept stdout only after a successful exit."""
     args = build_args(role, body, user, skills=skills, thinking=thinking,
-                      tools=tools)
-    where = str(cwd) if cwd else None
-    env = _child_env()
-    try:
-        result = subprocess.run(args, capture_output=True, text=True, cwd=where,
-                                env=env, timeout=PI_TIMEOUT)
-        # Hardening (round-7): stdout is the model's answer; stderr is
-        # provider noise (pi warnings polluted the pomodoro run's parsed
-        # artifacts — and could falsify markers). Parse stdout only; keep
-        # stderr as evidence below a PROVIDER_LOG: separator.
-        text_out = result.stdout or ""
-        stderr_out = (result.stderr or "").strip()
-        if stderr_out:
-            warn("pi stderr: " + " / ".join(stderr_out.splitlines()[:3]))
-        if result.returncode:
-            warn(f"pi exited with status {result.returncode}; answer rejected")
-            stderr_out += f"\nEXIT_STATUS: {result.returncode}\nPARTIAL_OUTPUT: {text_out}"
-            text_out = ""
-    except subprocess.TimeoutExpired:
-        # #10: a timed-out call is "no answer" — the empty return flows into
-        # the degenerate-output guards, which treat it as a failed attempt.
-        err(f"pi call timed out after {PI_TIMEOUT}s — treating as no answer")
-        text_out, stderr_out = "", ""
+                      tools=tools, isolated=isolated)
+    # A file drains arbitrarily large provider logs without a second pipe.
+    # Children inheriting stderr cannot keep communicate() waiting after Pi exits.
+    with tempfile.TemporaryFile(mode="w+b") as diagnostics, subprocess.Popen(
+            args, stdout=subprocess.PIPE, stderr=diagnostics, text=True,
+            cwd=str(cwd) if cwd else None, env=_child_env(), start_new_session=True) as proc:
+        timed_out = False
+        try:
+            stdout, _ = proc.communicate(timeout=PI_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_group(proc.pid)
+            stdout, _ = proc.communicate()
+        finally:
+            _kill_group(proc.pid)
+        diagnostics.seek(0)
+        stderr = diagnostics.read().decode(errors="replace")
+        if timed_out:
+            err(f"pi call timed out after {PI_TIMEOUT}s — treating as no answer")
+            return _rejected(artifact, stdout, stderr, "TIMEOUT")
+        return _finish_turn(proc.returncode, stdout, stderr, artifact)
+
+
+def _finish_turn(returncode: int | None, text_out: str, stderr_out: str,
+                 artifact: Path | None) -> str:
+    # Hardening (round-7): stdout is the model's answer; stderr is
+    # provider noise (pi warnings polluted the pomodoro run's parsed
+    # artifacts — and could falsify markers). Parse stdout only; keep
+    # stderr as evidence below a PROVIDER_LOG: separator.
+    stderr_out = (stderr_out or "").strip()
+    if stderr_out:
+        warn("pi stderr: " + " / ".join(stderr_out.splitlines()[:3]))
+    if returncode:
+        warn(f"pi exited with status {returncode}; answer rejected")
+        return _rejected(artifact, text_out, stderr_out, f'EXIT_STATUS: {returncode}')
     _maybe_write(artifact, text_out, stderr_out)
     return text_out
+
+
+def _kill_group(pid: int) -> None:
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _rejected(artifact: Path | None, stdout: str, stderr: str, reason: str) -> str:
+    evidence = reason + '\nPARTIAL_OUTPUT:\n' + stdout + '\n' + stderr
+    _maybe_write(artifact, '', evidence)
+    return ''
 
 
 def _maybe_write(artifact: Path | None, text_out: str, stderr_out: str = "") -> None:
@@ -193,5 +220,8 @@ def _maybe_write(artifact: Path | None, text_out: str, stderr_out: str = "") -> 
         return
     content = text_out
     if stderr_out:
-        content += f"\nPROVIDER_LOG: {stderr_out}\n"
+        # Saved artifacts can be parsed again on resume. Provider lines and
+        # rejected partial answers must never become protocol markers.
+        evidence = "\n".join("| " + line for line in stderr_out.splitlines())
+        content += f"\nPROVIDER_LOG:\n{evidence}\n"
     artifact.write_text(content)
