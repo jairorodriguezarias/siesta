@@ -14,10 +14,12 @@ for inference on your own machine.
 | 0: Interview | Planner | Clarify intent; finish with `INTENT_FINALIZED:` |
 | 1: Specification | Planner | Write requirements and acceptance criteria |
 | 2: Plan | Planner | Produce atomic issues headed `## Issue #N:` |
+| 2b: Design review | Consultant | Independently check comprehension and implementation readiness |
 | 3: Execute | Worker | Implement and test each issue |
 | 3: Consult / proxy | Consultant | Resolve doubts or evaluate approval requests |
 | 4: Review | Worker + consultant | Review code, fix findings, obtain proxy approval |
 | 5: Verify | Worker + Python checks | Run tests and applicable runtime checks |
+| 5: Requirement evidence | Consultant + Python | Map acceptance criteria to passing test IDs and source; flag drift |
 | 6: Completion | Python | Record the real verdict and commit |
 | 7: Learning | Consultant | Summarize patterns and propose skill updates |
 
@@ -59,11 +61,19 @@ blocks the issue. Protocol examples inside code fences never count as signals.
 Blocked work cannot become the next issue's base. Before restoring tracked files
 and removing untracked product files, the pipeline saves binary patches and an
 untracked-file archive under the generated project's `.git/siesta-recovery/`.
-The KB and ignored evidence survive cleanup. This also applies to dirty work
-found when resuming at an issue boundary.
+The KB and ignored evidence survive cleanup. Unknown dirty work found when
+resuming is preserved; the user must commit or reconcile it before continuation.
+Workers and review fixes cannot rewrite either `spec.md` or `issues.md`.
 
 ## Review, verification and resume
 
+- Specs define acceptance bullets `- R1: ...` with unique IDs; legacy acceptance
+  bullets receive stable IDs in document order. Design review uses two fresh,
+  tool-free calls with no KB or authoring conversation. Approval is bound to
+  the exact intent, specification, plan and consultant routing.
+- Isolated calls disable context-file, skill, extension and prompt-template
+  discovery, project approval and session persistence. Explicit system/append
+  prompts also suppress implicit `SYSTEM.md` and `APPEND_SYSTEM.md` loading.
 - Review needs both `REVIEW_PASSED:` and explicit proxy approval. Fixes run
   with write tools, are committed, and receive a fresh review.
 - Mechanical verification always reruns the suite, including after a model
@@ -73,6 +83,11 @@ found when resuming at an issue boundary.
   suite is skipped at the pre-issue gate and cannot prove issue completion.
 - Verification persists `verify_verdict.txt`. Completion records and commits
   use this verdict; an unsuccessful result is recorded as `UNVERIFIED`.
+- `.siesta/requirements.md` maps each criterion to actual passing Python test
+  IDs and existing source paths. Missing evidence or documentation drift vetoes
+  completion. Semantic coverage is a model judgment, not a mechanical proof.
+- `.siesta/` is ignored evidence and never enters source prompts. Call records
+  measure duration and exit status; unavailable token/cost totals stay null.
 - Resume uses issue completion nodes as its ledger. Pending issues invalidate
   downstream review and verification. Failed verification resumes at phase 5.
   Completed projects do not repeat completion commits or project learning.
@@ -165,6 +180,10 @@ model routing and actual skill attachments aligned. Preserve license notices.
 | [`pipeline/__main__.py`](factory/pipeline/__main__.py) | Dispatch, checkpoints, completion and failure records |
 | [`pipeline/phases.py`](factory/pipeline/phases.py) | Prompts, execution, recovery and verification |
 | [`pipeline/pi.py`](factory/pipeline/pi.py) | Model calls, thinking, timeouts and context probe |
+| [`pipeline/design.py`](factory/pipeline/design.py) | Isolated design review and requirement evidence |
+| [`pipeline/repository.py`](factory/pipeline/repository.py) | Committed ledger, product identity and Git state |
+| [`pipeline/files.py`](factory/pipeline/files.py) | Source selection and local evidence directory |
+| [`pipeline/evaluate.py`](factory/pipeline/evaluate.py) | Live model evaluations with independent CLI checks |
 | [`pipeline/text.py`](factory/pipeline/text.py) | Protocol markers and parsers |
 | [`pipeline/kb.py`](factory/pipeline/kb.py) | Graph storage and CLI |
 | [`pipeline/learn.py`](factory/pipeline/learn.py) | Per-issue and project learning |

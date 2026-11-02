@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">Siesta</title>
+  <desc id="desc">From an idea to code you can inspect. A quiet night sky and a path through design, build and verification.</desc>
+  <defs>
+    <linearGradient id="sky" x2="1" y2="1">
+      <stop stop-color="#142a33"/>
+      <stop offset="1" stop-color="#243f47"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#dce6dc" stroke-opacity=".045"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="380" rx="24" fill="url(#sky)"/>
+  <rect width="1200" height="380" rx="24" fill="url(#grid)"/>
+  <path d="M775 327C866 276 940 302 1028 269S1158 231 1200 253V380H775Z" fill="#426059" opacity=".42"/>
+  <path d="M704 368C840 298 979 359 1095 312S1170 306 1200 310V380H704Z" fill="#77917b" opacity=".19"/>
+  <circle cx="980" cy="112" r="43" fill="#e5cb98"/>
+  <circle cx="1000" cy="95" r="39" fill="#203b44"/>
+  <g fill="#d3dfcf">
+    <circle cx="856" cy="78" r="2"/>
+    <circle cx="1096" cy="144" r="2"/>
+    <circle cx="1121" cy="65" r="2.5"/>
+    <circle cx="797" cy="142" r="1.5"/>
+  </g>
+  <g font-family="DejaVu Sans,Arial,sans-serif">
+    <text x="70" y="76" fill="#b5cbbb" font-size="13" letter-spacing="3">A SMALL SOFTWARE WORKSHOP</text>
+    <text x="64" y="184" fill="#f3f1e8" font-size="94" font-weight="700" letter-spacing="-4">siesta</text>
+    <text x="70" y="228" fill="#d4ded9" font-size="25">From an idea to code you can inspect.</text>
+    <g font-size="13" fill="#c1d4c5" letter-spacing="1.5">
+      <text x="92" y="314">DESIGN</text>
+      <text x="274" y="314">BUILD</text>
+      <text x="443" y="314">VERIFY</text>
+    </g>
+  </g>
+  <g fill="none" stroke="#b5cbbb" stroke-width="1.5">
+    <circle cx="76" cy="309" r="4"/>
+    <path d="M170 309H248M343 309H418" opacity=".5"/>
+    <circle cx="258" cy="309" r="4"/>
+    <circle cx="428" cy="309" r="4"/>
+  </g>
+</svg>

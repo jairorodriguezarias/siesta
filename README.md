@@ -1,151 +1,122 @@
-# Siesta 💤
+<p align="center">
+  <img src="docs/assets/siesta.svg" alt="Siesta — From an idea to code you can inspect." width="100%">
+</p>
 
-Turn a project idea into a specification, an implementation and a verified
-result. Siesta interviews you, breaks the work into issues, runs coding agents,
-and records the decisions and evidence needed to inspect their work.
+<p align="center">
+  <a href="https://github.com/jairorodriguezarias/siesta/actions/workflows/tests.yml"><img src="https://github.com/jairorodriguezarias/siesta/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <a href="docs/getting-started.md"><img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10 or later"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6d7d68" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/status-experimental-c78947" alt="Experimental">
+</p>
 
-It is designed for small applications that run on your computer. Generated
-code still needs your review before use.
+<p align="center">
+  <a href="docs/getting-started.md">Get started</a> ·
+  <a href="docs/architecture.md">How it works</a> ·
+  <a href="docs/testing.md">Validation</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
 
-## How it works
+Siesta turns a project idea into a specification, a reviewed plan and an
+implementation with test evidence. It interviews you, runs coding agents,
+recovers from blocked work and records what actually passed.
+
+Built for small local applications. **Experimental:** inspect generated code
+and the requirement report before relying on the result.
+
+## Try a small project
+
+With Python, Git, [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)
+and your model access configured:
+
+```bash
+./factory/bin/siesta.sh 'Build a Python CLI timer with tests'
+```
+
+Already know exactly what you want? Skip the interview:
+
+```bash
+./factory/bin/siesta.sh --auto \
+  'Build sum_cli.py: accept two integers, print their sum, reject invalid input. Use one issue with pytest tests.'
+```
+
+Follow the **[setup guide](docs/getting-started.md)** for installation and model
+configuration. The committed defaults use **Ollama Cloud** through a local
+Ollama daemon. [Local inference](docs/ollama-local.md) is a separate option.
+
+## A small, explicit workflow
 
 ```mermaid
 flowchart LR
-    Idea --> Interview --> Spec --> Plan
-    Plan --> Worker
-    Worker --> Review --> Verify --> Result
-    Worker --> Consultant --> Worker
-    Worker --> Learning
-    Result --> Learning
-    Learning --> KB
-    KB --> Spec
-    KB --> Worker
+    A[Describe] --> B[Specify & plan]
+    B --> C[Independent design review]
+    C --> D[Implement & test]
+    D --> E[Review & verify]
+    E --> F[Requirement evidence]
 ```
 
-The orchestrator is Python: `python3 -m pipeline`. It selects a configured role
-and invokes the [Pi coding agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent),
-which connects to Ollama and provides the worker's file and shell tools.
-The reviewer uses the worker role; the approval proxy and learner use the
-consultant role.
+**Review before implementation.** Two fresh readers check clarity and readiness
+using only the intent, specification and plan. A rejected design stops the run
+with findings you can act on.
 
-| Role | Work | Default model |
-|---|---|---|
-| Planner | Interview, specification, issue plan | `glm-5.2:cloud` |
-| Worker | Implementation, code review, verification | `gemma4:31b-cloud` |
-| Consultant | Advice, approval proxy, learning | `glm-5.2:cloud` |
+**Require execution evidence.** Python runs the tests and applicable smoke
+checks. A separate reviewer maps each requirement to passing test IDs and
+source files. Missing evidence or a contradiction prevents completion.
 
-Models are selected explicitly in
-[`factory/config/models.json`](factory/config/models.json).
-There is no automatic model selection. Python prints the actual assignments
-at startup.
+**Keep progress recoverable.** Each completed issue has a Git commit. Blocked
+work is archived before cleanup. Relaunching the same idea resumes the project;
+successful completed runs do not repeat model work.
 
-**The default models run on Ollama Cloud.** The local Ollama daemon acts as
-their proxy. For inference entirely on your own machine, follow the
-[local Ollama guide](docs/ollama-local.md), including the native tool probe
-and served-context check.
+The orchestrator uses Python's standard library. Pi supplies model access and
+coding tools; roles are selected explicitly in
+[`models.json`](factory/config/models.json).
 
-## Installation
+## Inspect the result
 
-Requirements: Python 3.10+, Git, Bash, Node.js supported by Pi, and a running
-Ollama installation. Run these commands from the cloned repository root:
+Projects live under `factory/projects/<project>/`:
+
+| Artifact | What it tells you |
+| --- | --- |
+| `spec.md`, `issues.md` | What was requested and how work was divided |
+| Source, tests and Git history | What was implemented and committed |
+| `.siesta/design-review.md` | Why the design passed or was rejected |
+| `.siesta/requirements.md` | Evidence and gaps for each acceptance criterion |
+| `verify_verdict.txt` | The persisted verification result |
+| `.siesta/calls.jsonl` | Model routing, call duration and exit status |
+| `kb/graph.json` | Decisions, blockers and learning |
+
+The evidence report combines **model judgment** with mechanically checked test
+references. It is not a proof of complete coverage. Token usage and monetary
+cost remain unknown when Pi's text output does not expose them.
+Requirement evidence currently supports Python/pytest projects; other test
+runners cannot establish this final gate yet.
+
+## Development
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install pytest
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-ollama list
-pi --help
-```
-
-The Python orchestrator uses the standard library. Keep pytest available in
-the active environment for generated Python projects and the regression suite.
-All 15 agent skills are included in the repository.
-
-Git must be configured to create commits with your chosen public attribution.
-Generated projects have their own Git repositories.
-
-Configure access to the selected models before starting. Cloud routing requires
-Ollama Cloud access; local routing uses the
-[isolated Ollama profile](docs/ollama-local.md#create-an-isolated-profile).
-Register each model in Pi with its actual served context window.
-
-## Usage
-
-Start an interview:
-
-```bash
-./factory/bin/siesta.sh 'Build a small Python CLI timer with tests'
-```
-
-For an already detailed request, skip the interview:
-
-```bash
-./factory/bin/siesta.sh --auto 'Build a Python CLI that adds two integers, with pytest tests in every issue'
-```
-
-Resume with the same idea and model profile:
-
-```bash
-./factory/bin/siesta.sh --auto --resume 'Build a Python CLI that adds two integers, with pytest tests in every issue'
-```
-
-Existing projects resume from their saved state, including when relaunched
-without `--resume`. A changed idea that collides with an existing project
-directory is rejected. Put a `stop.md` file in the generated project to stop
-at the next issue boundary; remove it before continuing.
-
-Results appear under `factory/projects/<project>/`, or under the selected
-profile's `factory/projects/`:
-
-| Artifact | Purpose |
-|---|---|
-| `spec.md`, `issues.md` | Requirements and implementation plan |
-| Source and tests | Generated application |
-| `kb/graph.json` | Decisions, completed issues and blockers |
-| `verify_verdict.txt` | Persisted verification result |
-| `.pipeline-checkpoint` | Resume position |
-| `*_output.txt`, `regression_*.log` | Local execution evidence |
-| `.git/` | Project commits and recovery archives |
-
-Completion requires passing mechanical tests, successful review and verification,
-and no pending issues. Failed checks leave evidence and a nonzero exit status.
-A requested stop is a clean halt, so exit status alone does not prove completion.
-
-## Reliability and learning
-
-Each issue loads relevant KB summaries and standing principles. The worker
-implements and tests it; Python checks the suite before recording completion.
-A blocked issue's uncommitted changes are archived before cleanup, and successful
-regression repairs are committed before further work begins.
-
-Review requires an explicit passing marker and proxy approval. Verification
-reruns tests and, where supported, a runtime smoke check. Empty suites,
-unmarked responses and quoted protocol examples cannot establish success.
-
-The learner records patterns and may update the five factory skills.
-The global KB is local runtime data, initialized from the six principles in
-[`global-seed.json`](factory/kb/global-seed.json). Learned history, generated
-projects, credentials and run logs stay outside the tracked source tree.
-Review any learned skill changes before publishing them.
-
-## Development
-
-Run the test suite from the repository root with the Python environment active:
-
-```bash
+python -m pip install -r requirements-dev.txt
 cd factory
 python -B -m unittest discover -s tests -v
 ```
 
-[Testing](docs/testing.md) explains what these checks establish and how to
-validate a real model. [AGENTS.md](AGENTS.md) describes phase contracts,
-recovery, model configuration and the code layout.
+The offline suite uses real Git and test subprocesses with a fake Pi. Live
+evaluations exercise actual models and independently check generated CLI
+behavior. See **[validation and recorded results](docs/testing.md)**.
 
-## License and credits
+## Documentation
 
-Siesta is [MIT licensed](LICENSE). Its agent workflows adapt
-[agent-skills](https://github.com/addyosmani/agent-skills); the corresponding
-license is preserved in [third-party notices](THIRD_PARTY_NOTICES.md).
-The execution loop also draws inspiration from
-[Ralph](https://github.com/SantanderAI/ralph).
+- [Getting started](docs/getting-started.md) — install, configure, run and resume.
+- [Architecture](docs/architecture.md) — roles, gates, recovery and learning.
+- [Local Ollama](docs/ollama-local.md) — native tools and actual context windows.
+- [Testing](docs/testing.md) — offline checks, live evaluations and limitations.
+- [Agent contracts](AGENTS.md) — implementation rules and phase responsibilities.
+
+## License and acknowledgments
+
+[MIT](LICENSE). Workflows adapt
+[Addy Osmani's agent-skills](https://github.com/addyosmani/agent-skills), with
+notices preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The execution loop draws inspiration from
+[Ralph](https://github.com/SantanderAI/ralph); independent design review takes
+inspiration from [Elephant Goldfish Model](https://github.com/google/elephant-goldfish-model).
