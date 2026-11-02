@@ -1,4 +1,5 @@
 import { mountGame } from "./game.mjs";
+import { renderPicker, readPicker } from "./model_picker.mjs";
 
 const $ = (selector) => document.querySelector(selector);
 const game = mountGame();
@@ -8,7 +9,34 @@ let selectedProject = null;
 let stateVersion = 0;
 let lastNotice = "";
 let documentVersion = 0;
+let modelCatalog = null;
 const busy = () => ["running", "waiting"].includes(currentRun.status);
+
+function routeOverrides(selection) {
+  return { phases: selection?.phases || {}, agents: selection?.agents || {} };
+}
+
+function stable(value) {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
+  return value;
+}
+
+async function loadModelCatalog() {
+  try {
+    modelCatalog = await api("/api/models");
+    renderPicker($("#new-model-picker"), modelCatalog, {
+      role_defaults: modelCatalog.role_defaults, phases: {}, agents: {},
+    });
+    if (selectedProject)
+      renderPicker($("#resume-model-picker"), modelCatalog,
+                   selectedProject.model_selection);
+  } catch {
+    modelCatalog = null;
+    renderPicker($("#new-model-picker"), null, {});
+  }
+}
 
 async function api(path, body) {
   const options =
@@ -90,6 +118,8 @@ const runHeadings = {
 function renderRun(run) {
   currentRun = run;
   $("#launch-button").disabled = busy() || !token;
+  $("#new-model-picker").disabled = busy();
+  $("#resume-model-picker").disabled = busy();
   $("#resume-button").disabled =
     busy() || !selectedProject?.idea || selectedProject?.stopped || !token;
   $("#run-status").textContent = statusLabels[run.status].toUpperCase();
@@ -176,7 +206,10 @@ $("#launch-form").addEventListener("submit", async (event) => {
   $("#launch-error").textContent = "";
   $("#launch-button").disabled = true;
   try {
-    await launch({ idea: $("#idea").value, auto: $("#auto").checked });
+    const selection = readPicker($("#new-model-picker"));
+    const routes = Object.keys(selection.phases).length || Object.keys(selection.agents).length;
+    await launch({ idea: $("#idea").value, auto: $("#auto").checked,
+                   ...(routes ? { model_selection: selection } : {}) });
   } catch (error) {
     $("#launch-error").textContent = error.message;
   } finally {
@@ -268,6 +301,8 @@ function inspectProject(project) {
   $("#project-state").textContent = project.stopped
     ? "This project has stop.md. Resolve its blocker in the project before resuming."
     : `${project.checkpoint || "No checkpoint"} · ${project.verdict || "Not verified"}`;
+  renderPicker($("#resume-model-picker"), modelCatalog, project.model_selection);
+  $("#resume-model-picker").disabled = busy();
   $("#resume-button").disabled =
     busy() || !project.idea || project.stopped || !token;
   $("#resume-button").textContent =
@@ -290,7 +325,13 @@ $("#resume-button").addEventListener("click", async () => {
   $("#project-error").textContent = "";
   $("#resume-button").disabled = true;
   try {
-    await launch({ project: selectedProject.name });
+    const chosen = modelCatalog
+      ? readPicker($("#resume-model-picker"))
+      : routeOverrides(selectedProject.model_selection);
+    const saved = routeOverrides(selectedProject.model_selection);
+    const changed = JSON.stringify(stable(chosen)) !== JSON.stringify(stable(saved));
+    await launch({ project: selectedProject.name,
+                   ...(changed ? { model_selection: chosen } : {}) });
   } catch (error) {
     $("#project-error").textContent = error.message;
   } finally {
@@ -334,3 +375,4 @@ clock();
 setInterval(clock, 1000);
 $("#launch-button").disabled = true;
 poll();
+loadModelCatalog();

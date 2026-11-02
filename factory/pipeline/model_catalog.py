@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from pipeline import model_selection
+from pipeline.agents import AGENTS
 from pipeline.pi import ROLE, run_pi
 
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
@@ -121,7 +122,9 @@ def catalog(factory: Path) -> dict:
                         "preparation": (None if name in registered and name in installed else
                                         "Register this exact ID in Pi" if name not in registered else
                                         "Install or pull this exact ID in Ollama")})
-    return {"models": entries, "ollama_available": ollama_error is None,
+    return {"models": entries, "role_defaults": defaults,
+            "phases": list(model_selection.PHASES), "agents": sorted(AGENTS),
+            "ollama_available": ollama_error is None,
             "pi_available": pi_error is None,
             "errors": [error for error in (pi_error, ollama_error) if error]}
 

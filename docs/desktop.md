@@ -58,8 +58,10 @@ local operator, not remote hosting or multiple accounts.
 
 One desktop owns a factory at a time, and only one run may be active. Do not
 start a separate CLI run against that factory while the desktop is working:
-the global KB does not support concurrent writers. Model selection remains in
-`factory/config/models.json`; there is no browser configuration editor.
+the global KB does not support concurrent writers. Role defaults live in
+`factory/config/models.json`; phase and agent model routes can be selected on
+New project and changed when resuming a project. The browser displays the Pi
+and Ollama catalog without credentials and shows when a model needs setup.
 
 “Complete” requires a successful process exit, the `complete` checkpoint and
 `VERIFY_PASSED`. Failed, stopped and unverified runs remain distinct. A green

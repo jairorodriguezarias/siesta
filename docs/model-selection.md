@@ -43,8 +43,13 @@ replaces the project selection for that run. Model configuration files contain
 model identifiers only; provider credentials stay in the existing Pi/Ollama
 configuration.
 
-The local desktop API accepts the same object as model_selection when it starts
-a run. The browser controls are added separately in issue #15.
+The local desktop API accepts the same object as `model_selection` when it
+starts a run. The New project screen offers one selector per phase and advanced
+agent overrides. Each entry shows its Local or Cloud origin; unavailable
+entries remain visible with a preparation label. Project detail restores the
+saved routes and lets you revise them before resuming. Active runs lock the
+controls. A changed selection records a revision in ignored project evidence,
+invalidates design, review and verification approvals, and reruns those gates.
 
 The desktop backend also exposes `GET /api/models`. It combines the exact IDs
 registered by the active Pi profile (`PI_CODING_AGENT_DIR` or Pi's default

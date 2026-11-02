@@ -1,11 +1,12 @@
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline import __main__, pi
+from pipeline import __main__, pi, repository
 from pipeline.model_selection import (PHASES, load_project, normalize_selection,
                                       resolve_route, save_project)
 
@@ -140,6 +141,33 @@ class RouteResolution(unittest.TestCase):
 
 
 class ProjectPersistence(unittest.TestCase):
+    def test_changed_route_creates_revision_and_invalidates_saved_approvals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            subprocess.run(["git", "init", "-q", str(project)], check=True)
+            original = normalize_selection({}, role_defaults=DEFAULTS)
+            changed = normalize_selection({"phases": {"planning": {
+                "model": "another-model", "provider": "ollama"}}},
+                role_defaults=DEFAULTS)
+            save_project(project, original)
+            checkpoint = project / ".pipeline-checkpoint"
+            checkpoint.write_text("complete\n")
+            (project / "verify_verdict.txt").write_text("VERIFY_PASSED\n")
+            repository.save_state(project, {"reviewed_product": "old",
+                                            "verified_product": "old", "other": "kept"})
+            save_project(project, changed)
+            revisions = json.loads((project / ".siesta/model-selection-revisions.json").read_text())
+            self.assertEqual(len(revisions), 1)
+            self.assertEqual(revisions[0]["previous"], original)
+            self.assertEqual(revisions[0]["current"], changed)
+            self.assertTrue(__main__._invalidate_model_approvals(
+                project, original, changed, checkpoint))
+            self.assertEqual(checkpoint.read_text().strip(), "phase-2")
+            self.assertFalse((project / "verify_verdict.txt").exists())
+            self.assertEqual(repository.load_state(project), {"other": "kept"})
+            save_project(project, changed)
+            self.assertEqual(len(json.loads((project / ".siesta/model-selection-revisions.json").read_text())), 1)
+
     def test_project_selection_round_trips_without_changing_global_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

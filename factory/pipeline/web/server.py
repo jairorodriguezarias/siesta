@@ -12,6 +12,7 @@ ASSETS = {
     '/desktop.css': ('desktop.css', 'text/css; charset=utf-8'),
     '/responsive.css': ('responsive.css', 'text/css; charset=utf-8'),
     '/desktop.mjs': ('desktop.mjs', 'text/javascript; charset=utf-8'),
+    '/model_picker.mjs': ('model_picker.mjs', 'text/javascript; charset=utf-8'),
     '/game.mjs': ('game.mjs', 'text/javascript; charset=utf-8'),
     '/snake.mjs': ('snake.mjs', 'text/javascript; charset=utf-8'),
     '/icon.svg': ('icon.svg', 'image/svg+xml'),

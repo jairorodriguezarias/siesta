@@ -154,9 +154,79 @@ try {
   assert.equal(await page.locator("#snake-window").isVisible(), false);
   await page.locator('.taskbar [data-open="snake-window"]').click();
   assert.equal(await page.locator("#snake-window").isVisible(), true);
+  const modelCatalog = {
+    models: [
+      { id: "local-test:latest", origin: "local", installed: true, pi_registered: true },
+      { id: "cloud-test:cloud", origin: "cloud", installed: true, pi_registered: true },
+    ],
+    phases: ["interview", "specification", "planning", "implementation", "review", "verification"],
+    agents: ["planner", "worker", "consultant", "quality-reviewer"],
+    role_defaults: {
+      planner: { model: "cloud-test:cloud", provider: "ollama" },
+      worker: { model: "cloud-test:cloud", provider: "ollama" },
+      consultant: { model: "cloud-test:cloud", provider: "ollama" },
+    },
+  };
+  const browserModels = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const launches = [];
+  let modelRun = null;
+  await browserModels.route("**/api/models", (route) => route.fulfill({ json: modelCatalog }));
+  await browserModels.route("**/api/run", (route) => {
+    if (route.request().method() === "GET")
+      return modelRun ? route.fulfill({ json: modelRun }) : route.continue();
+    launches.push(route.request().postDataJSON());
+    modelRun = { id: "model-check", status: "running", idea: "Model check",
+      phase: "0", elapsed: 0, output: "Starting", project: "model-check" };
+    return route.fulfill({ json: modelRun });
+  });
+  await browserModels.goto(url);
+  await browserModels.locator('#new-model-picker select[data-phase="interview"]').waitFor();
+  await browserModels.locator("#idea").fill("A small model routing test");
+  await browserModels.locator('#new-model-picker select[data-phase="interview"]').selectOption("local-test:latest");
+  await browserModels.locator('#new-model-picker select[data-phase="planning"]').selectOption("cloud-test:cloud");
+  await browserModels.locator("#new-model-picker details").last().evaluate((node) => { node.open = true; });
+  await browserModels.getByRole("button", { name: "Add agent route" }).click();
+  await browserModels.locator("#new-model-picker .agent-route-row .agent-phase").selectOption("planning");
+  await browserModels.locator("#new-model-picker .agent-route-row .agent-id").selectOption("quality-reviewer");
+  await browserModels.locator("#new-model-picker .agent-route-row .model-route").selectOption("local-test:latest");
+  await browserModels.locator("#launch-button").click();
+  await browserModels.waitForFunction(() => document.querySelector("#view-activity").hidden === false);
+  assert.equal(launches[0].model_selection.phases.interview.model, "local-test:latest");
+  assert.equal(launches[0].model_selection.phases.planning.model, "cloud-test:cloud");
+  assert.equal(launches[0].model_selection.agents.planning["quality-reviewer"].model, "local-test:latest");
+  assert.equal(await browserModels.locator("#new-model-picker").evaluate((node) => node.disabled), true);
+  await browserModels.close();
+
+  const browserResume = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const resumes = [];
+  await browserResume.route("**/api/models", (route) => route.fulfill({ json: modelCatalog }));
+  await browserResume.route("**/api/projects", (route) => route.fulfill({ json: { projects: [{
+    name: "saved-project", idea: "A saved idea", checkpoint: "phase-3",
+    verdict: "", stopped: false, documents: [],
+    model_selection: { version: 1, role_defaults: modelCatalog.role_defaults,
+      phases: { planning: { model: "cloud-test:cloud", provider: "ollama" } }, agents: {} },
+  }] } }));
+  await browserResume.route("**/api/run", (route) => {
+    if (route.request().method() === "GET") return route.continue();
+    resumes.push(route.request().postDataJSON());
+    return route.fulfill({ json: { id: "resume-model-check", status: "running", idea: "A saved idea",
+      phase: "3", elapsed: 0, output: "Starting", project: "saved-project" } });
+  });
+  await browserResume.goto(url);
+  await browserResume.getByRole("button", { name: "Projects", exact: true }).first().click();
+  await browserResume.locator(".project-card").click();
+  await browserResume.locator('#resume-model-picker select[data-phase="planning"]').waitFor();
+  assert.equal(await browserResume.locator('#resume-model-picker select[data-phase="planning"]').inputValue(),
+               "cloud-test:cloud");
+  await browserResume.locator('#resume-model-picker select[data-phase="implementation"]').selectOption("local-test:latest");
+  await browserResume.locator("#resume-button").click();
+  await browserResume.waitForFunction(() => document.querySelector("#view-activity").hidden === false);
+  assert.equal(resumes[0].model_selection.phases.implementation.model, "local-test:latest");
+  assert.equal(resumes[0].model_selection.phases.planning.model, "cloud-test:cloud");
+  await browserResume.close();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: interview, refresh, notices, evidence, Snake controls, mobile layout; no browser errors.",
+    "PASS: interview, refresh, model routes, resume, evidence, Snake, mobile layout; no browser errors.",
   );
   console.log(`Screenshots: ${output}`);
 } finally {

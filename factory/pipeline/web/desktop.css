@@ -329,6 +329,52 @@ textarea::placeholder,
 input::placeholder {
   color: #838778;
 }
+.model-picker {
+  border: 1px solid #c4c6b1;
+  margin: 15px 0;
+  padding: 12px;
+  background: #f8f6e9;
+}
+.model-picker legend {
+  padding: 0 5px;
+  font: bold 11px var(--mono);
+}
+.model-picker .muted {
+  font-size: 10px;
+  margin: 0 0 10px;
+}
+.model-route-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 7px 14px;
+}
+.model-route-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: normal;
+}
+.model-route-row > span { min-width: 78px; text-transform: capitalize; }
+.model-route-row select {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1;
+  background: #fffdf7;
+  border: 1px solid #9caa95;
+  padding: 5px;
+  font: 10px var(--mono);
+}
+.model-picker details { margin-top: 10px; }
+.model-picker summary { cursor: pointer; font: 10px var(--mono); }
+.model-picker details > .model-route-grid,
+.model-picker .agent-routes { margin-top: 8px; }
+.agent-route-row { margin: 6px 0; flex-wrap: wrap; }
+.agent-route-row select { flex-basis: 110px; }
+.agent-route-row button, .model-picker details > button { font-size: 10px; }
+.model-picker:disabled { opacity: .65; }
 .launch-options {
   display: flex;
   align-items: center;

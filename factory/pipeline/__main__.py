@@ -154,7 +154,9 @@ def _selection_for_project(args) -> dict:
             overrides = json.loads(args.model_selection.read_text())
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ValueError(f"could not read model selection: {args.model_selection}") from exc
-        return model_selection.from_overrides(overrides, role_defaults=ROLE)
+        saved = model_selection.load_project(args.proj)
+        return model_selection.from_overrides(
+            overrides, role_defaults=(saved or {}).get("role_defaults", ROLE))
     saved = model_selection.load_project(args.proj)
     return saved or model_selection.normalize_selection({}, role_defaults=ROLE)
 
@@ -232,6 +234,24 @@ def _failure_learn(args, e) -> None:
     err("Pipeline failed. KB updated with failure details.")
 
 
+def _invalidate_model_approvals(proj: Path, previous: dict | None,
+                                current: dict, checkpoint: Path) -> bool:
+    """A changed route requires fresh design, review and verification evidence."""
+    if previous is None or previous == current:
+        return False
+    log("Model selection changed — invalidating design, review and verification approvals")
+    saved_state = repository.load_state(proj)
+    saved_state.pop("reviewed_product", None)
+    saved_state.pop("verified_product", None)
+    repository.save_state(proj, saved_state)
+    if checkpoint.exists():
+        value = checkpoint.read_text().strip()
+        if value in PHASE_ORDER and PHASE_ORDER.index(value) > PHASE_ORDER.index("phase-2"):
+            checkpoint.write_text("phase-2\n")
+    (proj / "verify_verdict.txt").unlink(missing_ok=True)
+    return True
+
+
 def _run(args) -> None:
     idea = args.idea
     proj = args.proj
@@ -246,7 +266,10 @@ def _run(args) -> None:
         proj.mkdir(parents=True, exist_ok=True)
         (proj / IDEA_FILE).write_text(idea + "\n")
     skill_versions.pin_project(proj)
+    previous_selection = model_selection.load_project(proj)
     model_selection.save_project(proj, args.model_selection_data)
+    _invalidate_model_approvals(proj, previous_selection, args.model_selection_data,
+                                checkpoint)
     _warn_context_mismatches(args.model_selection_data)
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same

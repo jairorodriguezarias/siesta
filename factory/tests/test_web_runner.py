@@ -58,7 +58,10 @@ class DesktopTests(unittest.TestCase):
         process.poll.return_value = None
         selection = {'phases': {'interview': {
             'model': 'local-interviewer', 'provider': 'ollama'}}}
-        with patch('pipeline.web.runner.subprocess.Popen', return_value=process) as popen:
+        with patch('pipeline.web.runner.subprocess.Popen', return_value=process) as popen, \
+             patch('pipeline.model_catalog.catalog', return_value={'models': [{
+                 'id': 'local-interviewer', 'pi_registered': True,
+                 'installed': True, 'preparation': None}]}):
             self.desktop.start('select a model', auto=True, model_selection=selection)
             process.poll.return_value = 0
             args = popen.call_args.args[0]
@@ -77,6 +80,20 @@ class DesktopTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'unknown phase'):
                 self.desktop.start('reject bad model route', model_selection={
                     'phases': {'not-a-phase': {'model': 'x', 'provider': 'ollama'}}})
+            popen.assert_not_called()
+
+    def test_unprepared_model_is_rejected_before_launch(self):
+        config = self.factory / 'config'
+        config.mkdir()
+        source = Path(__file__).resolve().parents[1] / 'config/models.json'
+        (config / 'models.json').write_text(source.read_text())
+        with patch('pipeline.model_catalog.catalog', return_value={'models': [{
+                'id': 'unregistered', 'pi_registered': False, 'installed': True,
+                'preparation': 'Register in Pi'}]}), \
+             patch('pipeline.web.runner.subprocess.Popen') as popen:
+            with self.assertRaisesRegex(ValueError, 'needs Pi/Ollama preparation'):
+                self.desktop.start('reject unprepared route', model_selection={
+                    'phases': {'planning': {'model': 'unregistered', 'provider': 'ollama'}}})
             popen.assert_not_called()
 
     def test_success_requires_complete_checkpoint_and_verdict(self):

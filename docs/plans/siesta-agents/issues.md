@@ -499,7 +499,7 @@ Pi, y `glm-5.3-flash:cloud` está instalado y registrado.
 
 ## Issue #15: Elegir modelos desde el frontal
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #2, #14.
 
 Añadir controles a «Nuevo proyecto» y reanudación, conservando la estética
@@ -517,6 +517,17 @@ actual.
 
 **Verificación:** navegador con modelos distintos por fase, errores,
 reanudación y captura de rutas utilizadas.
+
+**Evidencia:** `model_picker.mjs` ofrece selección por fase y rutas avanzadas
+por agente, etiquetas Local/Cloud y valores heredados. `Desktop.project()`
+devuelve la configuración guardada; el lanzamiento valida nuevas rutas contra
+Pi/Ollama y el CLI registra revisiones e invalida aprobaciones. Tests de
+backend cubren revisión y rechazo de modelo no preparado. `web_smoke.mjs`
+captura dos modelos de fase y una excepción por agente, reanudación con rutas
+guardadas, controles bloqueados y vista móvil; pasó sin errores de navegador.
+Suite Python completa: 459 tests, `/tmp/siesta-test-venv/bin/python -B -m
+unittest discover -s tests -q`, exit 0. Prueba de navegador: `node
+factory/tests/web_smoke.mjs`, exit 0.
 
 ## Issue #16: Mostrar agentes, revisiones y consumo de ejecución
 

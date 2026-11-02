@@ -1,5 +1,8 @@
 """Validated, project-local model routes with phase and agent precedence."""
 import json
+import hashlib
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pipeline.agents import AGENTS
@@ -12,6 +15,7 @@ PHASES = (
 )
 ROLES = ("planner", "worker", "consultant")
 SELECTION_FILE = ".siesta/model-selection.json"
+REVISION_FILE = ".siesta/model-selection-revisions.json"
 
 
 def _route(value, label: str) -> dict:
@@ -117,7 +121,28 @@ def save_project(project: Path, selection: dict) -> Path:
             or path.with_suffix(".tmp").is_symlink()):
         raise ValueError(f"model selection path cannot be a symlink: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
+    previous = load_project(project)
+    revisions = Path(project) / REVISION_FILE
+    if (previous is not None and previous != normalized
+            and (revisions.is_symlink() or revisions.with_suffix(".tmp").is_symlink())):
+        raise ValueError("model selection revision path cannot be a symlink")
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(normalized, indent=2, sort_keys=True) + "\n")
     temporary.replace(path)
+    if previous is not None and previous != normalized:
+        try:
+            history = json.loads(revisions.read_text())
+            if not isinstance(history, list):
+                raise ValueError("model selection revision history must be a list")
+        except FileNotFoundError:
+            history = []
+        digest = lambda value: hashlib.sha256(
+            json.dumps(value, sort_keys=True).encode()).hexdigest()
+        history.append({"at": datetime.now(timezone.utc).isoformat(),
+                        "previous_sha256": digest(previous),
+                        "current_sha256": digest(normalized),
+                        "previous": previous, "current": normalized})
+        staged = revisions.with_suffix(".tmp")
+        staged.write_text(json.dumps(history, indent=2, sort_keys=True) + "\n")
+        os.replace(staged, revisions)
     return path

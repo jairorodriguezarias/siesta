@@ -89,6 +89,14 @@ class Desktop:
         project = self._project(name)
         if not project.is_dir():
             raise ValueError('Project not found')
+        from .. import model_selection as selections
+        try:
+            defaults = json.loads((self.factory / 'config' / 'models.json').read_text())
+        except FileNotFoundError:
+            from ..pi import ROLE
+            defaults = ROLE
+        selected = selections.load_project(project) or selections.normalize_selection(
+            {}, role_defaults=defaults)
         documents = []
         for document in DOCUMENTS:
             try:
@@ -103,6 +111,7 @@ class Desktop:
             'verdict': read_text(self._file(project, 'verify_verdict.txt')).strip(),
             'stopped': self._file(project, 'stop.md').exists(),
             'documents': documents,
+            'model_selection': selected,
         }
 
     def document(self, name, document):
@@ -125,8 +134,24 @@ class Desktop:
             try:
                 from .. import model_selection as selections
                 defaults = json.loads((self.factory / 'config' / 'models.json').read_text())
+                existing = selections.load_project(self._project(slug(idea)))
                 normalized = selections.from_overrides(model_selection,
-                                                       role_defaults=defaults)
+                                                       role_defaults=(existing or {}).get(
+                                                           'role_defaults', defaults))
+                from ..model_catalog import catalog
+                available = {row['id']: row for row in catalog(self.factory)['models']}
+                previous = existing or {'phases': {}, 'agents': {}}
+                routes = [route for phase, route in normalized['phases'].items()
+                          if route != previous['phases'].get(phase)]
+                routes.extend(
+                    route for phase, agents in normalized['agents'].items()
+                    for agent, route in agents.items()
+                    if route != previous['agents'].get(phase, {}).get(agent))
+                for route in routes:
+                    entry = available.get(route['model'])
+                    if (route['provider'] != 'ollama' or entry is None
+                            or entry['preparation'] is not None):
+                        raise ValueError(f"Model {route['model']} needs Pi/Ollama preparation")
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
                 raise ValueError(f'Invalid model selection: {exc}') from exc
         with self.lock:
