@@ -489,11 +489,10 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("Issue #1 blocked after diagnosis", blockers)
         self.assertIn("Issue #2 blocked after diagnosis", blockers)
         # Per issue: initial + 2 resolution retries + 1 diagnosis-feedback
-        # retry = 4 worker calls; learn hooks skipped when blocked.
-        # Verification adds one worker call; blocked issues skip final review.
-        self.assertEqual(self.log_count("--model worker-model"), 9)
+        # retry = 4 worker calls; blocked issues skip later phases.
+        self.assertEqual(self.log_count("--model worker-model"), 8)
         # No specialist/proxy calls are spent reviewing recovered blocked work.
-        self.assertEqual(self.log_count("--model consultant-model"), 11)
+        self.assertEqual(self.log_count("--model consultant-model"), 10)
         self.assertIn("2 blocked", result.stdout)
         self.assertFalse((proj / "learning_issue_1.txt").exists())
 
@@ -507,10 +506,9 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("Issue #1 skipped after diagnosis", blockers)
         self.assertIn("Issue #2 skipped after diagnosis", blockers)
         self.assertFalse((proj / "stop.md").exists())  # SKIP, not CRITICAL
-        # Each issue uses three workers; verification adds one. Final review
-        # and its proxy are skipped while the issues remain blocked.
-        self.assertEqual(self.log_count("--model worker-model"), 7)
-        self.assertEqual(self.log_count("--model consultant-model"), 11)
+        # Each issue uses three workers. Later phases are skipped while blocked.
+        self.assertEqual(self.log_count("--model worker-model"), 6)
+        self.assertEqual(self.log_count("--model consultant-model"), 10)
         self.assertIn("2 blocked", result.stdout)
 
     def test_single_consultation_recovers_issue(self):
@@ -593,9 +591,9 @@ class PipelineRun(unittest.TestCase):
         self.assertNotIn("Issue #1 completed", self.decisions())
         self.assertFalse((self.proj() / "learning_issue_1.txt").exists())
         self.assertIn("2 blocked", result.stdout)
-        # per issue: initial + 1 degenerate feedback retry = 2 worker calls,
-        # no learn hooks when blocked → 4, plus verification; review uses consultants.
-        self.assertEqual(self.log_count("--model worker-model"), 5)
+        # Per issue: initial + 1 degenerate feedback retry = 2 worker calls.
+        # Blocked issues do not reach verification or project learning.
+        self.assertEqual(self.log_count("--model worker-model"), 4)
 
     def test_blocked_issue_does_not_trigger_final_specialist_review(self):
         result = self.siesta("--auto", self.idea, scenario="degenerate_always")
@@ -604,6 +602,26 @@ class PipelineRun(unittest.TestCase):
         calls = (self.tmp / "pi_calls.log").read_text()
         self.assertNotIn("Agent identity: integration-reviewer", calls)
         self.assertNotIn("Agent identity: quality-reviewer", calls)
+        self.assertNotIn("VERIFY — Runs locally?", result.stderr)
+        self.assertNotIn("LEARN — Project-level learning", result.stderr)
+        self.assertFalse((self.proj() / "project_learning.log").exists())
+        history = subprocess.run(["git", "-C", str(self.proj()), "log", "--oneline"],
+                                 capture_output=True, text=True, check=True).stdout
+        self.assertNotIn("Project delivered UNVERIFIED", history)
+
+    def test_repeated_blocked_resume_stays_at_execution(self):
+        for attempt in range(2):
+            result = self.siesta("--auto", self.idea, scenario="degenerate_always")
+            self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+            self.assert_incomplete("phase-2")
+            self.assertNotIn("VERIFY — Runs locally?", result.stderr)
+            self.assertNotIn("LEARN — Project-level learning", result.stderr)
+            self.assertFalse((self.proj() / "project_learning.log").exists())
+            self.assertIn("2 blocked", result.stdout)
+            if attempt == 0:
+                (self.proj() / "verify_verdict.txt").write_text("VERIFY_PASSED\n")
+            else:
+                self.assertFalse((self.proj() / "verify_verdict.txt").exists())
 
     def test_blocked_issue_leaves_no_tree_residue(self):
         # #49: a blocked issue's uncommitted work is discarded — the tree

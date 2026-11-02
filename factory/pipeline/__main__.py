@@ -431,21 +431,24 @@ def _run(args) -> None:
     else:
         phase(3, "EXECUTE — Implement every issue")
         blocked = phases.execute(proj, kb)
+    if blocked:
+        warn("Skipping final review while implementation issues remain blocked")
+        (proj / "verify_verdict.txt").unlink(missing_ok=True)
+        _summary(proj, name, kb, blocked)
+        err("Project incomplete; resume will retry pending work")
+        raise SystemExit(1)
     mark("phase-3")
 
     # ─── PHASE 4: REVIEW ─────────────────────────────────────────────────
-    if blocked:
-        warn("Skipping final review while implementation issues remain blocked")
+    if done("phase-4"):
+        log("Phase 4 already complete (resume mode), skipping...")
     else:
-        if done("phase-4"):
-            log("Phase 4 already complete (resume mode), skipping...")
-        else:
-            phase(4, "REVIEW — Code review")
-            phases.review(proj, kb)
-            state = repository.load_state(proj)
-            state['reviewed_product'] = repository.fingerprint(proj)
-            repository.save_state(proj, state)
-        mark("phase-4")
+        phase(4, "REVIEW — Code review")
+        phases.review(proj, kb)
+        state = repository.load_state(proj)
+        state['reviewed_product'] = repository.fingerprint(proj)
+        repository.save_state(proj, state)
+    mark("phase-4")
 
     # ─── PHASE 5: VERIFY (+ runtime smoke check) ─────────────────────────
     if done("phase-5"):
@@ -497,7 +500,7 @@ def _run(args) -> None:
     phase(6, "DONE")
     # #6: the decision node and the commit message tell the truth about the
     # verdict — never "verified" for a project that failed verify.
-    if verdict == "VERIFY_PASSED" and not blocked:
+    if verdict == "VERIFY_PASSED":
         with repository.completion_record(proj, kb):
             kb.node("decision", f"Project complete: {name}",
                     "Project verified running locally.")
@@ -513,8 +516,8 @@ def _run(args) -> None:
     phase(7, "LEARN — Project-level learning")
     transcript = learn.learn_project(proj, name, kb, gkb)
     (proj / "project_learning.log").write_text(transcript)
-    if blocked or verdict != "VERIFY_PASSED":
-        checkpoint.write_text("phase-2\n" if blocked else "phase-4\n")
+    if verdict != "VERIFY_PASSED":
+        checkpoint.write_text("phase-4\n")
         _summary(proj, name, kb, blocked)
         err("Project incomplete; resume will retry pending work")
         raise SystemExit(1)

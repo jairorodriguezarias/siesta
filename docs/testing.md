@@ -50,6 +50,12 @@ skip when Pi is unavailable, as in offline CI.
 A passing factory suite validates the orchestrator against those scenarios.
 It does not establish that a particular model can finish arbitrary projects.
 
+When a generated project's regression suite fails, inspect its
+`regression_N.log` in that project directory (`N` is the issue number). Siesta
+keeps the issue pending and stops before final review, verification, completion
+and project-level learning. Fix the failing test or its underlying code, then
+resume the project.
+
 ## Reproducible live evaluations
 
 With Pi, Ollama access, Git identity and pytest configured, run from the root:

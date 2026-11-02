@@ -191,6 +191,17 @@ class RegressionTriState(unittest.TestCase):
             "tests/test_broken.py": "def test_broken():\n    assert False\n",
         }), "failed")
 
+    def test_failing_suite_names_its_diagnostic_log(self):
+        with TemporaryDirectory() as directory:
+            proj = Path(directory)
+            tests = proj / 'tests'
+            tests.mkdir()
+            (tests / 'test_broken.py').write_text('def test_broken():\n    assert False\n')
+            with patch.object(phases, 'err') as report:
+                self.assertEqual(phases.run_regression(proj, 1), 'failed')
+            self.assertIn('regression_1.log', report.call_args.args[0])
+            self.assertIn('FAILED', (proj / 'regression_1.log').read_text())
+
     def test_passing_suite_is_passed(self):
         self.assertEqual(self.regression({
             "pyproject.toml": "[project]\nname = 'stub'\n",
