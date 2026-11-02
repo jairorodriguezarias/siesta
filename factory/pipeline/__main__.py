@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from pipeline import (design, events, iterations, learn, migration, references,
+from pipeline import (design, events, iterations, learn, migration, project_metadata, references,
                       model_selection, reviews, skill_versions,
                       phases, repository, text)
 from pipeline.kb import Graph
@@ -101,6 +101,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--resume", action="store_true",
                     help="skip phases already completed per checkpoint")
     ap.add_argument("--project", type=Path, help="existing Siesta Git repository")
+    ap.add_argument("--name", help="visible project name shown in the desktop")
     ap.add_argument("--iterate", help="additional request for an existing project")
     ap.add_argument("--adopt-changes", action="store_true",
                     help="explicitly commit local product edits before continuing")
@@ -114,11 +115,15 @@ def main(argv: list[str] | None = None) -> None:
         ap.error('provide an idea or --project')
     if args.project and args.idea:
         ap.error('--project uses the saved intent; pass a new request with --iterate')
+    if args.project and args.name:
+        ap.error('--name is for a new project; edit an existing name in Projects')
     if args.iterate is not None and (not args.project or not args.iterate.strip()):
         ap.error('--iterate requires --project and a nonempty request')
     # Selection and human-edit checks are read-only unless adoption is explicit.
     # Rejections here must not write failure nodes to someone else's project.
     try:
+        if args.name is not None:
+            args.name = project_metadata.validate_name(args.name)
         args.proj, args.idea = _select_project(args)
         args.model_selection_data = _selection_for_project(args)
         _log_model_selection(args.model_selection_data)
@@ -284,6 +289,11 @@ def _run(args) -> None:
         proj, previous_selection, args.model_selection_data, checkpoint)
     _warn_context_mismatches(args.model_selection_data)
     proj.mkdir(parents=True, exist_ok=True)
+    if getattr(args, 'name', None) is not None:
+        saved_name = project_metadata.read_name(proj, '')
+        if saved_name and saved_name != args.name and was_existing:
+            raise RuntimeError('Project already has a different name; edit it in Projects')
+        project_metadata.write_name(proj, args.name)
     # #7: generated projects commit with `git add -A` — give them the same
     # hygiene ignore list the factory itself uses, from the very first commit.
     # #38: run evidence (model outputs, regression logs, pre-issue contexts,
@@ -424,15 +434,18 @@ def _run(args) -> None:
     mark("phase-3")
 
     # ─── PHASE 4: REVIEW ─────────────────────────────────────────────────
-    if done("phase-4"):
-        log("Phase 4 already complete (resume mode), skipping...")
+    if blocked:
+        warn("Skipping final review while implementation issues remain blocked")
     else:
-        phase(4, "REVIEW — Code review")
-        phases.review(proj, kb)
-        state = repository.load_state(proj)
-        state['reviewed_product'] = repository.fingerprint(proj)
-        repository.save_state(proj, state)
-    mark("phase-4")
+        if done("phase-4"):
+            log("Phase 4 already complete (resume mode), skipping...")
+        else:
+            phase(4, "REVIEW — Code review")
+            phases.review(proj, kb)
+            state = repository.load_state(proj)
+            state['reviewed_product'] = repository.fingerprint(proj)
+            repository.save_state(proj, state)
+        mark("phase-4")
 
     # ─── PHASE 5: VERIFY (+ runtime smoke check) ─────────────────────────
     if done("phase-5"):

@@ -148,6 +148,8 @@
               </div>
             </div>
             <form id="launch-form">
+              <label for="project-name">Project name</label>
+              <input id="project-name" maxlength="80" placeholder="My research assistant" required />
               <label for="idea">What shall we build?</label
               ><textarea
                 id="idea"
@@ -214,8 +216,14 @@
             <div id="project-detail" hidden>
               <div class="detail-heading">
                 <h3 id="project-title"></h3>
-                <button id="resume-button">Resume project ↗</button>
+                <div class="project-actions"><button id="edit-project-button" type="button">Edit project</button><button id="delete-project-button" type="button">Delete project</button><button id="resume-button">Resume project ↗</button></div>
               </div>
+              <form id="project-name-form" hidden>
+                <label for="project-name-edit">Project name</label>
+                <input id="project-name-edit" maxlength="80" required />
+                <button type="submit">Save name</button>
+                <button type="button" id="cancel-project-edit">Cancel</button>
+              </form>
               <p id="project-state" class="muted"></p>
               <p id="saved-review-policy" class="muted"></p>
               <fieldset id="resume-model-picker" class="model-picker">
@@ -267,7 +275,7 @@
                 <p class="eyebrow">THE WORKBENCH</p>
                 <h2 id="run-title">A quiet moment.</h2>
               </div>
-              <span class="run-badge" id="run-status">IDLE</span>
+              <div class="activity-actions"><button id="stop-button" type="button" hidden>Stop run</button><span class="run-badge" id="run-status">IDLE</span></div>
             </div>
             <p id="run-description" class="muted">
               Start a project and follow its progress here.

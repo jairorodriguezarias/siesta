@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from pipeline.web.runner import Desktop, Conflict
+from pipeline import project_metadata
 
 
 class DesktopTests(unittest.TestCase):
@@ -47,6 +48,52 @@ class DesktopTests(unittest.TestCase):
         final = self.wait_for(lambda s: s['status'] not in ('running', 'waiting'))
         self.assertIn('ANSWER:a timer', final['output'])
         self.assertEqual(final['status'], 'incomplete')
+
+    def test_project_title_edit_and_soft_delete(self):
+        project = self.factory / 'projects/tiny-app'
+        project.mkdir(parents=True)
+        (project / '.pipeline-idea').write_text('A tiny app')
+        project_metadata.write_name(project, 'My first app')
+        self.assertEqual(self.desktop.project('tiny-app')['display_name'], 'My first app')
+        edited = self.desktop.rename_project('tiny-app', 'New title')
+        self.assertEqual(edited['display_name'], 'New title')
+        with self.assertRaises(Conflict):
+            self.desktop.delete_project('tiny-app', 'wrong')
+        self.desktop.delete_project('tiny-app', 'tiny-app')
+        self.assertFalse(project.exists())
+        self.assertEqual(self.desktop.projects(), [])
+        self.assertEqual(len(list((self.factory / 'projects/.trash').iterdir())), 1)
+
+    def test_new_project_name_does_not_resume_an_existing_idea(self):
+        project = self.factory / 'projects/test-project'
+        project.mkdir(parents=True)
+        (project / '.pipeline-idea').write_text('test project')
+        with self.assertRaises(Conflict):
+            self.desktop.start('test project', display_name='Another title')
+
+    def test_legacy_project_can_be_renamed_without_idea_sidecar(self):
+        project = self.factory / 'projects/legacy-app'
+        (project / '.git').mkdir(parents=True)
+        (project / 'kb').mkdir()
+        (project / 'kb/graph.json').write_text('{"nodes":[],"edges":[]}')
+        self.assertEqual(self.desktop.rename_project('legacy-app', 'Legacy renamed')
+                         ['display_name'], 'Legacy renamed')
+
+    def test_stop_terminates_active_run_and_allows_another(self):
+        run = self.launch('import time; time.sleep(30)')
+        with self.assertRaises(Conflict):
+            self.desktop.rename_project('test-project', 'Changed')
+        with self.assertRaises(Conflict):
+            self.desktop.delete_project('test-project', 'test-project')
+        with self.assertRaises(Conflict):
+            self.desktop.stop('wrong-id')
+        stopped = self.desktop.stop(run['id'])
+        self.assertEqual(stopped['status'], 'stopped')
+        self.assertIsNotNone(stopped['returncode'])
+        with self.assertRaises(Conflict):
+            self.desktop.stop(run['id'])
+        next_run = self.launch("print('next')", idea='another app')
+        self.assertNotEqual(next_run['id'], run['id'])
 
     def test_model_selection_is_validated_and_forwarded_to_cli(self):
         config = self.factory / 'config'
@@ -166,6 +213,23 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(pid_file.exists(), self.desktop.snapshot()['output'])
         pid = int(pid_file.read_text())
         self.desktop.close()
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_stop_unwinds_a_pi_call_and_kills_its_separate_group(self):
+        config = self.factory / 'config'
+        config.mkdir()
+        (config / 'models.json').write_text(
+            (Path(__file__).resolve().parents[1] / 'config/models.json').read_text())
+        pid_file = self.factory / 'provider.pid'
+        provider = f"import os,time; open({str(pid_file)!r},'w').write(str(os.getpid())); time.sleep(30)"
+        run = self.launch("import sys; from pipeline.web import worker; from pipeline import pi; "
+                          f"pi.build_args=lambda *a,**kw:[sys.executable,'-c',{provider!r}]; "
+                          "worker.run=lambda:pi.run_pi('planner','body','user'); worker.main()")
+        self.wait_for(lambda s: pid_file.exists() or s['status'] == 'failed')
+        self.assertTrue(pid_file.exists(), self.desktop.snapshot()['output'])
+        pid = int(pid_file.read_text())
+        self.assertEqual(self.desktop.stop(run['id'])['status'], 'stopped')
         with self.assertRaises(ProcessLookupError):
             os.kill(pid, 0)
 

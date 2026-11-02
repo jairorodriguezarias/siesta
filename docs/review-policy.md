@@ -102,6 +102,9 @@ also requires the independent quality reviewer. Both modes use the project's
 chosen bounded policy and rerun the product regression suite after each repair. Issue
 review approval is bound to the active issue, committed base, product content,
 reviewer definitions and model routes.
+The final specialist review runs only after all implementation issues have
+completed. A blocked issue remains unverified and is retried on resume;
+reviewers are not asked to approve its recovered, incomplete product tree.
 
 ## Intent review
 

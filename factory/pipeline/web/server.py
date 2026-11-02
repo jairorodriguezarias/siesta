@@ -89,7 +89,7 @@ def make_server(desktop, port=8765):
                         query.get('id', [''])[0], query.get('project', [None])[0]))
                 else:
                     self.send(404, {'error': 'Not found'})
-            except (ValueError, OSError):
+            except (ValueError, OSError, RuntimeError):
                 self.send(404, {'error': 'Document or project unavailable'})
 
         def do_POST(self):
@@ -110,12 +110,32 @@ def make_server(desktop, port=8765):
                 if self.path == '/api/run':
                     idea = body.get('idea')
                     if 'project' in body:
+                        if 'name' in body:
+                            raise ValueError('Rename projects from Projects before resuming')
                         idea = desktop.project(body['project'])['idea']
+                        display_name = None
+                    else:
+                        if not isinstance(body.get('name'), str):
+                            raise ValueError('Give the project a name before starting')
+                        display_name = body['name']
                     state = desktop.start(idea, auto=body.get('auto', False),
                                           model_selection=body.get('model_selection'),
-                                          review_policy=body.get('review_policy'))
+                                          review_policy=body.get('review_policy'),
+                                          display_name=display_name)
                 elif self.path == '/api/reply':
                     state = desktop.reply(body.get('run_id'), body.get('input_id'), body.get('answer'))
+                elif self.path == '/api/stop':
+                    if set(body) != {'run_id'}:
+                        raise ValueError('Run identifier is required')
+                    state = desktop.stop(body.get('run_id'))
+                elif self.path == '/api/project/rename':
+                    if set(body) != {'project', 'name'}:
+                        raise ValueError('Project and name are required')
+                    state = desktop.rename_project(body['project'], body['name'])
+                elif self.path == '/api/project/delete':
+                    if set(body) != {'project', 'confirm'}:
+                        raise ValueError('Project and confirmation are required')
+                    state = desktop.delete_project(body['project'], body['confirm'])
                 elif self.path == '/api/models/check':
                     from ..model_catalog import check_compatibility
                     if set(body) - {'model', 'provider', 'tools'}:
@@ -133,7 +153,7 @@ def make_server(desktop, port=8765):
                 self.send(200, state)
             except Conflict as exc:
                 self.send(409, {'error': str(exc)})
-            except (ValueError, UnicodeError) as exc:
+            except (ValueError, UnicodeError, RuntimeError) as exc:
                 self.send(400, {'error': str(exc)})
             except OSError:
                 self.send(500, {'error': 'Could not access the project or start the pipeline'})

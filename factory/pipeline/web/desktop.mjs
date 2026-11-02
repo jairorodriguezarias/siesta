@@ -127,6 +127,10 @@ function renderRun(run) {
   $("#knowledge-save").disabled = busy() || !token;
   $("#resume-button").disabled =
     busy() || !selectedProject?.idea || selectedProject?.stopped || !token;
+  $("#edit-project-button").disabled = busy() || !token;
+  $("#delete-project-button").disabled = busy() || !token;
+  $("#stop-button").hidden = !busy();
+  $("#stop-button").disabled = !token;
   $("#run-status").textContent = statusLabels[run.status].toUpperCase();
   $("#tray-status").textContent = `● ${statusLabels[run.status]}`;
   $("#workspace-status").textContent =
@@ -222,7 +226,8 @@ $("#launch-form").addEventListener("submit", async (event) => {
   try {
     const selection = readPicker($("#new-model-picker"));
     const routes = Object.keys(selection.phases).length || Object.keys(selection.agents).length;
-    await launch({ idea: $("#idea").value, auto: $("#auto").checked,
+    await launch({ idea: $("#idea").value, name: $("#project-name").value,
+                   auto: $("#auto").checked,
                    ...(routes ? { model_selection: selection } : {}),
                    ...($("#review-policy").value === "deep" ? { review_policy: "deep" } : {}) });
   } catch (error) {
@@ -278,9 +283,9 @@ async function loadProjects() {
       use.setAttribute("href", "#folder");
       icon.append(use);
       const name = document.createElement("span");
-      name.textContent = project.name;
+      name.textContent = project.display_name || project.name;
       const state = document.createElement("small");
-      state.textContent = `${project.checkpoint || "Not started"} · ${project.verdict || "Not verified"}`;
+      state.textContent = `${project.name} · ${project.checkpoint || "Not started"} · ${project.verdict || "Not verified"}`;
       name.append(state);
       button.append(icon, name);
       button.addEventListener("click", () => inspectProject(project));
@@ -426,7 +431,8 @@ function inspectProject(project) {
   selectedProject = project;
   ++documentVersion;
   $("#project-detail").hidden = false;
-  $("#project-title").textContent = project.name;
+  $("#project-title").textContent = project.display_name || project.name;
+  $("#project-name-form").hidden = true;
   $("#project-state").textContent = project.stopped
     ? "This project has stop.md. Resolve its blocker in the project before resuming."
     : `${project.checkpoint || "No checkpoint"} · ${project.verdict || "Not verified"}`;
@@ -435,6 +441,8 @@ function inspectProject(project) {
   $("#resume-model-picker").disabled = busy();
   $("#resume-button").disabled =
     busy() || !project.idea || project.stopped || !token;
+  $("#edit-project-button").disabled = busy() || !token;
+  $("#delete-project-button").disabled = busy() || !token;
   $("#resume-button").textContent =
     project.checkpoint === "complete"
       ? "Recheck project ↗"
@@ -450,6 +458,52 @@ function inspectProject(project) {
     readDocument(project.name, project.documents[0]);
   else $("#document-content").textContent = "No documents yet.";
 }
+
+$("#edit-project-button").addEventListener("click", () => {
+  $("#project-name-edit").value = selectedProject.display_name || selectedProject.name;
+  $("#project-name-form").hidden = false;
+  $("#project-name-edit").focus();
+});
+$("#cancel-project-edit").addEventListener("click", () => {
+  $("#project-name-form").hidden = true;
+});
+$("#project-name-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("#project-error").textContent = "";
+  try {
+    const updated = await api("/api/project/rename", {
+      project: selectedProject.name, name: $("#project-name-edit").value,
+    });
+    inspectProject(updated);
+    await loadProjects();
+  } catch (error) {
+    $("#project-error").textContent = error.message;
+  }
+});
+$("#delete-project-button").addEventListener("click", async () => {
+  const project = selectedProject;
+  if (!project || !window.confirm(`Delete ${project.display_name || project.name}? It will be moved to the local trash.`)) return;
+  $("#project-error").textContent = "";
+  try {
+    await api("/api/project/delete", { project: project.name, confirm: project.name });
+    selectedProject = null;
+    $("#project-detail").hidden = true;
+    await loadProjects();
+  } catch (error) {
+    $("#project-error").textContent = error.message;
+  }
+});
+
+$("#stop-button").addEventListener("click", async () => {
+  $("#stop-button").disabled = true;
+  ++stateVersion;
+  try {
+    renderRun(await api("/api/stop", { run_id: currentRun.id }));
+  } catch (error) {
+    $("#run-hint").textContent = error.message;
+    $("#stop-button").disabled = false;
+  }
+});
 
 $("#resume-button").addEventListener("click", async () => {
   $("#project-error").textContent = "";

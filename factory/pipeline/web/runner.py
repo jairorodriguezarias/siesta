@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 
-from .. import references, reviews
+from .. import project_metadata, references, reviews
 from ..kb import Graph
 
 from ..__main__ import slug
@@ -55,6 +55,7 @@ class Desktop:
         self.status_file = None
         self.answered_id = None
         self.finished = None
+        self.user_stopped = False
 
     def _project(self, name):
         if not isinstance(name, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,100}', name):
@@ -71,6 +72,11 @@ class Desktop:
             raise ValueError('Document must be inside this project')
         return path
 
+    def _managed_project(self, project):
+        return project.is_dir() and (
+            (project / '.pipeline-idea').is_file()
+            or ((project / '.git').is_dir() and (project / 'kb/graph.json').is_file()))
+
     def projects(self):
         root = self.factory / 'projects'
         if not root.exists():
@@ -84,7 +90,7 @@ class Desktop:
             try:
                 project = self._project(path.name)
                 result.append(self.project(project.name))
-            except (ValueError, OSError):
+            except (ValueError, OSError, RuntimeError):
                 continue
         return result
 
@@ -109,6 +115,7 @@ class Desktop:
                 continue
         return {
             'name': name,
+            'display_name': project_metadata.read_name(project, name),
             'idea': read_text(self._file(project, '.pipeline-idea')).strip(),
             'checkpoint': read_text(self._file(project, '.pipeline-checkpoint')).strip(),
             'verdict': read_text(self._file(project, 'verify_verdict.txt')).strip(),
@@ -193,14 +200,42 @@ class Desktop:
             node_id = references.add(graph, summary, detail)
             return graph.get(node_id)
 
+    def rename_project(self, name, display_name):
+        with self.lock:
+            if self.process is not None and self.process.poll() is None:
+                raise Conflict('Wait for the active project before editing a name')
+            project = self._project(name)
+            if not self._managed_project(project):
+                raise ValueError('Project not found')
+            project_metadata.write_name(project, display_name)
+            return self.project(name)
+
+    def delete_project(self, name, confirmation):
+        with self.lock:
+            if self.process is not None and self.process.poll() is None:
+                raise Conflict('Wait for the active project before deleting')
+            project = self._project(name)
+            if not self._managed_project(project):
+                raise ValueError('Project not found')
+            if confirmation != name:
+                raise Conflict('Confirm the exact project identifier before deleting')
+            trash = self.factory / 'projects/.trash'
+            if trash.is_symlink():
+                raise ValueError('Project trash cannot be a symlink')
+            trash.mkdir(parents=True, exist_ok=True)
+            project.rename(trash / f'{name}-{uuid.uuid4().hex}')
+            return {'deleted': name}
+
     def start(self, idea, *, auto=False, command=None, model_selection=None,
-              review_policy=None):
+              review_policy=None, display_name=None):
         if not isinstance(idea, str) or not idea.strip() or len(idea) > 12000 or '\x00' in idea:
             raise ValueError('Describe an idea using 1–12000 characters')
         if not isinstance(auto, bool):
             raise ValueError('auto must be a boolean')
         if review_policy is not None and review_policy not in ('normal', 'deep'):
             raise ValueError('review policy must be normal or deep')
+        if display_name is not None:
+            display_name = project_metadata.validate_name(display_name)
         selection_file = None
         if model_selection is not None:
             if command is not None:
@@ -233,7 +268,11 @@ class Desktop:
                 raise Conflict('Siesta is already working on a project')
             idea = idea.strip()
             name = slug(idea)
-            self._project(name)
+            project_path = self._project(name)
+            idea_file = project_path / '.pipeline-idea'
+            if display_name is not None and (idea_file.exists() or idea_file.is_symlink()
+                                             or (project_path / '.git').exists()):
+                raise Conflict('This idea already has a project; resume it from Projects')
             run_id = uuid.uuid4().hex
             run_dir = Path(self.runtime.name) / run_id
             run_dir.mkdir()
@@ -250,6 +289,7 @@ class Desktop:
                    + os.pathsep + os.environ.get('PYTHONPATH', '')}
             args = command if command is not None else (
                 [sys.executable, '-u', '-m', 'pipeline.web.worker']
+                + (['--name', display_name] if display_name else [])
                 + (['--model-selection', str(selection_file)] if selection_file else [])
                 + (['--review-policy', review_policy] if review_policy else [])
                 + (['--auto'] if auto else []) + ['--', idea])
@@ -262,6 +302,7 @@ class Desktop:
             self.process = process
             self.log, self.status_file = log, status_file
             self.answered_id, self.finished = None, None
+            self.user_stopped = False
             self.run = {'id': run_id, 'project': name, 'idea': idea,
                         'started': time.time()}
             return self.snapshot()
@@ -288,10 +329,12 @@ class Desktop:
                     self.finished = time.time()
                 try:
                     project = self.project(self.run['project'])
-                except (ValueError, OSError):
+                except (ValueError, OSError, RuntimeError):
                     project = {}
                 status = 'incomplete'
-                if code != 0:
+                if self.user_stopped:
+                    status = 'stopped'
+                elif code != 0:
                     status = 'failed'
                 elif project.get('stopped'):
                     status = 'stopped'
@@ -320,6 +363,23 @@ class Desktop:
             except (BrokenPipeError, OSError) as exc:
                 raise Conflict('The interview process has ended') from exc
             self.answered_id = input_id
+            return self.snapshot()
+
+    def stop(self, run_id):
+        with self.lock:
+            if (not self.run or self.run['id'] != run_id or self.process is None
+                    or self.process.poll() is not None):
+                raise Conflict('This run is no longer active')
+            self.user_stopped = True
+            try:
+                os.killpg(self.process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                os.killpg(self.process.pid, signal.SIGKILL)
+                self.process.wait(timeout=3)
             return self.snapshot()
 
     def close(self):

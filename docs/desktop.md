@@ -26,15 +26,19 @@ an advisory factory lock; Windows without WSL is not supported.
 
 ## Work and play
 
-- **New project:** describe your idea and start. The interview runs unless you
+- **New project:** give the project a visible name, describe your idea and start. The interview runs unless you
   explicitly select “Skip the interview”. Starting a project calls the configured
   models, just like the CLI.
 - **Activity:** inspect the current phase, elapsed time and recent console
   output. When Siesta asks a question, write your answer below the console.
   For the interview's final summary, type `yes` or explain what should change.
+  Stop ends the active process and leaves its current evidence for recovery.
 - **Projects:** inspect saved projects, specifications, issue plans, design
   reviews and requirement evidence. Resume uses the recorded original idea.
   A completed project uses the pipeline's existing recheck/resume behavior.
+  Edit changes its visible name without moving its Git directory. Delete moves
+  it to `factory/projects/.trash/` after confirmation; it disappears from the
+  Projects list and can be restored manually from that directory.
 - **Knowledge:** browse global and project KB entries, search titles, types or
   details, open node text and follow linked KB relations. Add a global reference note before starting
   a project. New projects copy the current notes into their own KB; later edits
@@ -71,6 +75,10 @@ Before starting, choose normal or deep review. The policy is pinned to the
 project on resume. The activity window shows the current agent and model,
 review round, blocking findings and calls/active minutes used. Token and cost
 values display as unknown until a provider supplies reliable totals.
+Project names are local metadata; the Git directory key still derives from the
+original idea. CLI runs may set a name with `--name`, while older projects
+display their existing directory key until renamed. Editing or
+deleting a project is unavailable during an active run.
 
 “Complete” requires a successful process exit, the `complete` checkpoint and
 `VERIFY_PASSED`. Failed, stopped and unverified runs remain distinct. A green

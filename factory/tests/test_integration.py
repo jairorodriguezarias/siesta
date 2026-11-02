@@ -296,6 +296,13 @@ class PipelineRun(unittest.TestCase):
                              and node["summary"] == "Later"
                              for node in project_graph["nodes"]))
 
+    def test_cli_visible_name_is_saved_without_changing_project_git_key(self):
+        result = self.siesta('--auto', '--name', 'My named app', self.idea)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        self.assertEqual((self.proj() / '.siesta/display-name.txt').read_text().strip(),
+                         'My named app')
+        self.assertEqual(self.proj().name, self.name)
+
     def test_cli_saves_and_uses_phase_agent_model_selection(self):
         selection_path = self.tmp / "model-selection.json"
         selection_path.write_text(json.dumps({
@@ -483,12 +490,10 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("Issue #2 blocked after diagnosis", blockers)
         # Per issue: initial + 2 resolution retries + 1 diagnosis-feedback
         # retry = 4 worker calls; learn hooks skipped when blocked.
-        # Verification adds one worker call; final review uses specialists.
+        # Verification adds one worker call; blocked issues skip final review.
         self.assertEqual(self.log_count("--model worker-model"), 9)
-        # Per issue: 2 resolutions + 1 diagnosis = 3 consultant calls,
-        # plus the review proxy → 7; the per-issue learn hooks never ran
-        # (blocked) and project learning adds 1 → 8.
-        self.assertEqual(self.log_count("--model consultant-model"), 14)
+        # No specialist/proxy calls are spent reviewing recovered blocked work.
+        self.assertEqual(self.log_count("--model consultant-model"), 11)
         self.assertIn("2 blocked", result.stdout)
         self.assertFalse((proj / "learning_issue_1.txt").exists())
 
@@ -502,10 +507,10 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("Issue #1 skipped after diagnosis", blockers)
         self.assertIn("Issue #2 skipped after diagnosis", blockers)
         self.assertFalse((proj / "stop.md").exists())  # SKIP, not CRITICAL
-        # Each issue uses three workers; verification adds one. Specialists
-        # and the proxy use the consultant route.
+        # Each issue uses three workers; verification adds one. Final review
+        # and its proxy are skipped while the issues remain blocked.
         self.assertEqual(self.log_count("--model worker-model"), 7)
-        self.assertEqual(self.log_count("--model consultant-model"), 14)
+        self.assertEqual(self.log_count("--model consultant-model"), 11)
         self.assertIn("2 blocked", result.stdout)
 
     def test_single_consultation_recovers_issue(self):
@@ -591,6 +596,14 @@ class PipelineRun(unittest.TestCase):
         # per issue: initial + 1 degenerate feedback retry = 2 worker calls,
         # no learn hooks when blocked → 4, plus verification; review uses consultants.
         self.assertEqual(self.log_count("--model worker-model"), 5)
+
+    def test_blocked_issue_does_not_trigger_final_specialist_review(self):
+        result = self.siesta("--auto", self.idea, scenario="degenerate_always")
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assertIn("Skipping final review", result.stderr)
+        calls = (self.tmp / "pi_calls.log").read_text()
+        self.assertNotIn("Agent identity: integration-reviewer", calls)
+        self.assertNotIn("Agent identity: quality-reviewer", calls)
 
     def test_blocked_issue_leaves_no_tree_residue(self):
         # #49: a blocked issue's uncommitted work is discarded — the tree

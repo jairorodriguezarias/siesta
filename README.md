@@ -35,20 +35,22 @@ PYTHONPATH=factory python -m pipeline.web
 
 Open `http://127.0.0.1:8765` to launch projects, answer the interview and read
 results. The Knowledge view lets you browse the KB and add notes for future
-projects. Play Snake while the agents work; the desktop alerts you when your
-attention is needed. Use the Python environment from the setup guide below.
+projects. Name projects, rename or remove them from Projects, and stop an active
+run from Activity. Play Snake while the agents work; the desktop alerts you
+when your attention is needed. Use the Python environment from the setup guide
+below.
 
 With Python, Git, [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)
 and your model access configured:
 
 ```bash
-./factory/bin/siesta.sh 'Build a Python CLI timer with tests'
+./factory/bin/siesta.sh --name 'My timer' 'Build a Python CLI timer with tests'
 ```
 
 Already know exactly what you want? Skip the interview:
 
 ```bash
-./factory/bin/siesta.sh --auto \
+./factory/bin/siesta.sh --auto --name 'Sum CLI' \
   'Build sum_cli.py: accept two integers, print their sum, reject invalid input. Use one issue with pytest tests.'
 ```
 

@@ -303,6 +303,7 @@ h3 {
 #launch-form {
   margin: 29px 0 0;
 }
+#project-name { margin-bottom: 16px; }
 label {
   display: block;
   font-size: 12px;
@@ -853,6 +854,13 @@ input::placeholder {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+.project-actions, .activity-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.project-actions button, .activity-actions button { font-size: 10px; }
+#project-name-form { margin: 12px 0; padding: 12px; border: 1px solid #c4c6b1; }
+#project-name-form button { margin: 8px 6px 0 0; }
+@media (max-width: 760px) {
+  .detail-heading { align-items: flex-start; flex-direction: column; }
 }
 .detail-heading button {
   font-size: 10px;

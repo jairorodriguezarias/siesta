@@ -69,6 +69,7 @@ try {
   await page.locator('.menubar [data-view="new"]').click();
   await mkdir(output, { recursive: true });
   await page.screenshot({ path: `${output}/desktop.png`, fullPage: true });
+  await page.locator("#project-name").fill("My timer");
   await page.locator("#idea").fill("A small timer");
   await page.locator("#launch-button").click();
   await page.locator("#view-activity").waitFor({ state: "visible" });
@@ -117,6 +118,7 @@ try {
       .querySelector("#document-content")
       .textContent.includes("Count seconds"),
   );
+  assert.equal(await page.locator("#project-title").textContent(), "My timer");
   assert.equal(
     await page.locator("#document-content img").count(),
     0,
@@ -143,6 +145,21 @@ try {
     await page.locator("#console").textContent(),
     /without another interview/,
   );
+  await page.locator('.menubar [data-view="projects"]').click();
+  await page.locator("#edit-project-button").click();
+  await page.locator("#project-name-edit").fill("Renamed timer");
+  await page.locator("#project-name-form button[type=submit]").click();
+  await page.waitForFunction(() => document.querySelector("#project-title").textContent === "Renamed timer");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#delete-project-button").click();
+  await page.waitForFunction(() => document.querySelector("#project-detail").hidden);
+  await page.locator('.menubar [data-view="new"]').click();
+  await page.locator("#project-name").fill("Stop test");
+  await page.locator("#idea").fill("Another timer");
+  await page.locator("#launch-button").click();
+  await page.locator("#stop-button").waitFor({ state: "visible" });
+  await page.locator("#stop-button").click();
+  await page.waitForFunction(() => document.querySelector("#run-status").textContent === "STOPPED");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('.menubar [data-view="knowledge"]').click();
   await page.screenshot({ path: `${output}/knowledge-mobile.png`, fullPage: true });
@@ -202,6 +219,7 @@ try {
   });
   await browserModels.goto(url);
   await browserModels.locator('#new-model-picker select[data-phase="interview"]').waitFor();
+  await browserModels.locator("#project-name").fill("Routing test");
   await browserModels.locator("#idea").fill("A small model routing test");
   await browserModels.locator('#new-model-picker select[data-phase="interview"]').selectOption("local-test:latest");
   await browserModels.locator('#new-model-picker select[data-phase="planning"]').selectOption("cloud-test:cloud");
@@ -213,6 +231,7 @@ try {
   await browserModels.locator("#review-policy").selectOption("deep");
   await browserModels.locator("#launch-button").click();
   await browserModels.waitForFunction(() => document.querySelector("#view-activity").hidden === false);
+  assert.equal(launches[0].name, "Routing test");
   assert.equal(launches[0].model_selection.phases.interview.model, "local-test:latest");
   assert.equal(launches[0].model_selection.phases.planning.model, "cloud-test:cloud");
   assert.equal(launches[0].model_selection.agents.planning["quality-reviewer"].model, "local-test:latest");
@@ -252,7 +271,7 @@ try {
   await browserResume.close();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: interview, refresh, model routes, resume, evidence, Snake, mobile layout; no browser errors.",
+    "PASS: knowledge, named projects, edit/delete, stop, interview, model routes, resume, Snake and mobile; no browser errors.",
   );
   console.log(`Screenshots: ${output}`);
 } finally {

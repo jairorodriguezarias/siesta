@@ -64,11 +64,13 @@ class HTTPTests(unittest.TestCase):
             'model': 'planner-local', 'provider': 'ollama'}}}
         with patch.object(self.desktop, 'start', return_value={'status': 'running'}) as start:
             status, _, _ = self.request('/api/run', method='POST',
-                body=json.dumps({'idea': 'A small CLI', 'model_selection': selection}),
+                body=json.dumps({'idea': 'A small CLI', 'name': 'Small CLI',
+                                 'model_selection': selection}),
                 headers={'Content-Type': 'application/json', 'X-Siesta-Token': token})
         self.assertEqual(status, 200)
         start.assert_called_once_with('A small CLI', auto=False,
-                                     model_selection=selection, review_policy=None)
+                                     model_selection=selection, review_policy=None,
+                                     display_name='Small CLI')
 
     def test_model_catalog_and_check_keep_server_token_boundary(self):
         from pipeline import model_catalog
@@ -98,11 +100,38 @@ class HTTPTests(unittest.TestCase):
         token = json.loads(session)['token']
         with patch.object(self.desktop, 'start', return_value={'status': 'running'}) as start:
             status, _, _ = self.request('/api/run', method='POST',
-                body=json.dumps({'idea': 'Review deeply', 'review_policy': 'deep'}),
+                body=json.dumps({'idea': 'Review deeply', 'name': 'Deep review',
+                                 'review_policy': 'deep'}),
                 headers={'Content-Type': 'application/json', 'X-Siesta-Token': token})
         self.assertEqual(status, 200)
         start.assert_called_once_with('Review deeply', auto=False,
-                                      model_selection=None, review_policy='deep')
+                                      model_selection=None, review_policy='deep',
+                                      display_name='Deep review')
+
+    def test_project_management_and_stop_require_token_and_name(self):
+        _, session, _ = self.request('/api/session')
+        token = json.loads(session)['token']
+        headers = {'Content-Type': 'application/json', 'X-Siesta-Token': token}
+        self.assertEqual(self.request('/api/run', method='POST',
+            body=json.dumps({'idea': 'Timer'}), headers=headers)[0], 400)
+        self.assertEqual(self.request('/api/run', method='POST',
+            body=json.dumps({'idea': 'Timer', 'name': None}), headers=headers)[0], 400)
+        self.assertEqual(self.request('/api/stop', method='POST',
+            body='{"run_id":"x"}', headers={'Content-Type': 'application/json'})[0], 403)
+        with patch.object(self.desktop, 'stop', return_value={'status': 'stopped'}) as stop:
+            self.assertEqual(self.request('/api/stop', method='POST',
+                body='{"run_id":"run-1"}', headers=headers)[0], 200)
+            stop.assert_called_once_with('run-1')
+        with patch.object(self.desktop, 'rename_project', return_value={
+                'display_name': 'New title'}) as rename:
+            self.assertEqual(self.request('/api/project/rename', method='POST',
+                body='{"project":"timer","name":"New title"}', headers=headers)[0], 200)
+            rename.assert_called_once_with('timer', 'New title')
+        with patch.object(self.desktop, 'delete_project', return_value={
+                'deleted': 'timer'}) as delete:
+            self.assertEqual(self.request('/api/project/delete', method='POST',
+                body='{"project":"timer","confirm":"timer"}', headers=headers)[0], 200)
+            delete.assert_called_once_with('timer', 'timer')
 
     def test_knowledge_list_detail_and_add_require_local_token(self):
         self.assertEqual(self.request('/api/knowledge?scope=global')[0], 200)
