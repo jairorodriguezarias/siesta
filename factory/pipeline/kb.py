@@ -84,6 +84,15 @@ class Graph:
         self._reload()
         return next((n for n in self.data["nodes"] if n["id"] == node_id), None)
 
+    def update_detail(self, node_id: str, detail: str) -> None:
+        """Atomically replace a node's detail after reloading the graph."""
+        self._reload()
+        node = next((n for n in self.data["nodes"] if n["id"] == node_id), None)
+        if node is None:
+            raise ValueError(f"Unknown KB node: {node_id}")
+        node["detail"] = detail
+        _save(self.path, self.data)
+
     def compact(self, type_: str | None = None) -> str:
         return json.dumps(self.query(type_=type_, summary_only=True))
 

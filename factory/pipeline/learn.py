@@ -145,6 +145,18 @@ def where_for_issue(issue: int | None) -> str:
     return f" (issue #{issue})" if issue is not None else " (project level)"
 
 
+def _review_proposals(ids: list[str], graph: Graph, project: Path) -> dict[str, str]:
+    """Learning must never overturn a verified product verdict."""
+    if not ids:
+        return {}
+    try:
+        from pipeline.skill_activation import review_and_activate
+        return review_and_activate(ids, graph, project=project)
+    except Exception as exc:
+        warn(f"Skill activation deferred: {exc}")
+        return {proposal_id: "pending" for proposal_id in ids}
+
+
 def _report(output: str, marker: re.Pattern, span: int) -> str:
     m = marker.search(output)
     return text.after(output, m, span) if m else ""
@@ -228,8 +240,9 @@ ISSUE_LEARNING #{n}:
     NO_ACTION: nothing to learn (rare)
 
 Use the supplied complete skill texts as the previous versions. A skill change
-is only a candidate: Python records it for later review and never activates it
-during this execution. For every supported change, include a matching
+    is only a candidate: Python independently reviews and tests it before
+    activation for future executions. This execution uses pinned versions.
+    For every supported change, include a matching
 SKILL_IMPROVEMENT or NEW_SKILL action and a complete replacement block. Do not
 propose skills outside the factory skill list."""
 
@@ -309,13 +322,14 @@ def learn_issue(proj: Path, n: int, issue_text: str, kb: Graph, gkb: Graph) -> s
         out, FACTORY_SKILLS, gkb, project=proj, issue=n,
         evidence={key: value for key, value in facts.items()
                   if key in ("issue_text", "issue_output", "consult", "proxy", "retry")})
+    outcomes = _review_proposals(proposal_ids, gkb, proj)
     if proposal_ids:
-        log(f"Recorded {len(proposal_ids)} pending skill proposal(s)")
+        log(f"Reviewed {len(proposal_ids)} skill proposal(s): {outcomes}")
     transcript = "\n".join([
         f"Issue #{n} learning complete:",
         f"  Learnings logged:     {counts['learnings']}",
         f"  Skill improvements:   {counts['improvements']}",
-        f"  Complete proposals:  {len(proposal_ids)} (pending review)",
+        f"  Complete proposals:  {len(proposal_ids)} ({outcomes})",
         f"  New skills proposed:  {counts['new_skills']}",
         f"  Global KB nodes:      {len(gkb.query(summary_only=True))}",
         _report(out, ISSUE_LEARN, 30), ""],
@@ -381,8 +395,9 @@ PROJECT_LEARNING:
     NEW_SKILL: <name> — <what> (if any)
 
 Use the supplied complete skill texts as the previous versions. A skill change
-is only a candidate: Python records it for later review and never activates it
-during this execution. For every supported change, include a matching
+    is only a candidate: Python independently reviews and tests it before
+    activation for future executions. This execution uses pinned versions.
+    For every supported change, include a matching
 SKILL_IMPROVEMENT or NEW_SKILL action and a complete replacement block. Do not
 propose skills outside the factory skill list."""
 
@@ -415,10 +430,11 @@ def learn_project(proj: Path, name: str, kb: Graph, gkb: Graph) -> str:
     proposal_ids = propose_skill_updates(
         out, FACTORY_SKILLS, gkb, project=proj, issue=None,
         evidence={"project_learning": out, "issue_learnings": issue_learnings})
+    outcomes = _review_proposals(proposal_ids, gkb, proj)
     transcript = "\n".join([
         "Project-level learning complete!",
         f"  New learnings logged: {counts['learnings']}",
-        f"  Complete proposals: {len(proposal_ids)} (pending review)",
+        f"  Complete proposals: {len(proposal_ids)} ({outcomes})",
         f"  Global KB: {len(gkb.query(summary_only=True))} nodes",
         _report(out, PROJECT_LEARN, 35), ""],
     )

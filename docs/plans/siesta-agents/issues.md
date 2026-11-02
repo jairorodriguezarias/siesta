@@ -437,7 +437,7 @@ debilitan verificaciones o inventan herramientas. Suite completa: 445 tests,
 
 ## Issue #13: Revisar y activar automáticamente mejoras de skills
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #3, #8, #12.
 
 Incorporar revisor independiente y validación antes de activar una mejora.
@@ -454,6 +454,16 @@ Incorporar revisor independiente y validación antes de activar una mejora.
 
 **Verificación:** aceptación, rechazo, evaluación fallida, conflicto de versión
 y recuperación ante interrupción.
+
+**Evidencia:** `pipeline/skill_activation.py` exige evaluación de formato,
+simulación y ejecución real junto con informe válido de `skill-reviewer`;
+compara el contenido activo con la versión propuesta, conserva la anterior y
+recupera swaps interrumpidos. `test_skill_activation.py` cubre aceptación,
+rechazo, evaluación fallida, conflicto, reintento inválido y recuperación.
+El aprendizaje captura errores de activación sin alterar el veredicto del
+producto. La evaluación real de propuestas futuras requiere un modelo Pi
+disponible y escenarios de la skill afectada. Suite completa: 451 tests,
+`/tmp/siesta-test-venv/bin/python -B -m unittest discover -s tests -q`, exit 0.
 
 ## Issue #14: Descubrir y validar modelos Ollama
 

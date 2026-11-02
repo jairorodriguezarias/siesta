@@ -98,8 +98,14 @@ Learner output is kept in three distinct records: `learning` observations,
 `skill_proposal` records. Each complete proposal stores the pinned previous
 content, candidate content, reason, learner output and supporting run evidence.
 Only factory skill names can be proposed; adapted skill names and paths are
-rejected. Proposals do not replace active files. Activation requires the later
-independent review and validation workflow.
+rejected. Python evaluates a complete candidate against that skill's scenario
+suite, including real model behavior, and asks the independent `skill-reviewer`
+to compare previous text, candidate and evidence. Failed or missing validation
+leaves the proposal pending; concrete reviewer findings reject it. An approved
+candidate atomically replaces the active factory skill for future projects,
+while the current project keeps its pinned version. The prior version is saved
+under ignored `.runtime/skill-history/`; an interrupted swap is recovered from
+its journal. Review reports are stored in the project's `.siesta/skill-reviews/`.
 
 Complete candidates use unindented `SKILL_UPDATE_START: name` and
 `SKILL_UPDATE_END` outer markers. Literal marker examples inside a replacement

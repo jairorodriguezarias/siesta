@@ -76,6 +76,12 @@ AGENTS = {
         allowed_contexts=("review",),
         response_format="Return one structured JSON review report.",
     ),
+    "skill-reviewer": Agent(
+        id="skill-reviewer", model_role="consultant",
+        definition_path=AGENT_DIR / "skill-reviewer.md", allowed_tools=(),
+        allowed_contexts=("learning",),
+        response_format="Return one structured JSON review report.",
+    ),
 }
 
 
