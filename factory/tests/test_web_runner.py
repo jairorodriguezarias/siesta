@@ -1,0 +1,126 @@
+"""Desktop process lifecycle, verdicts and file boundaries."""
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+import unittest
+
+from pipeline.web.runner import Desktop, Conflict
+
+
+class DesktopTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.factory = Path(self.tmp.name) / 'factory'
+        self.factory.mkdir()
+        self.desktop = Desktop(self.factory)
+        self.addCleanup(self.desktop.close)
+
+    def launch(self, code, idea='test project'):
+        return self.desktop.start(idea, auto=True, command=[sys.executable, '-u', '-c', code])
+
+    def wait_for(self, predicate):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            state = self.desktop.snapshot()
+            if predicate(state):
+                return state
+            time.sleep(.02)
+        self.fail(f'Timed out: {state}')
+
+    def test_interview_reply_and_duplicate_start_are_guarded(self):
+        self.launch("from pipeline.events import update; update(phase='0', input_id='first'); "
+                    "print('Your idea?'); answer=input(); print('ANSWER:'+answer); "
+                    "update(input_id=None)")
+        state = self.wait_for(lambda s: s.get('input_id') == 'first')
+        with self.assertRaises(Conflict):
+            self.launch('pass', idea='another project')
+        with self.assertRaises(Conflict):
+            self.desktop.reply(state['id'], 'stale', 'no')
+        self.desktop.reply(state['id'], 'first', 'a timer')
+        with self.assertRaises(Conflict):
+            self.desktop.reply(state['id'], 'first', 'duplicate')
+        final = self.wait_for(lambda s: s['status'] not in ('running', 'waiting'))
+        self.assertIn('ANSWER:a timer', final['output'])
+        self.assertEqual(final['status'], 'incomplete')
+
+    def test_success_requires_complete_checkpoint_and_verdict(self):
+        project = self.factory / 'projects/test-project'
+        project.mkdir(parents=True)
+        (project / '.pipeline-checkpoint').write_text('complete')
+        (project / 'verify_verdict.txt').write_text('VERIFY_PASSED')
+        self.launch("print('done')")
+        final = self.wait_for(lambda s: s['status'] != 'running')
+        self.assertEqual(final['status'], 'complete')
+
+    def test_nonzero_exit_vetoes_saved_success(self):
+        project = self.factory / 'projects/test-project'
+        project.mkdir(parents=True)
+        (project / '.pipeline-checkpoint').write_text('complete')
+        (project / 'verify_verdict.txt').write_text('VERIFY_PASSED')
+        self.launch("import sys; print('provider failed'); sys.exit(3)")
+        final = self.wait_for(lambda s: s['status'] != 'running')
+        self.assertEqual(final['status'], 'failed')
+        self.assertEqual(final['returncode'], 3)
+
+    def test_project_documents_cannot_escape_allowlist_or_directory(self):
+        project = self.factory / 'projects/example'
+        project.mkdir(parents=True)
+        (project / '.pipeline-idea').write_text('Example project')
+        (project / 'spec.md').write_text('# A harmless specification')
+        secret = Path(self.tmp.name) / 'private.txt'
+        secret.write_text('do not expose')
+        (project / 'issues.md').symlink_to(secret)
+        self.assertEqual(self.desktop.document('example', 'spec.md'), '# A harmless specification')
+        for name, artifact in [('../', 'spec.md'), ('example', '../private.txt'), ('example', 'issues.md')]:
+            with self.subTest(name=name, artifact=artifact), self.assertRaises(ValueError):
+                self.desktop.document(name, artifact)
+        self.assertEqual(self.desktop.projects()[0]['idea'], 'Example project')
+
+    def test_close_terminates_live_child_and_output_is_bounded(self):
+        self.launch("import time; print('x'*100000); time.sleep(30)")
+        self.wait_for(lambda s: 'x' in s['output'])
+        process = self.desktop.process
+        self.assertLessEqual(len(self.desktop.snapshot()['output']), 65536)
+        self.desktop.close()
+        self.assertIsNotNone(process.poll())
+
+    def test_shutdown_unwinds_a_pi_call_and_kills_its_separate_group(self):
+        config = self.factory / 'config'
+        config.mkdir()
+        (config / 'models.json').write_text(
+            (Path(__file__).resolve().parents[1] / 'config/models.json').read_text())
+        pid_file = self.factory / 'provider.pid'
+        provider = f"import os,time; open({str(pid_file)!r},'w').write(str(os.getpid())); time.sleep(30)"
+        self.launch("import sys; from pipeline.web import worker; from pipeline import pi; "
+                    f"pi.build_args=lambda *a,**kw:[sys.executable,'-c',{provider!r}]; "
+                    "worker.run=lambda:pi.run_pi('planner','body','user'); worker.main()")
+        self.wait_for(lambda s: pid_file.exists() or s['status'] == 'failed')
+        self.assertTrue(pid_file.exists(), self.desktop.snapshot()['output'])
+        pid = int(pid_file.read_text())
+        self.desktop.close()
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_second_desktop_cannot_write_the_same_factory(self):
+        with self.assertRaises(Conflict):
+            Desktop(self.factory)
+        self.desktop.close()
+        replacement = Desktop(self.factory)
+        replacement.close()
+
+    def test_reported_project_name_is_authoritative(self):
+        project = self.factory / 'projects/project-actual'
+        project.mkdir(parents=True)
+        (project / '.pipeline-checkpoint').write_text('complete')
+        (project / 'verify_verdict.txt').write_text('VERIFY_PASSED')
+        self.launch("from pipeline.events import update; update(project='project-actual')", idea='🐍')
+        state = self.wait_for(lambda s: s['status'] != 'running')
+        self.assertEqual(state['project'], 'project-actual')
+        self.assertEqual(state['status'], 'complete')
+
+
+if __name__ == "__main__":
+    unittest.main()

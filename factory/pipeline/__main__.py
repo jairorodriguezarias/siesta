@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-from pipeline import design, learn, phases, repository, text
+from pipeline import design, events, learn, phases, repository, text
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY, GLOBAL_KB, ROLE, _declared_context,
                          warn_if_context_mismatch, err, log, ok, phase, warn)
@@ -131,6 +131,7 @@ def _run(args) -> None:
         log(f"Model {role}: {route['model']} (provider: {route['provider']})")
     idea = args.idea
     name = slug(idea)
+    events.update(project=name)
     proj = FACTORY / "projects" / name
     checkpoint = proj / ".pipeline-checkpoint"
     if (proj / 'stop.md').exists():

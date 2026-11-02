@@ -115,6 +115,8 @@ def err(msg: str) -> None:
 
 
 def phase(n: int | str, title: str) -> None:
+    from . import events
+    events.update(phase=str(n))
     print(f"{_CYAN}══━─ Phase {n}: {title} ─━══{_NC}", file=sys.stderr)
 
 

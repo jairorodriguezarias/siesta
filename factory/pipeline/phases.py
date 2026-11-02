@@ -151,7 +151,13 @@ defaults made explicit>"""
 
 def _read_answer() -> str:
     """One human answer from this terminal (patched in tests)."""
-    return input("> ")
+    from . import events
+    from uuid import uuid4
+    events.update(input_id=uuid4().hex)
+    try:
+        return input("> ")
+    finally:
+        events.update(input_id=None)
 
 
 def _quoted(raw: str, why: str) -> str:

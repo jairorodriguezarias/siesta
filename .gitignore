@@ -30,6 +30,7 @@ factory/projects/
 
 # Local validation profiles, credentials and run evidence
 .runtime/
+.siesta-desktop.lock
 
 # Local knowledge, plans and development notes
 /factory/kb/global-graph.json
