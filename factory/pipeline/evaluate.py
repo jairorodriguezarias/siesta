@@ -135,11 +135,36 @@ def main(argv=None):
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--case', choices=CASES, action='append')
     parser.add_argument('--timeout', type=int, default=600, help='Maximum seconds per case')
+    parser.add_argument('--skill-scenarios', type=Path,
+                        help='Run a factory skill test_scenarios.yaml suite')
+    parser.add_argument('--real-skill-scenarios', action='store_true',
+                        help='Also run each scenario against the selected Pi model')
     args = parser.parse_args(argv)
     if args.timeout < 1:
         parser.error('--timeout must be positive')
+    if args.real_skill_scenarios and not args.skill_scenarios:
+        parser.error('--real-skill-scenarios requires --skill-scenarios')
+    if args.skill_scenarios and args.case:
+        parser.error('--case cannot be combined with --skill-scenarios')
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output / '.gitignore').write_text('*\n')
+    if args.skill_scenarios:
+        from pipeline.skill_scenarios import evaluate_suite
+        result = evaluate_suite(args.skill_scenarios,
+                                real=args.real_skill_scenarios,
+                                output_dir=args.output / 'runtime',
+                                skills_root=FACTORY / 'skills')
+        report = {'date': datetime.now(timezone.utc).isoformat(),
+                  'skill_scenarios': result,
+                  'measurement': 'The suite separates format, simulation and live evaluation. '
+                                 'Pi text mode does not expose structured tool events.'}
+        (args.output / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
+        print(json.dumps(result), flush=True)
+        passed = (result['format']['status'] == 'passed'
+                  and result['simulated']['status'] == 'passed'
+                  and (not args.real_skill_scenarios
+                       or result['real']['status'] == 'passed'))
+        raise SystemExit(0 if passed else 1)
     report = {'date': datetime.now(timezone.utc).isoformat(), 'models': ROLE, 'results': [],
               'measurement': 'Wall time and call count measured; text-mode Pi exposes no token/cost totals.'}
     for index, case in enumerate(args.case or CASES, 1):

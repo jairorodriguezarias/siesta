@@ -93,3 +93,4 @@ performance improved.
 | `pipeline/files.py` | Source selection and local evidence directory |
 | `pipeline/kb.py`, `pipeline/learn.py` | Memory and learning |
 | `pipeline/evaluate.py` | Isolated live-model evaluation cases |
+| `pipeline/skill_scenarios.py` | Strict YAML validation, simulated assertions and optional live skill evaluation |

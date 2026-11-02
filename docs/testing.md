@@ -11,6 +11,8 @@ python -B -m unittest discover -s tests -v
 The suite uses temporary directories and a fake Pi executable; it does not
 need model credentials or a running Ollama server. Pytest is required because
 integration tests exercise generated projects with real test subprocesses.
+PyYAML is a development dependency for reading declarative factory skill
+scenarios; it is not imported by the desktop frontend or normal pipeline path.
 
 The [desktop guide](desktop.md#verification) adds the Node Snake-rule tests and
 an optional Playwright check using a controlled local child process. Neither
@@ -27,6 +29,9 @@ requires live model access. Backend HTTP/process tests run in the normal suite.
 - Model routing, tool permissions, timeouts and context warnings.
 - Full skill delivery to tool-free calls, large-prompt transport, complete proxy
   decision evidence, and skill replacement examples isolated from KB actions.
+- Strict factory skill YAML suites, duplicate and unknown-field rejection,
+  independent format/simulation/live results, and tool-claim checks requiring
+  structured execution records.
 - Isolated design review, malformed replies, changed requirements and cached approvals.
 - Requirement mappings to actual passing pytest IDs, including parametrized IDs.
 - Product changes during verification, failed completion commits and legacy resume gates.
@@ -65,6 +70,17 @@ a complete checkpoint and a relaunch with no additional model calls or commits.
 checks, resume behavior and a hash of the tested pipeline sources. Console
 logs and projects remain beside it. The harness is noninteractive, so its
 human-intervention count is zero. Timeouts fail the case and stop its processes.
+
+Run format and simulated checks with `python -m pipeline.evaluate`, passing
+`--skill-scenarios PATH_TO_FACTORY_SKILL/test_scenarios.yaml` and a fresh
+`--output` directory.
+
+Add `--real-skill-scenarios` to invoke the configured Pi model as a separate
+stage. Scenario files use a strict versioned YAML schema and a fixed set of
+assertion types. Simulated and real results are reported independently. A
+response claiming to have used a tool must have a structured execution record;
+Pi text mode currently supplies no such runtime event records, so live
+tool-use claims fail unless a runner explicitly returns them.
 
 Token counts and monetary cost are **unknown**, not zero: Pi's text mode does
 not expose those totals. Model-call duration is not provider billing latency.

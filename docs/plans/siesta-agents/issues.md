@@ -319,7 +319,7 @@ fijadas y propuestas a skills no autorizadas.
 
 ## Issue #9: Ejecutar escenarios de prueba de skills
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #1.
 
 Añadir lector y ejecutor de `test_scenarios.yaml`, integrado con la evaluación
@@ -335,6 +335,19 @@ frontal.
 
 **Verificación:** YAML incorrecto, aserción desconocida, respuesta que afirma
 ejecutar sin hacerlo y escenario válido.
+
+**Evidencia de verificación:**
+
+- `tests.test_skill_scenarios`: YAML inválido, claves duplicadas y desconocidas,
+  aserciones no soportadas, marcadores dentro de fences, escenarios válidos,
+  separación de resultados de simulación y evaluación real, y afirmaciones de
+  ejecución que fallan sin registros estructurados.
+- `tests.test_evaluate`: regresiones de las evaluaciones de producto existentes.
+- Suite completa: 436 tests, `/tmp/siesta-test-venv/bin/python -B -m unittest discover -s tests -v`,
+  `EXIT_CODE=0`. La etapa de modelo real se probó con un invocador controlado;
+  no se hizo una llamada a un modelo.
+- `requirements-dev.txt` añade PyYAML; el lector lo importa solo al usar los
+  escenarios. `docs/testing.md` documenta la ejecución y sus límites.
 
 ## Issue #10: Probar el protocolo de aprobación
 
