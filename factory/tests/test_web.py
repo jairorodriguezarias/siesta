@@ -69,6 +69,29 @@ class HTTPTests(unittest.TestCase):
         start.assert_called_once_with('A small CLI', auto=False,
                                      model_selection=selection)
 
+    def test_model_catalog_and_check_keep_server_token_boundary(self):
+        from pipeline import model_catalog
+        with patch.object(model_catalog, 'catalog', return_value={
+                'models': [{'id': 'local:latest', 'origin': 'local'}]}) as listing:
+            status, content, _ = self.request('/api/models')
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(content)['models'][0]['id'], 'local:latest')
+        listing.assert_called_once_with(self.desktop.factory)
+        body = json.dumps({'model': 'local:latest', 'tools': True})
+        self.assertEqual(self.request('/api/models/check', method='POST', body=body,
+                                     headers={'Content-Type': 'application/json'})[0], 403)
+        _, session, _ = self.request('/api/session')
+        token = json.loads(session)['token']
+        with patch.object(model_catalog, 'check_compatibility', return_value={
+                'status': 'compatible'}) as check:
+            status, content, _ = self.request('/api/models/check', method='POST',
+                body=body, headers={'Content-Type': 'application/json',
+                                    'X-Siesta-Token': token})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(content), {'status': 'compatible'})
+        check.assert_called_once_with(self.desktop.factory, model='local:latest',
+                                      provider='ollama', tools=True)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -467,7 +467,7 @@ disponible y escenarios de la skill afectada. Suite completa: 451 tests,
 
 ## Issue #14: Descubrir y validar modelos Ollama
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #2.
 
 Añadir al backend catálogo de modelos locales y cloud, unido al perfil Pi de
@@ -486,6 +486,16 @@ Siesta.
 
 **Verificación:** Ollama no disponible, catálogo mixto, fallo de autenticación,
 modelo sin registrar y herramientas incompatibles.
+
+**Evidencia:** `pipeline/model_catalog.py` cruza el catálogo Pi con `/api/tags`
+sin exponer credenciales, y realiza una prueba explícita de texto y escritura
+nativa en un directorio temporal. `test_model_catalog.py` cubre catálogo mixto,
+Ollama caído, modelo no registrado, autenticación fallida, incompatibilidad de
+herramientas y ruta exacta. `test_web.py` comprueba origen y token HTTP.
+Suite completa: 457 tests, `/tmp/siesta-test-venv/bin/python -B -m unittest
+discover -s tests -q`, exit 0. En este perfil, el catálogo real muestra 11
+modelos; los defaults cloud antiguos están instalados pero no registrados en
+Pi, y `glm-5.3-flash:cloud` está instalado y registrado.
 
 ## Issue #15: Elegir modelos desde el frontal
 

@@ -45,3 +45,15 @@ configuration.
 
 The local desktop API accepts the same object as model_selection when it starts
 a run. The browser controls are added separately in issue #15.
+
+The desktop backend also exposes `GET /api/models`. It combines the exact IDs
+registered by the active Pi profile (`PI_CODING_AGENT_DIR` or Pi's default
+profile), Ollama's installed tags and the configured role defaults. An entry
+reports origin, installation, Pi registration, validation and any preparation
+needed. Pi registration alone does not prove the model is installed or that it
+can use tools. `POST /api/models/check` with the session token and a JSON body
+such as `{"model":"qwen3:latest","provider":"ollama","tools":true}` runs
+an explicit compatibility check. Its native write test uses a temporary
+directory, and failure never selects another model. Credentials remain in the
+server's Pi/Ollama configuration. The most recent validation status is local
+runtime state under `factory/.runtime/model-validations.json`.

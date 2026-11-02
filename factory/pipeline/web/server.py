@@ -69,6 +69,9 @@ def make_server(desktop, port=8765):
                     self.send(200, desktop.snapshot())
                 elif url.path == '/api/projects':
                     self.send(200, {'projects': desktop.projects()})
+                elif url.path == '/api/models':
+                    from ..model_catalog import catalog
+                    self.send(200, catalog(desktop.factory))
                 elif url.path == '/api/document':
                     content = desktop.document(query.get('project', [''])[0],
                                                query.get('name', [''])[0])
@@ -101,6 +104,13 @@ def make_server(desktop, port=8765):
                                           model_selection=body.get('model_selection'))
                 elif self.path == '/api/reply':
                     state = desktop.reply(body.get('run_id'), body.get('input_id'), body.get('answer'))
+                elif self.path == '/api/models/check':
+                    from ..model_catalog import check_compatibility
+                    if set(body) - {'model', 'provider', 'tools'}:
+                        raise ValueError('Unknown model check field')
+                    state = check_compatibility(desktop.factory, model=body.get('model'),
+                                                provider=body.get('provider', 'ollama'),
+                                                tools=body.get('tools', True))
                 else:
                     self.send(404, {'error': 'Not found'})
                     return
