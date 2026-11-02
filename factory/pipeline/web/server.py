@@ -77,6 +77,16 @@ def make_server(desktop, port=8765):
                     content = desktop.document(query.get('project', [''])[0],
                                                query.get('name', [''])[0])
                     self.send(200, {'content': content, 'limit': 65536})
+                elif url.path == '/api/knowledge':
+                    self.send(200, desktop.knowledge(
+                        query.get('scope', ['global'])[0],
+                        query.get('project', [None])[0],
+                        query.get('q', [''])[0], query.get('type', [None])[0],
+                        int(query.get('offset', ['0'])[0])))
+                elif url.path == '/api/knowledge/item':
+                    self.send(200, desktop.knowledge_item(
+                        query.get('scope', ['global'])[0],
+                        query.get('id', [''])[0], query.get('project', [None])[0]))
                 else:
                     self.send(404, {'error': 'Not found'})
             except (ValueError, OSError):
@@ -113,6 +123,10 @@ def make_server(desktop, port=8765):
                     state = check_compatibility(desktop.factory, model=body.get('model'),
                                                 provider=body.get('provider', 'ollama'),
                                                 tools=body.get('tools', True))
+                elif self.path == '/api/knowledge':
+                    if set(body) != {'summary', 'detail'}:
+                        raise ValueError('A reference needs title and text')
+                    state = desktop.add_reference(body['summary'], body['detail'])
                 else:
                     self.send(404, {'error': 'Not found'})
                     return

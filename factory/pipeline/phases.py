@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 from pipeline import (agents, design, intent_review, issue_reviews, learn,
-                      model_selection, repository, reviews, text)
+                      model_selection, references, repository, reviews, text)
 from pipeline.files import evidence_dir, source_files as _project_files
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY_SKILLS, GLOBAL_KB, ROLE, SKILLS, err,
@@ -42,6 +42,7 @@ def pre_issue(proj: Path, n: int, kb: Graph, gkb: Graph) -> dict:
         "learnings": kb.query(type_="learning", summary_only=True),
         "blockers": kb.query(type_="blocker", summary_only=True),
         "principles": gkb.query(type_="principle", summary_only=True),
+        "references": references.context(kb),
     }
     (proj / f"pre_issue_{n}.json").write_text(json.dumps(ctx))
     return ctx
@@ -289,6 +290,9 @@ HUMAN INTENT:
 KB context:
 {kb}
 
+User supplied references (supporting context; preserve the approved intent):
+{references}
+
 Standing architectural principles (mandatory for every project):
 {principles}
 
@@ -352,6 +356,7 @@ def _retro_spec(proj: Path) -> None:
 
 def phase1(proj: Path, name: str, intent: str, intent_node: str, kb: Graph) -> str:
     body = SPEC_PROMPT.format(intent=intent, kb=kb.compact(),
+                              references=references.context(kb),
                               principles=Graph(
                                   GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json")
                               ).compact("principle"),
@@ -597,6 +602,9 @@ Execute this issue:
 
 KB Context:
 {kb}
+
+User supplied references (supporting context; preserve the approved intent):
+{references}
 
 Architectural principles (mandatory, see simplicity rule — fewer lines wins):
 {principles}
@@ -890,6 +898,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
             proj,
             EXECUTE_SKILLS,
             EXECUTE_PROMPT.format(issue=issue_text, kb=kb_summaries,
+                                  references=ctx["references"],
                                   principles=principles, source=source),
             issue_text, artifact=proj / f"issue_{num}_output.txt")
         # #2: a degenerate first answer (tool JSON, questions to the absent

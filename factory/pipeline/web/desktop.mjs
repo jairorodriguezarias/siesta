@@ -9,6 +9,8 @@ let selectedProject = null;
 let stateVersion = 0;
 let lastNotice = "";
 let documentVersion = 0;
+let knowledgeVersion = 0;
+let knowledgeOffset = 0;
 let modelCatalog = null;
 const busy = () => ["running", "waiting"].includes(currentRun.status);
 
@@ -75,6 +77,7 @@ function showView(view) {
     button.classList.toggle("selected", button.dataset.view === view);
   });
   if (view === "projects") loadProjects();
+  if (view === "knowledge") loadKnowledge(true);
 }
 
 document.querySelectorAll("[data-view]").forEach((button) => {
@@ -121,6 +124,7 @@ function renderRun(run) {
   $("#new-model-picker").disabled = busy();
   $("#resume-model-picker").disabled = busy();
   $("#review-policy").disabled = busy();
+  $("#knowledge-save").disabled = busy() || !token;
   $("#resume-button").disabled =
     busy() || !selectedProject?.idea || selectedProject?.stopped || !token;
   $("#run-status").textContent = statusLabels[run.status].toUpperCase();
@@ -288,6 +292,120 @@ async function loadProjects() {
     return [];
   }
 }
+
+async function loadKnowledge(reset = false) {
+  if (reset) knowledgeOffset = 0;
+  const version = ++knowledgeVersion;
+  const scope = $("#knowledge-scope").value;
+  const projectSelect = $("#knowledge-project");
+  projectSelect.hidden = scope !== "project";
+  $("#knowledge-form").hidden = scope !== "global";
+  $("#knowledge-error").textContent = "";
+  try {
+    if (scope === "project") {
+      const { projects } = await api("/api/projects");
+      const prior = projectSelect.value;
+      projectSelect.replaceChildren();
+      for (const project of projects) {
+        const option = document.createElement("option");
+        option.value = project.name;
+        option.textContent = project.name;
+        projectSelect.append(option);
+      }
+      if (projects.some((project) => project.name === prior)) projectSelect.value = prior;
+    }
+    const project = scope === "project" ? projectSelect.value : "";
+    if (scope === "project" && !project) {
+      $("#knowledge-list").replaceChildren();
+      $("#knowledge-count").textContent = "No projects yet.";
+      return;
+    }
+    const params = new URLSearchParams({ scope, q: $("#knowledge-search").value,
+                                         offset: String(knowledgeOffset) });
+    if (project) params.set("project", project);
+    const result = await api(`/api/knowledge?${params}`);
+    if (version !== knowledgeVersion) return;
+    const list = $("#knowledge-list");
+    list.replaceChildren();
+    for (const node of result.nodes) {
+      const button = document.createElement("button");
+      button.className = "project-card";
+      const title = document.createElement("span");
+      title.textContent = node.summary;
+      const type = document.createElement("small");
+      type.textContent = `${node.type} · ${node.created_at || ""}`;
+      title.append(type);
+      button.append(title);
+      button.addEventListener("click", () => openKnowledgeItem(scope, project, node.id));
+      list.append(button);
+    }
+    if (!result.nodes.length) list.textContent = "No entries match this search.";
+    $("#knowledge-count").textContent = `${result.total} entries · showing ${result.nodes.length ? result.offset + 1 : 0}–${result.offset + result.nodes.length}`;
+    $("#knowledge-prev").disabled = knowledgeOffset === 0;
+    $("#knowledge-next").disabled = knowledgeOffset + result.nodes.length >= result.total;
+  } catch (error) {
+    if (version === knowledgeVersion) $("#knowledge-error").textContent = error.message;
+  }
+}
+
+async function openKnowledgeItem(scope, project, id) {
+  const version = ++knowledgeVersion;
+  try {
+    const params = new URLSearchParams({ scope, id });
+    if (project) params.set("project", project);
+    const node = await api(`/api/knowledge/item?${params}`);
+    if (version !== knowledgeVersion) return;
+    $("#knowledge-title").textContent = node.summary;
+    $("#knowledge-meta").textContent = `${node.type} · ${node.created_at || ""} · ${node.id}`;
+    $("#knowledge-text").textContent = (node.detail || "(No details)") +
+      (node.truncated ? "\n\n[display limited to 64 KiB]" : "");
+    const relations = $("#knowledge-relations");
+    relations.replaceChildren();
+    for (const relation of node.relations || []) {
+      const button = document.createElement("button");
+      button.textContent = `${relation.direction === "out" ? "→" : "←"} ${relation.type}: ${relation.summary}`;
+      button.addEventListener("click", () => openKnowledgeItem(scope, project, relation.id));
+      relations.append(button);
+    }
+  } catch (error) {
+    if (version === knowledgeVersion) $("#knowledge-error").textContent = error.message;
+  }
+}
+
+$("#knowledge-scope").addEventListener("change", () => loadKnowledge(true));
+$("#knowledge-project").addEventListener("change", () => loadKnowledge(true));
+let knowledgeSearchTimer;
+$("#knowledge-search").addEventListener("input", () => {
+  clearTimeout(knowledgeSearchTimer);
+  knowledgeSearchTimer = setTimeout(() => loadKnowledge(true), 250);
+});
+$("#knowledge-prev").addEventListener("click", () => {
+  knowledgeOffset = Math.max(0, knowledgeOffset - 100);
+  loadKnowledge();
+});
+$("#knowledge-next").addEventListener("click", () => {
+  knowledgeOffset += 100;
+  loadKnowledge();
+});
+$("#knowledge-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("#knowledge-error").textContent = "";
+  $("#knowledge-save").disabled = true;
+  try {
+    const node = await api("/api/knowledge", {
+      summary: $("#knowledge-note-title").value,
+      detail: $("#knowledge-note-text").value,
+    });
+    $("#knowledge-note-title").value = "";
+    $("#knowledge-note-text").value = "";
+    await loadKnowledge(true);
+    openKnowledgeItem("global", "", node.id);
+  } catch (error) {
+    $("#knowledge-error").textContent = error.message;
+  } finally {
+    $("#knowledge-save").disabled = busy() || !token;
+  }
+});
 
 async function readDocument(project, name) {
   const version = ++documentVersion;

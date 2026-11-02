@@ -55,6 +55,18 @@ try {
   await page.waitForFunction(
     () => document.querySelector("#connection").textContent === "CONNECTED",
   );
+  await page.locator('.menubar [data-view="knowledge"]').click();
+  await page.locator("#knowledge-note-title").fill("Audience");
+  await page.locator("#knowledge-note-text").fill("Readers who use a phone");
+  await page.locator("#knowledge-save").click();
+  await page.waitForFunction(() =>
+    document.querySelector("#knowledge-text").textContent.includes("Readers who use a phone"),
+  );
+  await page.locator("#knowledge-search").fill("Audience");
+  await page.waitForFunction(() =>
+    document.querySelector("#knowledge-count").textContent.includes("1 entries"),
+  );
+  await page.locator('.menubar [data-view="new"]').click();
   await mkdir(output, { recursive: true });
   await page.screenshot({ path: `${output}/desktop.png`, fullPage: true });
   await page.locator("#idea").fill("A small timer");
@@ -132,6 +144,9 @@ try {
     /without another interview/,
   );
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.menubar [data-view="knowledge"]').click();
+  await page.screenshot({ path: `${output}/knowledge-mobile.png`, fullPage: true });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.locator('.menubar [data-view="new"]').click();
   await page.screenshot({ path: `${output}/mobile.png`, fullPage: true });
   assert.equal(

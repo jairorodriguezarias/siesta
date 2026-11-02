@@ -34,7 +34,8 @@ PYTHONPATH=factory python -m pipeline.web
 ```
 
 Open `http://127.0.0.1:8765` to launch projects, answer the interview and read
-results. Play Snake while the agents work; the desktop alerts you when your
+results. The Knowledge view lets you browse the KB and add notes for future
+projects. Play Snake while the agents work; the desktop alerts you when your
 attention is needed. Use the Python environment from the setup guide below.
 
 With Python, Git, [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)

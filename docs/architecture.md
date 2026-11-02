@@ -80,6 +80,13 @@ current project keeps its pinned skill. The adapted development skills remain
 repository-maintained. Learning is recorded advice, not evidence that
 performance improved.
 
+The desktop exposes global and project KB nodes and their edges. A user may add
+global `reference` notes while the factory is idle. A new project copies the
+current references into its own committed KB when it starts. Specification and
+issue prompts use that copy; the interview still asks the user to clarify intent.
+Reference context has an explicit size bound and prioritizes newer notes when
+it must truncate.
+
 Project model routes resolve agent in phase, then phase, then a saved role
 default. The desktop shows Pi registration and Ollama installation separately
 and checks compatibility only when requested. Review budgets and policy persist

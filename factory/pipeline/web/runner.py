@@ -12,7 +12,8 @@ import threading
 import time
 import uuid
 
-from .. import reviews
+from .. import references, reviews
+from ..kb import Graph
 
 from ..__main__ import slug
 
@@ -124,6 +125,73 @@ class Desktop:
         if not path.is_file():
             raise ValueError('Document not found')
         return read_text(path)
+
+    def _knowledge_graph(self, scope, project=None):
+        if scope == 'global' and project is None:
+            path = self.factory / 'kb/global-graph.json'
+            seed = self.factory / 'kb/global-seed.json'
+        elif scope == 'project' and isinstance(project, str):
+            root = self._project(project)
+            if not root.is_dir():
+                raise ValueError('Project not found')
+            path = self._file(root, 'kb/graph.json')
+            if not path.is_file():
+                raise ValueError('Project KB not found')
+            seed = None
+        else:
+            raise ValueError('Choose a global or project KB')
+        if path.is_symlink() or path.parent.is_symlink():
+            raise ValueError('KB path cannot be a symlink')
+        return Graph(path, seed=seed)
+
+    def knowledge(self, scope, project=None, query='', type_=None, offset=0):
+        if not isinstance(query, str) or len(query) > 200:
+            raise ValueError('Search must be at most 200 characters')
+        if type_ is not None and (not isinstance(type_, str)
+                                  or not re.fullmatch(r'[a-z_]{1,40}', type_)):
+            raise ValueError('Invalid KB type')
+        if type(offset) is not int or not 0 <= offset <= 100000:
+            raise ValueError('Invalid KB offset')
+        nodes = self._knowledge_graph(scope, project).query(type_=type_, summary_only=False)
+        if query:
+            needle = query.casefold()
+            nodes = [node for node in nodes if needle in node['summary'].casefold()
+                     or needle in node['type'].casefold()
+                     or needle in node['detail'].casefold()]
+        nodes.reverse()
+        return {'nodes': [{key: node[key] for key in ('id', 'type', 'summary', 'created_at')}
+                          for node in nodes[offset:offset + 100]],
+                'total': len(nodes), 'offset': offset}
+
+    def knowledge_item(self, scope, node_id, project=None):
+        if not isinstance(node_id, str) or not re.fullmatch(r'n[0-9]+_[0-9]+', node_id):
+            raise ValueError('Invalid KB node')
+        graph = self._knowledge_graph(scope, project)
+        node = graph.get(node_id)
+        if node is None:
+            raise ValueError('KB node not found')
+        result = dict(node)
+        if len(result.get('detail', '')) > LIMIT:
+            result['detail'] = result['detail'][:LIMIT]
+            result['truncated'] = True
+        names = {item['id']: item['summary'] for item in graph.data['nodes']}
+        result['relations'] = [
+            {'type': edge['type'], 'direction': 'out' if edge['from'] == node_id else 'in',
+             'id': edge['to'] if edge['from'] == node_id else edge['from'],
+             'summary': names.get(edge['to'] if edge['from'] == node_id else edge['from'],
+                                  '(missing node)')}
+            for edge in graph.data['edges']
+            if edge['from'] == node_id or edge['to'] == node_id
+        ][:100]
+        return result
+
+    def add_reference(self, summary, detail):
+        with self.lock:
+            if self.process is not None and self.process.poll() is None:
+                raise Conflict('Wait for the active project before editing the KB')
+            graph = self._knowledge_graph('global')
+            node_id = references.add(graph, summary, detail)
+            return graph.get(node_id)
 
     def start(self, idea, *, auto=False, command=None, model_selection=None,
               review_policy=None):

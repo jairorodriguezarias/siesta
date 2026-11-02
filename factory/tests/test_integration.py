@@ -275,6 +275,27 @@ class PipelineRun(unittest.TestCase):
                               cwd=self.tmp, stdin=subprocess.DEVNULL,
                               timeout=timeout)
 
+    def test_global_reference_is_copied_and_reaches_spec_and_worker(self):
+        from pipeline.kb import Graph
+        global_graph = Graph(self.tmp / "factory/kb/global-graph.json")
+        global_graph.node(
+            "reference", "Audience", "Readers who use a phone")
+        result = self.siesta("--auto", self.idea)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        project_graph = json.loads((self.proj() / "kb/graph.json").read_text())
+        self.assertTrue(any(node["type"] == "reference"
+                            and node["detail"] == "Readers who use a phone"
+                            for node in project_graph["nodes"]))
+        calls = (self.tmp / "pi_calls.log").read_text()
+        self.assertGreaterEqual(calls.count("Readers who use a phone"), 2)
+        global_graph.node("reference", "Later", "Future projects only")
+        resumed = self.siesta("--auto", self.idea)
+        self.assertEqual(resumed.returncode, 0, resumed.stderr[-3000:])
+        project_graph = json.loads((self.proj() / "kb/graph.json").read_text())
+        self.assertFalse(any(node["type"] == "reference"
+                             and node["summary"] == "Later"
+                             for node in project_graph["nodes"]))
+
     def test_cli_saves_and_uses_phase_agent_model_selection(self):
         selection_path = self.tmp / "model-selection.json"
         selection_path.write_text(json.dumps({

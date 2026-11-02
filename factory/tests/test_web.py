@@ -7,6 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from pipeline.kb import Graph
 from pipeline.web.runner import Desktop
 from pipeline.web.server import make_server
 
@@ -102,6 +103,49 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         start.assert_called_once_with('Review deeply', auto=False,
                                       model_selection=None, review_policy='deep')
+
+    def test_knowledge_list_detail_and_add_require_local_token(self):
+        self.assertEqual(self.request('/api/knowledge?scope=global')[0], 200)
+        body = json.dumps({'summary': 'Audience', 'detail': 'Readers on phones'})
+        self.assertEqual(self.request('/api/knowledge', method='POST', body=body,
+                                     headers={'Content-Type': 'application/json'})[0], 403)
+        _, session, _ = self.request('/api/session')
+        token = json.loads(session)['token']
+        status, added, _ = self.request('/api/knowledge', method='POST', body=body,
+            headers={'Content-Type': 'application/json', 'X-Siesta-Token': token})
+        self.assertEqual(status, 200)
+        node_id = json.loads(added)['id']
+        status, listed, _ = self.request('/api/knowledge?scope=global')
+        self.assertEqual(status, 200)
+        self.assertTrue(any(item['id'] == node_id for item in json.loads(listed)['nodes']))
+        status, detail, _ = self.request('/api/knowledge/item?scope=global&id=' + node_id)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(detail)['detail'], 'Readers on phones')
+        self.assertEqual(self.request('/api/knowledge?scope=project&project=../evil')[0], 404)
+
+    def test_project_knowledge_is_scoped_and_writes_wait_for_idle_run(self):
+        project = Path(self.tmp.name) / 'projects/reader'
+        graph = Graph(project / 'kb/graph.json')
+        intent_id = graph.node('intent', 'Reader app', 'Read local files')
+        decision_id = graph.node('decision', 'Offline', 'Keep data local')
+        graph.edge(decision_id, intent_id, 'applied_to')
+        status, content, _ = self.request('/api/knowledge?scope=project&project=reader&q=local')
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(content)['total'], 2)
+        status, detail, _ = self.request('/api/knowledge/item?scope=project&project=reader&id=' + intent_id)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(detail)['relations'][0]['summary'], 'Offline')
+        self.assertEqual(self.request('/api/knowledge?scope=project&project=missing')[0], 404)
+        _, session, _ = self.request('/api/session')
+        token = json.loads(session)['token']
+        body = json.dumps({'summary': 'Later', 'detail': 'Do not write during a run'})
+        from unittest.mock import Mock
+        self.desktop.process = Mock()
+        self.desktop.process.poll.return_value = None
+        status, _, _ = self.request('/api/knowledge', method='POST', body=body,
+            headers={'Content-Type': 'application/json', 'X-Siesta-Token': token})
+        self.assertEqual(status, 409)
+        self.desktop.process = None
 
 
 if __name__ == '__main__':

@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from pipeline import (design, events, iterations, learn, migration,
+from pipeline import (design, events, iterations, learn, migration, references,
                       model_selection, reviews, skill_versions,
                       phases, repository, text)
 from pipeline.kb import Graph
@@ -300,6 +300,10 @@ def _run(args) -> None:
         if schema.exists():
             (proj / "kb" / "schema.json").write_text(schema.read_text())
     gkb = Graph(GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json"))
+    if not was_existing:
+        copied = references.snapshot(kb, gkb)
+        if copied:
+            log(f"Loaded {copied} user reference(s) into the new project's KB")
     if not (proj / ".git").exists():
         phases._git(proj, "init")
     if not checkpoint.exists():

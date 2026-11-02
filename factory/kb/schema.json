@@ -44,6 +44,10 @@
     "principle": {
       "description": "A standing architectural principle that constrains all projects and the factory itself",
       "fields": ["summary", "detail", "rationale", "scope"]
+    },
+    "reference": {
+      "description": "A user supplied note available before a project starts",
+      "fields": ["summary", "detail"]
     }
   },
   "edge_types": {

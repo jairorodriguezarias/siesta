@@ -35,6 +35,11 @@ an advisory factory lock; Windows without WSL is not supported.
 - **Projects:** inspect saved projects, specifications, issue plans, design
   reviews and requirement evidence. Resume uses the recorded original idea.
   A completed project uses the pipeline's existing recheck/resume behavior.
+- **Knowledge:** browse global and project KB entries, search titles, types or
+  details, open node text and follow linked KB relations. Add a global reference note before starting
+  a project. New projects copy the current notes into their own KB; later edits
+  to global notes do not change an existing project's context. Notes support
+  the specification and worker prompts but do not override the approved intent.
 - **Snake:** press Play, then use arrows or WASD. Space pauses/resumes; New game
   restarts. Touch direction controls appear on narrow screens. The game pauses
   when the tab loses visibility, the browser loses focus, another window's
@@ -75,6 +80,10 @@ The console shows the last 64 KiB; each document view shows the first 64 KiB.
 The project list is capped at 200 directories in name order. Documents are
 plain text and restricted to the displayed evidence files. Raw source editing,
 arbitrary filesystem browsing and deleting projects are outside this UI.
+The Knowledge view lists 100 entries per page. Global references are limited
+to 50 notes, each with a 160-character title and 12000-character body; model
+prompts include at most 12000 characters of reference context and identify
+truncation. Notes cannot be changed during an active run.
 
 Live console/status records are temporary and belong to the running server.
 Restarting the server clears its live view, while project files, checkpoints,

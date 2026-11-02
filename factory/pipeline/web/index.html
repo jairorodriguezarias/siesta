@@ -99,6 +99,9 @@
         <button data-view="projects">
           <svg><use href="#folder" /></svg><span>Projects</span>
         </button>
+        <button data-view="knowledge">
+          <svg><use href="#page" /></svg><span>Knowledge</span>
+        </button>
         <button data-open="snake-window">
           <svg><use href="#snake-icon" /></svg><span>Snake</span>
         </button>
@@ -125,6 +128,7 @@
           <nav class="menubar" aria-label="Workspace">
             <button data-view="new" class="selected">New project</button
             ><button data-view="projects">Projects</button
+            ><button data-view="knowledge">Knowledge</button
             ><button data-view="activity">Activity</button
             ><span>Made for taking it easy.</span>
           </nav>
@@ -223,6 +227,39 @@
               <pre id="document-content" class="document-content"></pre>
             </div>
             <p id="project-error" class="error" role="alert"></p>
+          </div>
+          <div id="view-knowledge" class="view" hidden>
+            <p class="eyebrow">YOUR REFERENCE DESK</p>
+            <h2>Knowledge base</h2>
+            <p class="muted">Browse global knowledge and each project's saved context. Notes added here are copied into new projects when they start.</p>
+            <div class="knowledge-controls">
+              <label for="knowledge-scope">Source</label>
+              <select id="knowledge-scope"><option value="global">Global KB</option><option value="project">Project KB</option></select>
+              <select id="knowledge-project" aria-label="Project" hidden></select>
+              <label for="knowledge-search">Search</label>
+              <input id="knowledge-search" type="search" maxlength="200" placeholder="Title or type" />
+            </div>
+            <p id="knowledge-count" class="muted"></p>
+            <div class="knowledge-layout">
+              <div id="knowledge-list" class="project-list" aria-label="Knowledge entries"></div>
+              <div class="knowledge-detail">
+                <h3 id="knowledge-title">Select an entry</h3>
+                <p id="knowledge-meta" class="muted"></p>
+                <pre id="knowledge-text" class="document-content">Choose a note to read its full text.</pre>
+                <div id="knowledge-relations" class="knowledge-relations"></div>
+              </div>
+            </div>
+            <div class="knowledge-pager"><button id="knowledge-prev" type="button">← Previous</button><button id="knowledge-next" type="button">Next →</button></div>
+            <form id="knowledge-form" class="knowledge-form">
+              <h3>Add context for future projects</h3>
+              <p class="muted">This note enters new project specs and implementation prompts. Existing projects keep their saved copy.</p>
+              <label for="knowledge-note-title">Title</label>
+              <input id="knowledge-note-title" maxlength="160" required />
+              <label for="knowledge-note-text">Context</label>
+              <textarea id="knowledge-note-text" rows="5" maxlength="12000" required></textarea>
+              <button id="knowledge-save" class="primary" type="submit">Save note</button>
+            </form>
+            <p id="knowledge-error" class="error" role="alert"></p>
           </div>
           <div id="view-activity" class="view" hidden>
             <div class="activity-heading">
