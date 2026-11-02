@@ -75,3 +75,22 @@ routes, specialist definitions, proxy instructions and the Definition of Done.
 A resume reuses approval only when both fingerprints match. Test results,
 including a failing regression log, are shown to the specialists; final
 verification still determines whether delivery is verified or `UNVERIFIED`.
+
+## Issue review
+
+After an issue's product tests pass, Siesta opens an independent review before
+writing the completion record. The integration reviewer receives the
+specification, only the active issue text, the diff from its committed base,
+source and test evidence, a context manifest, and committed records for earlier
+completed issues. Later issue descriptions, worker output and informal author
+history are excluded. A finding repair stays uncommitted until the issue is
+approved; a rejected issue is archived and restored to its committed base.
+
+Issue bodies may declare `Review: standard` or `Review: extended`. Standard
+review requires the integration reviewer. Authentication or authorization,
+migrations, and public APIs or interfaces require the extended declaration;
+design validation rejects a sensitive issue marked standard. Extended review
+also requires the independent quality reviewer. Both modes use the normal
+bounded policy and rerun the product regression suite after each repair. Issue
+review approval is bound to the active issue, committed base, product content,
+reviewer definitions and model routes.

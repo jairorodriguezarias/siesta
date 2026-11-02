@@ -91,6 +91,8 @@ case "$model" in
     esac ;;
   consultant-model)
     case "$*" in
+      *"Pipeline phase: issue_review"*)
+        echo '{"version":1,"verdict":"pass","summary":"The active issue satisfies its requirements.","findings":[]}' ;;
       *"Independent design review:"*)
         case "$FAKE_PI_SCENARIO" in
           design_rejected) echo '{"verdict":"failed","findings":["Specify the greeting output"]}' ;;
@@ -484,8 +486,9 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("0 blocked", result.stdout)
         # Two issue retries plus verification; final review uses consultants.
         self.assertEqual(self.log_count("--model worker-model"), 5)
-        # Issue guidance, specialist reviews, proxy, and learnings.
-        self.assertEqual(self.log_count("--model consultant-model"), 11)
+        # Issue guidance, one per-issue reviewer, final specialists and proxy,
+        # and learnings.
+        self.assertEqual(self.log_count("--model consultant-model"), 13)
         # recovered issues DO get the per-issue learning hook
         self.assertTrue((proj / "learning_issue_1.txt").exists())
 
@@ -687,9 +690,9 @@ class PipelineRun(unittest.TestCase):
         # per issue: PROXY attempt + 1 feedback retry = 2 worker calls; then
         # review + verify = 2 (learn hooks are consultant calls since #46)
         self.assertEqual(self.log_count("--model worker-model"), 5)
-        # 2 issue-level proxies + 1 review proxy + 2 per-issue learnings
-        # + 1 project learning = 6
-        self.assertEqual(self.log_count("--model consultant-model"), 11)
+        # 2 issue-level proxies + 2 per-issue reviews + final review proxy
+        # and specialists + 2 per-issue learnings + project learning.
+        self.assertEqual(self.log_count("--model consultant-model"), 13)
 
     def test_proxy_rejection_retries_with_different_approach(self):
         result = self.siesta("--auto", self.idea, scenario="proxy_rejected")
@@ -697,7 +700,7 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("REJECTED", (self.proj() / "proxy_1_output.txt").read_text())
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         self.assertIn("Issue #1 completed", self.decisions())
-        self.assertEqual(self.log_count("--model consultant-model"), 11)
+        self.assertEqual(self.log_count("--model consultant-model"), 13)
 
     # ─── review revision now applies fixes (#16/#18) ─────────────────────
 
@@ -736,7 +739,7 @@ class PipelineRun(unittest.TestCase):
         call_records = [json.loads(line) for line in
                         (self.proj() / ".siesta/calls.jsonl").read_text().splitlines()]
         self.assertEqual(sum(record["agent"] == "integration-reviewer"
-                             for record in call_records), 2)
+                             for record in call_records), 4)
         self.assertEqual(sum(record["agent"] == "quality-reviewer"
                              for record in call_records), 0)
         self.assertFalse((self.proj() / "review_fixes_output.txt").exists())

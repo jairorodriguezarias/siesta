@@ -158,7 +158,7 @@ cambios posteriores a una aprobación.
 
 ## Issue #5: Revisar cada issue antes de completarla
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #3–#4.
 
 Introducir revisión independiente después de los tests y antes del registro de
@@ -177,6 +177,26 @@ finalización.
 
 **Verificación:** defecto con tests verdes, reparación con regresión,
 recuperación de archivos y reanudación sin commits duplicados.
+
+**Evidencia de verificación:**
+
+- `tests.test_recovery_gates.RecoveryGates.test_issue_review_repairs_then_rechecks_and_approves_before_completion`:
+  un finding dispara reparación, nuevo test y revisión; la reanudación no repite
+  revisiones de una issue ya completada.
+- `test_issue_review_repair_regression_blocks_and_archives_issue`,
+  `test_issue_review_rejection_never_records_completion` y
+  `test_issue_tests_cannot_change_the_product_they_approve`: una reparación roja
+  o tests que mutan el producto impiden completar y la recuperación restaura el
+  base sin arrancar la siguiente issue.
+- `test_extended_issue_review_invokes_both_independent_specialists`,
+  `tests.test_repository` y `tests.test_design`: rutas extendidas, detección de
+  riesgos y validación del diseño.
+- `tests.test_integration`: flujos de ejecución existentes con revisión por
+  issue y conteos de llamadas actualizados.
+- `python -B -m unittest discover -s tests -v`: suite completa aprobada,
+  393 tests, `EXIT_CODE=0`.
+- `docs/review-policy.md` y `docs/architecture.md`: flujo, contexto, riesgos y
+  módulos documentados.
 
 ## Issue #6: Revisar la intención al finalizar la entrevista
 

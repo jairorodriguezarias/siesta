@@ -101,7 +101,9 @@ def _amendment(proj: Path, context: str, request: str, old_spec: str, criteria: 
 def _plan(proj: Path, context: str, spec: str, first: int) -> str:
     directive = (f'ITERATION_PLAN: Output only NEW issues beginning with ## Issue #{first}: Title. '
                  'Use consecutive unique numbers. Each issue must specify behavior, acceptance '
-                 'criteria, dependencies and meaningful tests. Never rewrite old issues. No code.')
+                 'criteria, dependencies, meaningful tests and a Review: standard or Review: extended '
+                 'line. Use extended for authentication/authorization, migrations and public APIs or '
+                 'interfaces. Never rewrite old issues. No code.')
     for attempt in range(2):
         output = run_pi(
             'planner', context + '\nSpecification amendment:\n' + spec, directive,
@@ -112,9 +114,12 @@ def _plan(proj: Path, context: str, spec: str, first: int) -> str:
         try:
             issues = repository.parse_plan(doc or '')
             if list(issues) == list(range(first, first + len(issues))):
+                for body in issues.values():
+                    repository.issue_review_level(body)
                 return doc
-        except RuntimeError:
+        except (RuntimeError, ValueError):
             pass
         directive = (f'ITERATION_PLAN: Previous output was rejected. Start at ## Issue #{first}: Title '
-                     'and use consecutive unique numbers, only new issues with tests. No code.')
+                     'and use consecutive unique numbers, only new issues with tests and a Review: '
+                     'standard or extended line. Sensitive issue types need extended. No code.')
     raise RuntimeError('Iteration plan rejected after two attempts; previous plan preserved')

@@ -9,6 +9,28 @@ from pathlib import Path
 
 from pipeline import text
 
+_REVIEW_DECLARATION = re.compile(r"(?im)^\s*Review\s*:\s*(.*?)\s*$")
+_EXTENDED_REVIEW_RISK = re.compile(
+    r"\b(?:authentication|authorization|migrations?|migrate|public\s+(?:api|interface|endpoint)s?)\b",
+    re.I,
+)
+
+
+def issue_review_level(body: str) -> str:
+    """Validate an issue's declared review level and sensitive change markers."""
+    visible = text.without_fences(body)
+    declarations = _REVIEW_DECLARATION.findall(visible)
+    if len(declarations) > 1:
+        raise ValueError("Issue may declare its review level only once")
+    level = declarations[0].strip().lower() if declarations else "standard"
+    if level not in {"standard", "extended"}:
+        raise ValueError("Issue review level must be 'standard' or 'extended'")
+    if _EXTENDED_REVIEW_RISK.search(visible) and level != "extended":
+        raise ValueError(
+            "Issue touches authentication, migration or a public interface; "
+            "declare Review: extended")
+    return level
+
 
 def git(proj: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(['git', *args], cwd=proj, capture_output=True)

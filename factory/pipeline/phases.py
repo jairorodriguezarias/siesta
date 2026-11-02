@@ -12,54 +12,16 @@ import time
 import urllib.request
 from pathlib import Path
 
-from pipeline import agents, design, learn, model_selection, repository, reviews, text
+from pipeline import (agents, design, issue_reviews, learn, model_selection,
+                      repository, reviews, text)
 from pipeline.files import evidence_dir, source_files as _project_files
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY_SKILLS, GLOBAL_KB, ROLE, SKILLS, err,
                          log, ok, run_pi, warn)
+from pipeline.source_context import GATHER_BUDGET, SOURCE_EXTS, gather
 
 WORKER_THINKING = "off"
 CONSULTANT_THINKING = "off"
-
-# Calls with tools disabled receive source content directly in their prompts.
-SOURCE_EXTS = {"html", "css", "js", "ts", "py", "go", "rs", "json", "md",
-               "sh", "jsx", "tsx", "vue", "svelte"}
-
-
-# ─── Context gathering ───────────────────────────────────────────────────
-
-# #39: total prompt budget for gather() — per-file caps alone let the
-# worker prompt grow unbounded on big projects and flood the model's
-# context. ~120k chars ≈ 30k tokens: bounded, still room for real work.
-GATHER_BUDGET = 120_000
-
-
-def gather(proj: Path, *, budget: int = GATHER_BUDGET) -> str:
-    files = [f for f in _project_files(proj)
-             if f.suffix.lstrip(".") in SOURCE_EXTS]
-    parts = []
-    remaining = budget
-    for i, f in enumerate(files):
-        if remaining <= 0:
-            parts.append(f"\n\n--- TRUNCATED: {len(files) - i} further "
-                         f"source files not shown (context budget) ---")
-            break
-        with f.open(errors="replace") as stream:
-            content = text.head(stream.read(remaining), 500)
-        header = f"\n\n--- File: {f.relative_to(proj)} ---\n"
-        if len(header) + len(content) > remaining:
-            cut = "\n--- (file cut mid-way: context budget) ---"
-            room = remaining - len(header) - len(cut)
-            shown = len(files) - i
-            if room > 0:  # partial fit: keep the head that fits, say it was cut
-                parts.append(header + content[:room] + cut)
-                shown = len(files) - i - 1
-            parts.append(f"\n\n--- TRUNCATED: {shown} further source "
-                         f"files not shown (context budget) ---")
-            break
-        parts.append(header + content)
-        remaining -= len(header) + len(content)
-    return "".join(parts)
 
 
 def _git(proj: Path, *args: str) -> subprocess.CompletedProcess:
@@ -436,7 +398,9 @@ You have NO TOOLS — you cannot read or write files. What the pipeline does wit
 your answer is stated in the final message below.
 
 Each issue: a '## Issue #N: Title' header, then description, acceptance
-criteria, dependencies. Every issue header must match exactly '## Issue #N: '
+criteria, dependencies and one line 'Review: standard' or 'Review: extended'.
+Use extended for authentication/authorization, data migrations or public APIs
+and interfaces. Every issue header must match exactly '## Issue #N: '
 (N counting from 1) — no priority groupings, no other numbering styles.
 Keep issues small and atomic. Do NOT write code — output the plan document only.
 A small CLI should be one complete issue with source, meaningful tests and usage
@@ -841,6 +805,7 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         # Only known failures created during this run may enter recovery.
         repository.require_clean(proj)
         repository.require_committed_ledger(proj)
+        base_head = repository.checked_git(proj, "rev-parse", "HEAD").decode().strip()
 
         if num > 1:
             status = run_regression(proj, num)
@@ -941,13 +906,39 @@ def execute(proj: Path, kb: Graph) -> list[int]:
                         'Worker changed the specification or plan during implementation')
                 _discard_residue(proj, num, 'worker changed the requirements')
                 continue
+            before_suite = repository.fingerprint(proj)
             suite = run_regression(proj, num)
+            after_suite = repository.fingerprint(proj)
+            if before_suite != after_suite:
+                blocked.append(num)
+                kb.node("blocker", f"Issue #{num} tests changed the product",
+                        "The product changed while its regression suite ran")
+                _discard_residue(proj, num, "product changed while issue tests ran")
+                continue
             if suite != "passed":
                 blocked.append(num)
                 kb.node("blocker", f"Issue #{num} tests not passing",
                         f"Post-issue regression verdict: {suite}")
                 _discard_residue(proj, num, "post-issue tests not passing")
                 continue
+            try:
+                approved = issue_reviews.review_issue(
+                    proj, num, issue_text, base_head, run_pi=run_pi,
+                    run_regression=run_regression, gather_fn=gather,
+                    repair_skills=REVIEW_SKILLS + RETRY_SKILLS,
+                    worker_thinking=WORKER_THINKING)
+            except Exception as exc:
+                warn(f"Issue #{num} review could not complete: {exc}")
+                approved = False
+                review_error = str(exc)
+            else:
+                review_error = "Independent issue review did not approve the current version"
+            if not approved:
+                blocked.append(num)
+                kb.node("blocker", f"Issue #{num} review not approved", review_error)
+                _discard_residue(proj, num, review_error)
+                # A rejected change cannot become the base of another issue.
+                break
             ok(f"Issue #{num} executed and tested")
             repository.require_committed_ledger(proj)
             post_issue(proj, num, output, kb)

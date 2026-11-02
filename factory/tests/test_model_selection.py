@@ -89,6 +89,16 @@ class RouteResolution(unittest.TestCase):
     def test_phase_catalog_is_explicit_and_nonempty(self):
         self.assertIn("interview", PHASES)
         self.assertIn("verification", PHASES)
+        self.assertIn("issue_review", PHASES)
+
+    def test_issue_review_agent_route_resolves(self):
+        selection = normalize_selection({
+            "agents": {"issue_review": {"integration-reviewer": {
+                "model": "issue-review-model", "provider": "ollama"}}},
+        }, role_defaults=DEFAULTS)
+        self.assertEqual(resolve_route(selection, "issue_review", "integration-reviewer",
+                                       "consultant"),
+                         {"model": "issue-review-model", "provider": "ollama"})
 
 
 class ProjectPersistence(unittest.TestCase):

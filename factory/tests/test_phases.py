@@ -81,6 +81,8 @@ class PhaseSlots(unittest.TestCase):
             phases.phase2(self.proj, "caesar", self.n1, self.kb)
         self.assertIn("NEVER an empty test file", captured["body"])
         self.assertIn("smoke test", captured["body"])
+        self.assertIn("Review: extended", captured["body"])
+        self.assertIn("public APIs", captured["body"])
 
     def test_phase2_issues_saved_from_model_text(self):
         out = "## Issue #1: Add encode\n\nImplement shift encoding.\n"

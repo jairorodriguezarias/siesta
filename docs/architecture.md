@@ -9,7 +9,9 @@ flowchart TD
     Interview --> Spec --> Plan --> DesignReview[Independent design review]
     DesignReview --> Worker[Implement an issue]
     Worker --> Tests[Mechanical tests]
-    Tests --> Commit[Commit completion]
+    Tests --> IssueReview[Independent issue review]
+    IssueReview -->|approved| Commit[Commit completion]
+    IssueReview -->|rejected| Recovery[Archive and restore base]
     Commit --> More{More issues?}
     More -->|yes| Worker
     More -->|no| Review[Code review + proxy]
@@ -68,6 +70,8 @@ recorded advice, not evidence that performance improved.
 | --- | --- |
 | `pipeline/__main__.py` | Dispatch, resume, completion and failure records |
 | `pipeline/phases.py` | Prompts, issue execution, recovery and mechanical checks |
+| `pipeline/issue_reviews.py` | Independent issue review, bounded repairs and approval binding |
+| `pipeline/source_context.py` | Bounded source collection with explicit path exclusions |
 | `pipeline/design.py` | Independent design and requirement evidence gates |
 | `pipeline/pi.py` | Model invocation, deadlines and call metrics |
 | `pipeline/repository.py` | Committed ledger, product identity and Git operations |

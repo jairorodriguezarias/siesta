@@ -28,6 +28,27 @@ class RepositoryState(unittest.TestCase):
         (self.proj / 'answer.py').write_text('answer = 42\n')
         repository.commit(self.proj, 'Initial plan')
 
+    def test_risky_issue_requires_explicit_extended_review(self):
+        for issue in (
+                'Add authentication to the CLI.',
+                'Migrate the stored records to the new schema.',
+                'Expose a public API for creating records.'):
+            with self.subTest(issue=issue), self.assertRaisesRegex(
+                    ValueError, 'Review: extended'):
+                repository.issue_review_level(issue)
+        self.assertEqual(repository.issue_review_level(
+            'Review: extended\n\nAdd authentication to the CLI.'), 'extended')
+
+    def test_review_level_is_validated_and_fenced_examples_are_ignored(self):
+        self.assertEqual(repository.issue_review_level(
+            'Add a local command.\n\n```text\nReview: extended\nAuthentication\n```'),
+            'standard')
+        for issue in ('Review: urgent\nAdd a command.',
+                      'Review: standard\nAdd authentication to the CLI.',
+                      'Review: extended\nReview: standard\nAdd a command.'):
+            with self.subTest(issue=issue), self.assertRaises(ValueError):
+                repository.issue_review_level(issue)
+
     def git(self, *args):
         return subprocess.run(['git', *args], cwd=self.proj, check=True,
                               capture_output=True, text=True).stdout

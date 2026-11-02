@@ -6,7 +6,7 @@ from pipeline.agents import AGENTS
 
 PHASES = (
     "interview", "specification", "planning", "design_review",
-    "implementation", "review", "verification", "completion", "learning",
+    "implementation", "issue_review", "review", "verification", "completion", "learning",
     "iteration_specification", "iteration_planning",
 )
 ROLES = ("planner", "worker", "consultant")

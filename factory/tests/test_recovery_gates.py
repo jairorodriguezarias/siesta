@@ -42,6 +42,17 @@ def implement():
     Path("tests/test_answer.py").write_text(
         "from answer import answer\n\ndef test_answer():\n    assert answer() == 42\n")
 
+def implement_wrong():
+    Path("answer.py").write_text("def answer():\n    return 0\n")
+    if os.environ["RECOVERY_SCENARIO"] == "issue_review_test_mutates":
+        Path("tests/test_answer.py").write_text(
+            "from pathlib import Path\nfrom answer import answer\n\n"
+            "def test_answer():\n    assert answer() == 0\n"
+            "    Path('answer.py').write_text('def answer(): return 9\\n')\n")
+    else:
+        Path("tests/test_answer.py").write_text(
+            "from answer import answer\n\ndef test_answer():\n    assert answer() == 0\n")
+
 def review_pass(summary):
     return json.dumps({"version": 1, "verdict": "pass", "summary": summary, "findings": []})
 
@@ -56,6 +67,14 @@ if model == "planner-model":
 if "You are the factory-learner" in prompt:
     answer("learner", "PROJECT_LEARNING:\n  Project: recovery\n  Actions:\n    LEARNING: Recovery observed — bounded protocol retries")
 if model == "consultant-model":
+    if "Issue review contract:" in prompt and "Agent identity: integration-reviewer" in prompt:
+        if scenario == "issue_review_repaired" and "return 42" not in Path("answer.py").read_text():
+            answer("issue_review_integration", review_finding())
+        if scenario in {"issue_review_repair_regresses", "issue_review_rejected"}:
+            answer("issue_review_integration", review_finding())
+        answer("issue_review_integration", review_pass("The active issue meets its contract."))
+    if "Issue review contract:" in prompt and "Agent identity: quality-reviewer" in prompt:
+        answer("issue_review_quality", review_pass("No concrete quality defects."))
     if "Agent identity: integration-reviewer" in prompt:
         if scenario == "review_failed_but_proxy_approves":
             answer("review_integration", '{"name":"bash","arguments":{"command":"ls"}}')
@@ -88,6 +107,18 @@ if prompt.rstrip().endswith("Fix review issues"):
     if scenario == "review_repaired":
         implement()
     answer("review_fix", "ISSUE_OK: review feedback applied")
+if prompt.rstrip().endswith("Fix issue review findings"):
+    if scenario == "issue_review_repaired":
+        implement()
+        answer("issue_review_fix", "ISSUE_OK: corrected answer and regression test")
+    if scenario == "issue_review_repair_regresses":
+        Path("answer.py").write_text("def answer():\n    return 41\n")
+        Path("tests/test_answer.py").write_text(
+            "from answer import answer\n\ndef test_answer():\n    assert answer() == 42\n")
+        answer("issue_review_fix", "ISSUE_OK: applied requested correction")
+    if scenario == "issue_review_rejected":
+        answer("issue_review_fix", "ISSUE_OK: no product change")
+    answer("issue_review_fix", "ISSUE_OK: applied correction")
 if "code-reviewer persona" in prompt:
     if scenario == "review_empty_fix":
         answer("review", '{"name":"bash","arguments":{"command":"ls"}}')
@@ -96,6 +127,12 @@ if "code-reviewer persona" in prompt:
     if scenario == "review_repaired" and "return 42" not in Path("answer.py").read_text():
         answer("review", "REVIEW_FAILED: answer returns 0 instead of 42")
     answer("review", "REVIEW_PASSED: implementation and tests agree")
+if scenario.startswith("issue_review_"):
+    if scenario == "issue_review_repaired":
+        implement_wrong()
+    else:
+        implement_wrong()
+    answer("execute", "ISSUE_OK: implemented active issue with tests")
 if scenario.startswith("degenerate_then_"):
     previous = [call for call in calls if call["kind"] == "execute"]
     if not previous:
@@ -247,6 +284,75 @@ class RecoveryGates(unittest.TestCase):
         self.assertIn("Issue #1 completed", self.summaries("decision"))
         self.assertIn("return 42", self.git("show", "HEAD:answer.py"))
         self.assertIn("assert answer() == 42", self.git("show", "HEAD:tests/test_answer.py"))
+
+    def test_issue_review_repairs_then_rechecks_and_approves_before_completion(self):
+        self.seed()
+        result = self.run_pipeline("issue_review_repaired")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Issue #1 completed", self.summaries("decision"))
+        self.assertIn("return 42", self.git("show", "HEAD:answer.py"))
+        self.assertTrue(self.calls("issue_review_integration"))
+        self.assertGreaterEqual(len(self.calls("issue_review_integration")), 2)
+        self.assertEqual(len(self.calls("issue_review_fix")), 1)
+        session_files = list((self.proj / ".siesta/reviews").glob("issue-*.json"))
+        self.assertEqual(len(session_files), 1)
+        state = json.loads(session_files[0].read_text())
+        self.assertEqual(state["status"], "approved")
+        self.assertEqual(state["repair_count"], 1)
+        self.assertTrue((self.proj / ".siesta/issue-1-repair-1.txt").exists())
+        self.assertEqual(self.git("ls-files", ".siesta"), "")
+        review_calls = len(self.calls("issue_review_integration"))
+        again = self.run_pipeline("issue_review_repaired")
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(len(self.calls("issue_review_integration")), review_calls,
+                         "resuming a completed issue must not repeat its review")
+
+    def test_issue_review_repair_regression_blocks_and_archives_issue(self):
+        self.seed()
+        with (self.proj / "issues.md").open("a") as stream:
+            stream.write("\n## Issue #2: Extend answer\nAdd another behavior with tests.\n")
+        self.git("add", "issues.md")
+        self.git("commit", "-qm", "Add downstream issue")
+        result = self.run_pipeline("issue_review_repair_regresses")
+        self.assertNotIn("Issue #1 completed", self.summaries("decision"))
+        self.assertNotIn("Issue #2 completed", self.summaries("decision"))
+        self.assertEqual(len(self.calls("execute")), 1, "Issue #2 must not use rejected work as its base")
+        self.assertIn("return 0", self.git("show", "HEAD:answer.py"))
+        recovery_root = Path(self.git("rev-parse", "--absolute-git-dir").strip()) / "siesta-recovery"
+        archives = list(recovery_root.glob("*-issue-1"))
+        self.assertTrue(archives, f"no recovery archive was preserved; output={result.stdout} {result.stderr}")
+        self.assertTrue(self.calls("issue_review_integration"))
+        self.assertTrue(all("Issue #2" not in call["prompt"]
+                            for call in self.calls("issue_review_integration")),
+                        "review context must not expose later issue requirements")
+
+    def test_issue_review_rejection_never_records_completion(self):
+        self.seed()
+        self.run_pipeline("issue_review_rejected")
+        self.assertNotIn("Issue #1 completed", self.summaries("decision"))
+        self.assertTrue(any("Issue #1" in item for item in self.summaries("blocker")))
+        self.assertEqual(self.git("diff", "HEAD", "--", "answer.py", "tests"), "")
+
+    def test_issue_tests_cannot_change_the_product_they_approve(self):
+        self.seed()
+        result = self.run_pipeline("issue_review_test_mutates")
+        self.assertNotIn("Issue #1 completed", self.summaries("decision"))
+        self.assertTrue(any("tests changed the product" in item
+                            for item in self.summaries("blocker")))
+        self.assertIn("return 0", self.git("show", "HEAD:answer.py"))
+        self.assertEqual(self.git("diff", "HEAD", "--", "answer.py", "tests"), "")
+
+    def test_extended_issue_review_invokes_both_independent_specialists(self):
+        self.seed()
+        (self.proj / "issues.md").write_text(
+            "## Issue #1: Add authentication\nReview: extended\nAdd authentication with tests.\n")
+        self.git("add", "issues.md")
+        self.git("commit", "-qm", "Declare extended issue review")
+        result = self.run_pipeline("issue_review_extended")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Issue #1 completed", self.summaries("decision"))
+        self.assertTrue(self.calls("issue_review_integration"))
+        self.assertTrue(self.calls("issue_review_quality"))
 
     def test_degenerate_retry_routes_short_consultation(self):
         self.seed()

@@ -55,6 +55,21 @@ class DesignGate(unittest.TestCase):
             with self.subTest(spec=spec), self.assertRaises(ValueError):
                 design.requirements(spec)
 
+    def test_design_review_requires_extended_mode_for_sensitive_issue_types(self):
+        (self.proj / 'issues.md').write_text(
+            '## Issue #1: Add login\nAdd authentication and a regression test.\n')
+        with patch.object(design, 'run_pi') as run:
+            with self.assertRaisesRegex(ValueError, 'Review: extended'):
+                design.review(self.proj, 'A timer with accounts')
+            run.assert_not_called()
+
+        (self.proj / 'issues.md').write_text(
+            '## Issue #1: Add login\nReview: extended\n'
+            'Add authentication and a regression test.\n')
+        with patch.object(design, 'run_pi', return_value=PASS) as run:
+            design.review(self.proj, 'A timer with accounts')
+        self.assertEqual(run.call_count, 2)
+
     def test_isolation_disables_inherited_context_and_discovery(self):
         args = pi.build_args('consultant', 'spec', 'review', tools='no', isolated=True)
         for flag in ('--no-session', '--no-context-files', '--no-extensions',

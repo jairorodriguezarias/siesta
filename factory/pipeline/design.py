@@ -43,6 +43,8 @@ def review(proj: Path, intent: str) -> None:
     spec = (proj / 'spec.md').read_text()
     plan = (proj / 'issues.md').read_text()
     requirements(spec)
+    for body in repository.parse_plan(plan).values():
+        repository.issue_review_level(body)
     inputs = json.dumps([intent, spec, plan, ROLE['consultant']], sort_keys=True)
     digest = hashlib.sha256(inputs.encode()).hexdigest()
     state = repository.load_state(proj)
