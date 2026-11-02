@@ -1,7 +1,7 @@
 # Testing Siesta
 
 Run from the repository root with the Python environment described in the
-[README](../README.md#installation) active:
+[setup guide](getting-started.md) active:
 
 ```bash
 cd factory
@@ -21,9 +21,50 @@ integration tests exercise generated projects with real test subprocesses.
 - Real Git commits, failed commit hooks, recovery archives and residue cleanup.
 - Checkpoints, issue idempotency, incomplete resumes and completed reruns.
 - Model routing, tool permissions, timeouts and context warnings.
+- Isolated design review, malformed replies, changed requirements and cached approvals.
+- Requirement mappings to actual passing pytest IDs, including parametrized IDs.
+- Product changes during verification, failed completion commits and legacy resume gates.
+
+When Pi and Node are installed, the native isolation test also exercises Pi's
+actual argument parser and resource loader with temporary sentinel files. It
+checks global/project system-prompt inheritance without model calls or account
+credentials. It skips when Pi is unavailable, as in offline CI.
 
 A passing factory suite validates the orchestrator against those scenarios.
 It does not establish that a particular model can finish arbitrary projects.
+
+## Reproducible live evaluations
+
+With Pi, Ollama access, Git identity and pytest configured, run from the root:
+
+```bash
+PYTHONPATH=factory python -B -m pipeline.evaluate \
+  --output .runtime/evaluation-1 --case sum --case slug --timeout 600
+```
+
+Choose a new output directory for each run. The evaluator copies the pipeline,
+configuration, factory skills and adapted skills into an isolated factory for
+each case. Learning cannot modify the working repository's skills or KB.
+
+The two cases exercise a sum CLI and a slug CLI. Their fixed input/output checks
+are maintained outside the generated project, independently of model-written
+tests. A passing result requires all external checks, a `VERIFY_PASSED` verdict,
+a complete checkpoint and a relaunch with no additional model calls or commits.
+
+`results.json` records model routes, elapsed time, call count, independent
+checks, resume behavior and a hash of the tested pipeline sources. Console
+logs and projects remain beside it. The harness is noninteractive, so its
+human-intervention count is zero. Timeouts fail the case and stop its processes.
+
+Token counts and monetary cost are **unknown**, not zero: Pi's text mode does
+not expose those totals. Model-call duration is not provider billing latency.
+These tiny cases establish observed behavior only, not a general success rate.
+See [the recorded evaluation](evaluations/2026-11-02.md).
+
+The final requirement gate currently needs pytest IDs. Non-Python runners can
+still supply mechanical results but cannot establish requirement coverage.
+Legacy acceptance lists are numbered in order; absent acceptance criteria must
+be added explicitly before an active legacy project can continue.
 
 ## Validate a model profile
 

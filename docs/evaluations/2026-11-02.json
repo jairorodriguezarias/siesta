@@ -1,0 +1,127 @@
+{
+  "date": "2026-11-02T08:48:52.043839+00:00",
+  "models": {
+    "planner": {
+      "model": "glm-5.2:cloud",
+      "provider": "ollama"
+    },
+    "worker": {
+      "model": "gemma4:31b-cloud",
+      "provider": "ollama"
+    },
+    "consultant": {
+      "model": "glm-5.2:cloud",
+      "provider": "ollama"
+    }
+  },
+  "results": [
+    {
+      "case": "sum",
+      "passed": true,
+      "exit_code": 0,
+      "seconds": 48.481,
+      "source_sha256": "45616ef2ded3ada4a6d0b651c1f7a067d3b4d860f78289c209ee776d74371ad5",
+      "model_calls": 14,
+      "tokens": null,
+      "cost": null,
+      "human_interventions": 0,
+      "resume_unchanged": true,
+      "checks": [
+        {
+          "args": [
+            "2",
+            "3"
+          ],
+          "passed": true,
+          "returncode": 0,
+          "stdout": "5\n",
+          "stderr": ""
+        },
+        {
+          "args": [
+            "-7",
+            "2"
+          ],
+          "passed": true,
+          "returncode": 0,
+          "stdout": "-5\n",
+          "stderr": ""
+        },
+        {
+          "args": [
+            "oops",
+            "2"
+          ],
+          "passed": true,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": "Error: First argument 'oops' is not a valid integer.\n"
+        }
+      ]
+    },
+    {
+      "case": "slug",
+      "passed": true,
+      "exit_code": 0,
+      "seconds": 56.309,
+      "source_sha256": "45616ef2ded3ada4a6d0b651c1f7a067d3b4d860f78289c209ee776d74371ad5",
+      "model_calls": 11,
+      "tokens": null,
+      "cost": null,
+      "human_interventions": 0,
+      "resume_unchanged": true,
+      "checks": [
+        {
+          "args": [
+            "Hello, WORLD!"
+          ],
+          "passed": true,
+          "returncode": 0,
+          "stdout": "hello-world\n",
+          "stderr": ""
+        },
+        {
+          "args": [
+            " A__B 42 "
+          ],
+          "passed": true,
+          "returncode": 0,
+          "stdout": "a-b-42\n",
+          "stderr": ""
+        },
+        {
+          "args": [
+            ""
+          ],
+          "passed": true,
+          "returncode": 0,
+          "stdout": "\n",
+          "stderr": ""
+        },
+        {
+          "args": [],
+          "passed": true,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": "Usage: python3 slugify.py <string>\n"
+        },
+        {
+          "args": [
+            "one",
+            "two"
+          ],
+          "passed": true,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": "Usage: python3 slugify.py <string>\n"
+        }
+      ]
+    }
+  ],
+  "measurement": "Wall time and call count measured; text-mode Pi exposes no token/cost totals.",
+  "environment": {
+    "python": "3.11.15",
+    "pi": "0.87.1",
+    "platform": "Linux aarch64"
+  }
+}
