@@ -192,7 +192,10 @@ class ProcessLifetime(unittest.TestCase):
                 [sys.executable, '-c', 'print("INTENT_FINALIZED: complete intent")'],
             ]
             with patch.object(pi, 'build_args', side_effect=commands), \
-                 patch.object(phases, '_commit'):
+                 patch.object(phases, '_commit'), \
+                 patch.object(phases.intent_review, 'review_intent',
+                               side_effect=lambda proj, idea, transcript, candidate,
+                               confirmed, kb, **kwargs: candidate):
                 intent, _ = phases.phase0(proj, 'test', 'original idea', False, kb)
             self.assertEqual(intent, 'complete intent')
             evidence = (proj / 'interview_failed_output.txt').read_text()

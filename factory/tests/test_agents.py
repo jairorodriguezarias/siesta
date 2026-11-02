@@ -88,6 +88,17 @@ class AgentDefinitions(unittest.TestCase):
 
 
 class AgentPermissions(unittest.TestCase):
+    def test_intent_critic_has_an_isolated_tool_free_context(self):
+        agent = agents.get_agent("intent-critic", model_role="consultant",
+                                 context_kind="intent_review")
+        self.assertEqual(agent.allowed_tools, ())
+        self.assertIn("original request", agents.load_definition(agent))
+        args = build_args("consultant", "request and answers", "Review intent",
+                          agent="intent-critic", context_kind="intent_review",
+                          phase_name="intent_review", tools="no", isolated=True)
+        self.assertIn("Agent identity: intent-critic", args[-1])
+        self.assertIn("--no-context-files", args)
+
     def test_review_specialists_are_separate_tool_free_agents(self):
         for agent_id in ("integration-reviewer", "quality-reviewer"):
             with self.subTest(agent=agent_id):

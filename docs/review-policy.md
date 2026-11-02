@@ -94,3 +94,14 @@ also requires the independent quality reviewer. Both modes use the normal
 bounded policy and rerun the product regression suite after each repair. Issue
 review approval is bound to the active issue, committed base, product content,
 reviewer definitions and model routes.
+
+## Intent review
+
+At interview closeout, `intent-critic` independently compares the original
+request and explicit human answers with the candidate intent. The transcript
+provides context, but rejected summaries do not count as decisions. A proposed
+correction must quote an exact substring from the request or an explicit
+answer. Python validates the strict report and saves it in
+`.siesta/intent-review.json`. A report that needs a new user decision records a
+KB blocker and stops before specification generation. Interactive confirmation
+is retained as interview evidence.

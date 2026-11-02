@@ -6,7 +6,8 @@ judgments within the tools explicitly enabled for each call.
 
 ```mermaid
 flowchart TD
-    Interview --> Spec --> Plan --> DesignReview[Independent design review]
+    Interview --> IntentReview[Independent intent review]
+    IntentReview --> Spec --> Plan --> DesignReview[Independent design review]
     DesignReview --> Worker[Implement an issue]
     Worker --> Tests[Mechanical tests]
     Tests --> IssueReview[Independent issue review]
@@ -30,6 +31,12 @@ receive only the original intent, spec and plan. Evidence reviewers receive
 acceptance criteria, selected source and passing test IDs. These calls disable
 Pi sessions, context files and implicit extension/skill/template loading, with
 tools disabled. They do not receive the authoring conversation or KB.
+
+At interview closeout, the tool-free intent critic compares the original
+request and explicit human answers with the candidate intent. It can correct
+the candidate only with quotes from that evidence. An unresolved preference is
+recorded as a blocker before specification; an interactive confirmation is
+retained in the interview evidence.
 
 Design review has two lenses: comprehension and implementation readiness.
 Either rejection stops implementation. Approval is cached against exact input
@@ -71,6 +78,7 @@ recorded advice, not evidence that performance improved.
 | `pipeline/__main__.py` | Dispatch, resume, completion and failure records |
 | `pipeline/phases.py` | Prompts, issue execution, recovery and mechanical checks |
 | `pipeline/issue_reviews.py` | Independent issue review, bounded repairs and approval binding |
+| `pipeline/intent_review.py` | Evidence-bound interview closeout and user-decision blockers |
 | `pipeline/source_context.py` | Bounded source collection with explicit path exclusions |
 | `pipeline/design.py` | Independent design and requirement evidence gates |
 | `pipeline/pi.py` | Model invocation, deadlines and call metrics |

@@ -39,6 +39,12 @@ AGENTS = {
         allowed_contexts=("consultation", "review", "learning", "design", "pipeline"),
         response_format="Follow the caller's explicit advice or review format.",
     ),
+    "intent-critic": Agent(
+        id="intent-critic", model_role="consultant",
+        definition_path=AGENT_DIR / "intent-critic.md", allowed_tools=(),
+        allowed_contexts=("intent_review",),
+        response_format="Return one strict JSON intent review report.",
+    ),
     "integration-reviewer": Agent(
         id="integration-reviewer", model_role="consultant",
         definition_path=AGENT_DIR / "integration-reviewer.md", allowed_tools=(),

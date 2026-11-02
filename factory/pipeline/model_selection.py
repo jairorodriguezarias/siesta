@@ -5,7 +5,7 @@ from pathlib import Path
 from pipeline.agents import AGENTS
 
 PHASES = (
-    "interview", "specification", "planning", "design_review",
+    "interview", "intent_review", "specification", "planning", "design_review",
     "implementation", "issue_review", "review", "verification", "completion", "learning",
     "iteration_specification", "iteration_planning",
 )

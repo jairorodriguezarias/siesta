@@ -200,7 +200,7 @@ recuperación de archivos y reanudación sin commits duplicados.
 
 ## Issue #6: Revisar la intención al finalizar la entrevista
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #3.
 
 Añadir un crítico que compare la intención candidata con la petición original y
@@ -217,6 +217,26 @@ las respuestas explícitas.
 
 **Verificación:** requisito perdido, alcance inventado, objeción resuelta y
 cierre autónomo bloqueado.
+
+**Evidencia de verificación:**
+
+- `tests.test_intent_review`: aprobación, corrección respaldada por una cita
+  literal, bloqueo de una decisión nueva, rechazo de evidencia procedente de
+  resúmenes no aceptados y separación entre respuestas humanas y texto no
+  confiable del transcript.
+- `tests.test_phases.InterviewDialog` y `tests.test_phases.AbandonedInterview`:
+  confirmación interactiva conservada, refinamientos enviados como respuestas
+  explícitas y crítica aplicada también al cierre autónomo.
+- `tests.test_integration.PipelineRun.test_intent_critic_blocks_specification_for_a_new_user_decision`:
+  un bloqueo queda registrado sin crear `spec.md`; el flujo autónomo aprobado
+  continúa hasta completar las fases.
+- `tests.test_agents` y `tests.test_model_selection`: agente sin herramientas,
+  contexto aislado y ruta específica de modelo en argumentos reales de Pi.
+- `python -B -m unittest discover -s tests -v`: suite completa aprobada,
+  403 tests, `EXIT_CODE=0`, con el entorno virtual temporal que proporciona
+  `pytest 9.2.0`.
+- `docs/architecture.md` y `docs/review-policy.md`: gate de intención, límites
+  de evidencia y registro de decisiones sin resolver.
 
 ## Issue #7: Ampliar la revisión del diseño y reparar el plan
 

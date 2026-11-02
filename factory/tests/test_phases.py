@@ -6,6 +6,7 @@ instead of a spec, then reviewed its own code instead of planning. The data
 (intent, spec) must live inside the instruction body; the final human message
 must be the rigid output directive.
 """
+import json
 import subprocess
 import unittest
 from pathlib import Path
@@ -348,9 +349,17 @@ class InterviewDialog(unittest.TestCase):
         self.kb = Graph(self.proj / "kb" / "graph.json")
         self.answers = []
 
-    def dialog(self, run_pi_fake, answers):
+    def dialog(self, run_pi_fake, answers, *, forward_critic=False):
         self.answers = answers
-        with patch.object(phases, "run_pi", run_pi_fake), \
+
+        def with_intent_critic(role, body, user, **kwargs):
+            if kwargs.get("agent") == "intent-critic":
+                if forward_critic:
+                    return run_pi_fake(role, body, user, **kwargs)
+                return '{"version":1,"verdict":"pass","changes":[],"unresolved":[]}'
+            return run_pi_fake(role, body, user, **kwargs)
+
+        with patch.object(phases, "run_pi", with_intent_critic), \
                 patch.object(phases, "_read_answer",
                              side_effect=list(answers)):
             return phases.phase0(self.proj, "pomodoro",
@@ -373,7 +382,53 @@ class InterviewDialog(unittest.TestCase):
         saved = (self.proj / "interview_output.txt").read_text()
         self.assertIn("A: menu bar app please", saved)
         self.assertIn("INTENT_FINALIZED", saved)
+        self.assertIn("A: yes — confirmed final intent", saved)
+        audit = json.loads((self.proj / ".siesta/intent-review.json").read_text())
+        self.assertTrue(audit["human_confirmed"])
         self.assertEqual(len(model_turns), 0)   # every model turn consumed
+
+    def test_critic_applies_only_corrections_supported_by_answers(self):
+        model_turns = [
+            "Q: Which interface?\nGUESS: terminal.",
+            "INTENT_FINALIZED: A terminal timer with 25/5 cycles.",
+        ]
+
+        def fake(role, body, user, **kwargs):
+            if kwargs.get("agent") == "intent-critic":
+                self.assertIn("A: menu bar", body)
+                return json.dumps({"version": 1, "verdict": "revised",
+                                   "candidate": "A menu-bar timer with 25/5 cycles.",
+                                   "changes": [{"id": "C1", "issue": "The interface conflicts.",
+                                                "evidence": "menu bar",
+                                                "resolution": "Use the interface explicitly chosen."}],
+                                   "unresolved": []})
+            return model_turns.pop(0)
+
+        intent, _ = self.dialog(fake, ["menu bar", "yes"], forward_critic=True)
+        self.assertEqual(intent, "A menu-bar timer with 25/5 cycles.")
+
+    def test_critic_user_decision_blocks_before_intent_record(self):
+        model_turns = ["Q: Which interface?\nGUESS: terminal."]
+
+        def fake(role, body, user, **kwargs):
+            if kwargs.get("agent") == "intent-critic":
+                return json.dumps({"version": 1, "verdict": "blocked",
+                                   "candidate": "A timer.", "changes": [],
+                                   "unresolved": [{"id": "U1",
+                                       "question": "Which interface?",
+                                       "reason": "The user did not choose one.",
+                                       "options": ["terminal", "menu bar"]}]})
+            if "Close out the interview now" in user:
+                return "INTENT_FINALIZED: A timer."
+            return model_turns.pop(0)
+
+        with patch.object(phases, "run_pi", fake), \
+                patch.object(phases, "_read_answer", return_value="auto"):
+            with self.assertRaisesRegex(phases.intent_review.IntentDecisionRequired,
+                                        "Which interface"):
+                phases.phase0(self.proj, "pomodoro", "build a pomodoro app", False, self.kb)
+        self.assertFalse(self.kb.query(type_="intent"))
+        self.assertEqual(len(self.kb.query(type_="blocker")), 1)
 
     def test_refinement_round_trips_into_the_next_attempt(self):
         model_turns = [
@@ -465,6 +520,8 @@ class InterviewDialog(unittest.TestCase):
         model_turns = ["Q: What UI?\nGUESS: terminal."]
 
         def fake(role, body, user, **kw):
+            if kw.get("agent") == "intent-critic":
+                return '{"version":1,"verdict":"pass","changes":[],"unresolved":[]}'
             if "Close out the interview now" in user:
                 return "INTENT_FINALIZED: a pomodoro cli with sensible defaults"
             return model_turns.pop(0)
@@ -498,7 +555,12 @@ class AbandonedInterview(unittest.TestCase):
 
     def dialog_run(self, fake):
         # EOF on read: this session has no human at the terminal
-        with patch.object(phases, "run_pi", fake), \
+        def with_intent_critic(role, body, user, **kwargs):
+            if kwargs.get("agent") == "intent-critic":
+                return '{"version":1,"verdict":"pass","changes":[],"unresolved":[]}'
+            return fake(role, body, user, **kwargs)
+
+        with patch.object(phases, "run_pi", with_intent_critic), \
                 patch.object(phases, "_read_answer",
                              side_effect=EOFError):
             return phases.phase0(self.proj, "pomodoro",

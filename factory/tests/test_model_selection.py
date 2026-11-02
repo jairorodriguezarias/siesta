@@ -90,6 +90,7 @@ class RouteResolution(unittest.TestCase):
         self.assertIn("interview", PHASES)
         self.assertIn("verification", PHASES)
         self.assertIn("issue_review", PHASES)
+        self.assertIn("intent_review", PHASES)
 
     def test_issue_review_agent_route_resolves(self):
         selection = normalize_selection({
@@ -99,6 +100,18 @@ class RouteResolution(unittest.TestCase):
         self.assertEqual(resolve_route(selection, "issue_review", "integration-reviewer",
                                        "consultant"),
                          {"model": "issue-review-model", "provider": "ollama"})
+
+    def test_intent_critic_route_reaches_the_actual_pi_arguments(self):
+        selection = normalize_selection({
+            "agents": {"intent_review": {"intent-critic": {
+                "model": "intent-critic-model", "provider": "cloud"}}},
+        }, role_defaults=DEFAULTS)
+        args = pi.build_args("consultant", "request and answers", "Review intent",
+                             phase_name="intent_review", agent="intent-critic",
+                             context_kind="intent_review", tools="no", isolated=True,
+                             selection=selection)
+        self.assertEqual(args[args.index("--model") + 1], "intent-critic-model")
+        self.assertEqual(args[args.index("--provider") + 1], "cloud")
 
 
 class ProjectPersistence(unittest.TestCase):

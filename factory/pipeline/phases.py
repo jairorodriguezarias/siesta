@@ -12,8 +12,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-from pipeline import (agents, design, issue_reviews, learn, model_selection,
-                      repository, reviews, text)
+from pipeline import (agents, design, intent_review, issue_reviews, learn,
+                      model_selection, repository, reviews, text)
 from pipeline.files import evidence_dir, source_files as _project_files
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY_SKILLS, GLOBAL_KB, ROLE, SKILLS, err,
@@ -130,8 +130,8 @@ def _quoted(raw: str, why: str) -> str:
     return f"    (rejected turn: {why})\n{body}"
 
 
-def _interview_dialog(proj: Path, idea: str, out: Path) -> str:
-    """The interview as a python-mediated dialog. Returns the transcript.
+def _interview_dialog(proj: Path, idea: str, out: Path) -> tuple[str, list[str]]:
+    """The interview as a Python-mediated dialog, returning transcript and answers.
 
     Every model turn is a plain pi call; the human answers in this
     terminal, so both sides of every exchange become evidence. The final
@@ -139,6 +139,7 @@ def _interview_dialog(proj: Path, idea: str, out: Path) -> str:
     'auto' hands the remaining decisions to the autonomous close-out (#45).
     """
     transcript: list[str] = []
+    explicit_answers: list[str] = []
     answered = 0
     degenerate = 0
     premature = 0
@@ -206,10 +207,12 @@ def _interview_dialog(proj: Path, idea: str, out: Path) -> str:
                 break
             if reply.lower() in ("yes", "y"):
                 transcript.append(raw)
+                transcript.append("A: yes — confirmed final intent")
                 save()
                 break
             transcript.append(_quoted(raw, "final summary rejected by the human"))
             transcript.append(f"A (refinement): {reply}")
+            explicit_answers.append(reply)
             save()
             feedback = REFINE_FEEDBACK
             continue
@@ -226,9 +229,10 @@ def _interview_dialog(proj: Path, idea: str, out: Path) -> str:
             save()
             break                          # → close-out decides with defaults
         transcript.append(f"A: {answer}")
+        explicit_answers.append(answer)
         save()
         answered += 1
-    return "\n\n".join(transcript) + "\n"
+    return "\n\n".join(transcript) + "\n", explicit_answers
 
 
 def phase0(proj: Path, name: str, idea: str, auto: bool,
@@ -238,13 +242,14 @@ def phase0(proj: Path, name: str, idea: str, auto: bool,
     if auto:
         log("Auto mode: using idea description as intent (no interview)")
         interview_out = f"INTENT_FINALIZED: {idea}"
+        explicit_answers = []
         out.write_text(interview_out)
     else:
         print("━━━ Interactive Session — Human + Agent ━━━")
         print("Answer each question in this terminal. Type 'auto' to let the")
         print("interviewer decide the rest with sensible defaults, or press")
         print("Ctrl+D to stop answering.\n")
-        interview_out = _interview_dialog(proj, idea, out)
+        interview_out, explicit_answers = _interview_dialog(proj, idea, out)
     if not text.INTENT.search(interview_out):
         # #45: the human leaving mid-interview must not collapse the intent
         # to the raw one-liner — the planner closes it out autonomously once.
@@ -261,7 +266,13 @@ def phase0(proj: Path, name: str, idea: str, auto: bool,
         else:
             # #12: the raw idea is a fallback, not a success — say it loudly.
             warn("Close-out gave no INTENT_FINALIZED — falling back to the raw idea")
-    intent = text.intent_from(interview_out, idea)
+    candidate = text.intent_from(interview_out, idea)
+    confirmed = not auto and "A: yes — confirmed final intent" in interview_out
+    intent = intent_review.review_intent(
+        proj, idea, interview_out, candidate, confirmed, kb,
+        explicit_answers=explicit_answers, run_pi=run_pi)
+    if intent != candidate:
+        ok("Intent critic corrected the candidate from explicit evidence")
     intent_node = kb.node("intent", f"Human intent for {name}", intent)
     _commit(proj, "Intent captured")
     return intent, intent_node
@@ -440,9 +451,12 @@ runs locally.
 
 
 def phase2(proj: Path, name: str, spec_node: str, kb: Graph) -> int:
+    intents = kb.query(type_="intent")
+    approved_intent = (intents[0]["detail"] if intents and intents[0]["detail"]
+                       else text.intent_from((proj / "interview_output.txt").read_text()
+                           if (proj / "interview_output.txt").exists() else "", name))
     body = PLAN_PROMPT.format(spec=(proj / "spec.md").read_text(),
-                      intent=text.intent_from((proj / "interview_output.txt").read_text()
-                          if (proj / "interview_output.txt").exists() else "", name))
+                              intent=approved_intent)
     out = run_pi("planner", body, PLAN_DIRECTIVE,
                  skills=(SKILLS / "planning-and-task-breakdown",),
                  artifact=proj / "plan_output.txt", cwd=proj, tools="no",

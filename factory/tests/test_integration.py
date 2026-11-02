@@ -91,6 +91,12 @@ case "$model" in
     esac ;;
   consultant-model)
     case "$*" in
+      *"Agent identity: intent-critic"*)
+        case "$FAKE_PI_SCENARIO" in
+          intent_review_blocked)
+            echo '{"version":1,"verdict":"blocked","candidate":"A todo CLI.","changes":[],"unresolved":[{"id":"U1","question":"Should tasks sync to a hosted service?","reason":"The request does not choose a sync policy.","options":["local only","hosted sync"]}]}' ;;
+          *) echo '{"version":1,"verdict":"pass","changes":[],"unresolved":[]}' ;;
+        esac ;;
       *"Pipeline phase: issue_review"*)
         echo '{"version":1,"verdict":"pass","summary":"The active issue satisfies its requirements.","findings":[]}' ;;
       *"Independent design review:"*)
@@ -432,6 +438,14 @@ class PipelineRun(unittest.TestCase):
 
     # ─── escalation ladder ───────────────────────────────────────────────
 
+    def test_intent_critic_blocks_specification_for_a_new_user_decision(self):
+        result = self.siesta("--auto", self.idea, scenario="intent_review_blocked")
+        self.assertEqual(result.returncode, 1, result.stderr[-3000:])
+        self.assertFalse((self.proj() / "spec.md").exists())
+        self.assertIn("Intent review needs user decision", self.types(self.kb(), "blocker"))
+        audit = json.loads((self.proj() / ".siesta/intent-review.json").read_text())
+        self.assertEqual(audit["status"], "blocked")
+
     def test_consult_blocks_issue_after_failed_resolution(self):
         result = self.siesta("--auto", self.idea, scenario="always_consult")
         self.assertEqual(result.returncode, 1, result.stderr[-3000:])
@@ -453,7 +467,7 @@ class PipelineRun(unittest.TestCase):
         # Per issue: 2 resolutions + 1 diagnosis = 3 consultant calls,
         # plus the review proxy → 7; the per-issue learn hooks never ran
         # (blocked) and project learning adds 1 → 8.
-        self.assertEqual(self.log_count("--model consultant-model"), 12)
+        self.assertEqual(self.log_count("--model consultant-model"), 13)
         self.assertIn("2 blocked", result.stdout)
         self.assertFalse((proj / "learning_issue_1.txt").exists())
 
@@ -470,7 +484,7 @@ class PipelineRun(unittest.TestCase):
         # Each issue uses three workers; verification adds one. Specialists
         # and the proxy use the consultant route.
         self.assertEqual(self.log_count("--model worker-model"), 7)
-        self.assertEqual(self.log_count("--model consultant-model"), 12)
+        self.assertEqual(self.log_count("--model consultant-model"), 13)
         self.assertIn("2 blocked", result.stdout)
 
     def test_single_consultation_recovers_issue(self):
@@ -488,7 +502,7 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.log_count("--model worker-model"), 5)
         # Issue guidance, one per-issue reviewer, final specialists and proxy,
         # and learnings.
-        self.assertEqual(self.log_count("--model consultant-model"), 13)
+        self.assertEqual(self.log_count("--model consultant-model"), 14)
         # recovered issues DO get the per-issue learning hook
         self.assertTrue((proj / "learning_issue_1.txt").exists())
 
@@ -692,7 +706,7 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.log_count("--model worker-model"), 5)
         # 2 issue-level proxies + 2 per-issue reviews + final review proxy
         # and specialists + 2 per-issue learnings + project learning.
-        self.assertEqual(self.log_count("--model consultant-model"), 13)
+        self.assertEqual(self.log_count("--model consultant-model"), 14)
 
     def test_proxy_rejection_retries_with_different_approach(self):
         result = self.siesta("--auto", self.idea, scenario="proxy_rejected")
@@ -700,7 +714,7 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("REJECTED", (self.proj() / "proxy_1_output.txt").read_text())
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         self.assertIn("Issue #1 completed", self.decisions())
-        self.assertEqual(self.log_count("--model consultant-model"), 13)
+        self.assertEqual(self.log_count("--model consultant-model"), 14)
 
     # ─── review revision now applies fixes (#16/#18) ─────────────────────
 

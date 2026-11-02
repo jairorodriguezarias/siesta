@@ -67,6 +67,8 @@ if model == "planner-model":
 if "You are the factory-learner" in prompt:
     answer("learner", "PROJECT_LEARNING:\n  Project: recovery\n  Actions:\n    LEARNING: Recovery observed — bounded protocol retries")
 if model == "consultant-model":
+    if "Agent identity: intent-critic" in prompt:
+        answer("intent_review", '{"version":1,"verdict":"pass","changes":[],"unresolved":[]}')
     if "Issue review contract:" in prompt and "Agent identity: integration-reviewer" in prompt:
         if scenario == "issue_review_repaired" and "return 42" not in Path("answer.py").read_text():
             answer("issue_review_integration", review_finding())
