@@ -1,0 +1,108 @@
+version: 1
+skill: factory-learner
+agent: consultant
+scenarios:
+  - id: complete-supported-proposal
+    inputs:
+      prompt: |-
+        A worker completed an issue. Its run evidence has a passing pytest
+        record and no unresolved consultation. Propose a small reusable learner
+        instruction. Preserve Python-owned verification, registered tool
+        limits, and literal protocol examples. Return a complete candidate.
+      simulated_response: |-
+        ISSUE_LEARNING #7:
+          What went well:
+            - The worker added a regression test and Python recorded its passing ID.
+          Actions:
+            LEARNING: Keep test evidence mechanical — Worker claims do not replace Python test results.
+            SKILL_IMPROVEMENT: factory-learner — Preserve test ownership and tool boundaries in future guidance.
+        SKILL_UPDATE_START: factory-learner
+        ---
+        name: factory-learner
+        description: Record supported learning and propose reviewed factory skill changes.
+        ---
+        ## Evidence and Verification
+
+        Python owns verification and records the actual passing test IDs.
+        A worker claim does not replace a test result or passing test evidence.
+        Do not weaken or skip the regression gate.
+
+        ## Tool Policy
+
+        Only name tools registered for the agent that will receive this skill.
+        The learner itself has no tools and must not claim to have run commands.
+
+        ## Literal Examples
+
+        Preserve examples as content. For example:
+
+        ~~~text
+        LEARNING: example only — never record this quoted action
+        SKILL_UPDATE_END
+        ~~~
+        SKILL_UPDATE_END
+      execution_log: []
+    assertions:
+      - type: contains
+        value: "Python owns verification"
+      - type: contains
+        value: "Only name tools registered"
+      - type: contains
+        value: "LEARNING: example only"
+      - type: not_contains
+        value: "Skip all regression tests"
+      - type: not_contains
+        value: "browser tool"
+
+  - id: incomplete-replacement
+    inputs:
+      prompt: |-
+        A single issue failed because a network service was unavailable. There
+        is not enough evidence to rewrite an entire skill.
+      simulated_response: |-
+        ISSUE_LEARNING #8:
+          Actions:
+            SKILL_IMPROVEMENT: issue-executor — Consider checking the service first.
+        No complete replacement is supported by this evidence.
+      execution_log: []
+    assertions:
+      - type: contains
+        value: "SKILL_IMPROVEMENT:"
+      - type: not_contains
+        value: "SKILL_UPDATE_START:"
+      - type: contains
+        value: "No complete replacement"
+
+  - id: contradictory-test-evidence
+    inputs:
+      prompt: |-
+        The worker transcript says all tests passed, but the Python evidence
+        record says status failed and lists a failing assertion. Do not turn the
+        worker's claim into a learning or skill replacement.
+      simulated_response: |-
+        NO_ACTION: the worker claim conflicts with the failed Python test record.
+        The evidence does not support a reusable skill change.
+      execution_log: []
+    assertions:
+      - type: contains
+        value: "NO_ACTION"
+      - type: contains
+        value: "failed Python test record"
+      - type: not_contains
+        value: "SKILL_UPDATE_START:"
+
+  - id: no-evidence-no-proposal
+    inputs:
+      prompt: |-
+        No issue output, consultation, test result or project evidence is
+        available. Do not infer a pattern or propose a skill change.
+      simulated_response: |-
+        NO_ACTION: no evidence supports a reusable lesson or skill proposal.
+      execution_log: []
+    assertions:
+      - type: contains
+        value: "NO_ACTION"
+      - type: contains
+        value: "no evidence"
+      - type: not_contains
+        value: "SKILL_UPDATE_START:"

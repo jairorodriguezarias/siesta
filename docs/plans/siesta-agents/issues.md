@@ -415,7 +415,7 @@ temporal.
 
 ## Issue #12: Probar el aprendizaje y sus propuestas
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #8–#9.
 
 Añadir el paquete de pruebas de `factory-learner`.
@@ -428,6 +428,12 @@ Añadir el paquete de pruebas de `factory-learner`.
   inexistentes.
 
 **Verificación:** escenarios del aprendiz y regresiones del parser.
+
+**Evidencia:** `factory-learner/TEST.md` y `test_scenarios.yaml` cubren cuatro
+resultados; `test_factory_learner_scenarios.py` comprueba el parser, ejemplos
+literales, propuesta pendiente sin activación y rechazo de instrucciones que
+debilitan verificaciones o inventan herramientas. Suite completa: 445 tests,
+`/tmp/siesta-test-venv/bin/python -B -m unittest discover -s tests -q`, exit 0.
 
 ## Issue #13: Revisar y activar automáticamente mejoras de skills
 
