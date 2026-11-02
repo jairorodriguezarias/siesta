@@ -20,6 +20,11 @@ cannot read or write files, and no human is present to review the plan.
 - Respect explicit issue-count limits. A small CLI can be one complete issue
   containing source, meaningful tests and usage notes; it does not need separate
   scaffold, documentation or dependency-audit issues. Reference the spec's R IDs.
+- Use the supplied specification and evidence; linked references are not readable
+  in this call. Every issue must include executable behavior tests, preserve
+  earlier requirements and leave a working increment. Python runs the tests,
+  records completion and commits. Independent design review checks this plan
+  before implementation; do not claim that a human approved it.
 
 ## Overview
 

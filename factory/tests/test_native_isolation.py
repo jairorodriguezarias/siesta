@@ -18,6 +18,7 @@ const moduleAt = path => import(pathToFileURL(join(input.package, path)).href);
 const {DefaultResourceLoader} = await moduleAt('dist/core/resource-loader.js');
 const {SettingsManager} = await moduleAt('dist/core/settings-manager.js');
 const {parseArgs} = await moduleAt('dist/cli/args.js');
+const {buildSystemPromptSections} = await moduleAt('dist/core/system-prompt.js');
 const parsed = parseArgs(input.args);
 const loader = new DefaultResourceLoader({
     cwd: input.project,
@@ -30,17 +31,50 @@ const loader = new DefaultResourceLoader({
     noSkills: parsed.noSkills,
     noPromptTemplates: parsed.noPromptTemplates,
     noThemes: true,
+    additionalSkillPaths: parsed.skills,
     systemPrompt: parsed.systemPrompt,
     appendSystemPrompt: parsed.appendSystemPrompt,
 });
 await loader.reload();
 console.log(JSON.stringify({
     system: loader.getSystemPrompt(), append: loader.getAppendSystemPrompt(),
+    sections: buildSystemPromptSections({cwd: input.project,
+        selectedTools: parsed.noTools ? [] : ['read', 'bash'],
+        skills: loader.getSkills().skills}),
+    messages: parsed.messages,
 }));
 """
 
 
 class NativeIsolation(unittest.TestCase):
+    def test_text_only_skill_content_survives_native_pi_parsing(self):
+        pi, node = shutil.which('pi'), shutil.which('node')
+        if not pi or not node:
+            self.skipTest('Native skill check needs installed Pi and Node')
+        package = next((parent for parent in Path(pi).resolve().parents
+                        if (parent / 'dist/core/resource-loader.js').is_file()), None)
+        if package is None:
+            self.skipTest('Installed Pi does not expose its resource-loader module')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile, skill = root / 'profile', root / 'skill'
+            profile.mkdir()
+            skill.mkdir()
+            (skill / 'SKILL.md').write_text(
+                '---\nname: advice\ndescription: Give advice.\n---\n'
+                'NATIVE_SKILL_CONSTRAINT: report uncertainty.\n')
+            args = build_args('consultant', 'Evidence', 'Return advice',
+                              skills=(skill,), tools='no')[1:]
+            proc = subprocess.run([node, '--input-type=module', '-e', LOADER_CHECK],
+                                  input=json.dumps({'package': str(package),
+                                                    'project': str(root),
+                                                    'profile': str(profile), 'args': args}),
+                                  capture_output=True, text=True, timeout=20)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            prompts = json.loads(proc.stdout)
+            self.assertNotIn('skills', prompts['sections'])
+            self.assertIn('NATIVE_SKILL_CONSTRAINT', prompts['messages'][0])
+
     def test_isolated_review_excludes_global_and_project_system_files(self):
         pi, node = shutil.which('pi'), shutil.which('node')
         if not pi or not node:

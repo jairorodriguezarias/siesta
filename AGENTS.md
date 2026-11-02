@@ -167,13 +167,19 @@ python3 -m pipeline.kb append-edge kb/graph.json FROM_ID TO_ID applied_to
 
 ## Skills and development
 
-Pi receives each skill through an explicit `--skill` path. The repository
-contains ten adapted skills under `.agents/skills/` and five factory skills
-under `factory/skills/`. No separate installation or runtime view is needed.
+Tool-enabled calls register skills through explicit `--skill` paths for Pi to
+load on demand. Tool-free calls additionally receive each selected `SKILL.md`
+in the prompt: registration alone does not expose its content without a reader
+tool. Missing required files fail before invocation. Isolated design/evidence
+reviewers receive no skills. The repository contains ten adapted skills under
+`.agents/skills/` and five factory skills under `factory/skills/`. No separate
+installation or runtime view is needed. See [skills and context](docs/skills-and-context.md).
 
 The learner may update or create factory skills only. It cannot modify the
 adapted skills; those require a repository change. Python applies supported
-learning blocks after fence-aware parsing. A new skill proposal is a KB record
+learning blocks after fence-aware parsing. Replacement bodies preserve Markdown
+examples without treating them as actions; outer update markers must be
+unindented. A new skill proposal is a KB record
 unless it supplies the complete content required for a file update.
 
 Git workflow and skill discovery are for interactive repository development;

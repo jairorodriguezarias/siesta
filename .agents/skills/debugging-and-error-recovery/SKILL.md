@@ -5,6 +5,17 @@ description: Guides systematic root-cause debugging. Use when tests fail, builds
 
 # Debugging and Error Recovery
 
+## Siesta Pipeline Contract
+
+With tools disabled, analyze the supplied source and observed evidence only.
+Separate a suspected cause from a reproduced failure, and recommend concrete
+checks without claiming to have run them. Use the caller's review/verification
+format; Python performs mechanical and runtime checks afterward.
+With tools enabled, reproduce and repair within the assigned scope. Leave Git
+commits and recovery to Python. Consultations are routed only in normal issue
+execution/retries; a request during regression repair or review fixing blocks
+that attempt instead of starting an advisory loop.
+
 ## Overview
 
 Systematic debugging with structured triage. When something breaks, stop adding features, preserve evidence, and follow a structured process to find and fix the root cause. Guessing wastes time. The triage checklist works for test failures, build errors, runtime bugs, and production incidents.
@@ -98,15 +109,26 @@ Which layer is failing?
 └── Test itself     → Check if the test is correct (false negative)
 ```
 
-**Use bisection for regression bugs:**
+**Interactive bisection for regression bugs:** preserve existing work and use a
+separate diagnostic worktree. Pipeline workers must not bisect the active product
+checkout: Python owns its revision and recovery. Report the suspected regression
+through the supported issue handoff instead.
+
 ```bash
-# Find which commit introduced the bug
-git bisect start
-git bisect bad                    # Current commit is broken
-git bisect good <known-good-sha> # This commit worked
-# Git will checkout midpoint commits; run your test at each
-git bisect run npm test -- --grep "failing test"  # substitute the repository's focused-test command
+# Choose an unused diagnostic path; commands keep the original checkout intact.
+git worktree add --detach ../diagnostic-bisect HEAD
+git -C ../diagnostic-bisect bisect start
+git -C ../diagnostic-bisect bisect bad
+git -C ../diagnostic-bisect bisect good <known-good-sha>
+# Substitute this Node example with the project's focused test command.
+git -C ../diagnostic-bisect bisect run npm test -- --grep "failing test"
+git -C ../diagnostic-bisect bisect reset
+# Inspect/preserve diagnostic files, then remove the worktree without --force.
+git worktree remove ../diagnostic-bisect
 ```
+
+Run `git bisect reset` in the diagnostic worktree even if diagnosis is
+interrupted. Apply the fix in the original checkout, not a bisected revision.
 
 ### Step 3: Reduce
 
@@ -192,9 +214,15 @@ Build fails:
 ├── Type error → Read the error, check the types at the cited location
 ├── Import error → Check the module exists, exports match, paths are correct
 ├── Config error → Check build config files for syntax/schema issues
-├── Dependency error → Check package.json, run npm install
+├── Dependency error → Identify the active manager/lockfile and follow the project's documented installation procedure
 └── Environment error → Check Node version, OS compatibility
 ```
+
+For dependency setup, locate the owning project/workspace and check its manifest,
+lockfile and CI commands together. Follow the [dependency security and
+install-script gate](../../references/security-checklist.md#dependency-security)
+before using the documented frozen/immutable install command. Do not switch
+package managers or enable dependency scripts just to bypass a failed install.
 
 ### Runtime Error Triage
 
@@ -226,16 +254,13 @@ function getConfig(key: string): string {
   return value;
 }
 
-// Graceful degradation (instead of broken feature)
-function renderChart(data: ChartData[]) {
-  if (data.length === 0) {
-    return <EmptyState message="No data available for this period" />;
-  }
+// Graceful degradation for synchronous parsing
+function parseSavedData(raw: string): unknown {
   try {
-    return <Chart data={data} />;
+    return JSON.parse(raw);
   } catch (error) {
-    console.error('Chart render failed:', error);
-    return <ErrorState message="Unable to display chart" />;
+    console.error('Saved data is not valid JSON:', error);
+    return null; // Caller displays an explicit unavailable-data state.
   }
 }
 ```

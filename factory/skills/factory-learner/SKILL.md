@@ -60,9 +60,12 @@ An actual replacement requires a separate complete block:
     <complete skill body>
     SKILL_UPDATE_END
 
-The example is indented for illustration. Emit actual markers outside code
-fences: fenced regions are removed before parsing. Use plain or indented
-examples inside replacement content as well.
+The example is indented for illustration. Emit actual outer markers at column
+zero, outside code fences, with `SKILL_UPDATE_END` alone on its line. Inside a
+replacement, indent literal marker examples or put them in Markdown fences.
+Python preserves that content verbatim and never treats its examples as KB
+actions. Fenced blocks outside replacements are examples, not updates. An
+unfinished replacement is discarded; its contents are not learning actions.
 
 For an existing skill, emit a replacement only if its complete current text
 is supplied. A name alone cannot preserve its constraints: propose the

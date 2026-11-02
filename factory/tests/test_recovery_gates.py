@@ -26,7 +26,7 @@ from pathlib import Path
 
 args = sys.argv[1:]
 model = args[args.index("--model") + 1]
-prompt = args[-1]
+prompt = sys.stdin.read() or args[-1]
 scenario = os.environ["RECOVERY_SCENARIO"]
 log = Path(os.environ["RECOVERY_CALLS"])
 calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -111,6 +111,7 @@ class RecoveryGates(unittest.TestCase):
         self.factory = self.root / "factory"
         for name in ("config", "kb", "skills"):
             shutil.copytree(FACTORY / name, self.factory / name)
+        shutil.copytree(FACTORY.parent / ".agents", self.root / ".agents")
         config = self.factory / "config/models.json"
         models = json.loads(config.read_text())
         for role in ("planner", "worker", "consultant"):

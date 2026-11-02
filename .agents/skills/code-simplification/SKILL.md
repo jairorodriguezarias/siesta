@@ -5,6 +5,15 @@ description: Simplifies code for clarity. Use when refactoring code for clarity 
 
 # Code Simplification
 
+## Siesta Pipeline Contract
+
+When the caller disables tools, identify concrete simplifications from supplied
+source and explain their behavior-preservation requirements. Return proposals
+within the requested review format; do not edit, run tests or claim those
+actions occurred. A tool-enabled fix call may implement the approved scope and
+test it. Python owns commits and verification gates in pipeline calls.
+Interactive refactoring follows the general workflow below.
+
 > Inspired by the [Claude Code Simplifier plugin](https://github.com/anthropics/claude-plugins-official/blob/main/plugins/code-simplifier/agents/code-simplifier.md). Adapted here as a model-agnostic, process-driven skill for any AI coding agent.
 
 ## Overview
@@ -82,11 +91,16 @@ const result = items.reduce((acc, item) => ({
   [item.id]: { ...acc[item.id], count: (acc[item.id]?.count ?? 0) + 1 }
 }), {});
 
-// CLEAR: Named intermediate step
-const countById = new Map<string, number>();
-for (const item of items) {
-  countById.set(item.id, (countById.get(item.id) ?? 0) + 1);
+// CLEAR: Name the operation while preserving the plain-object result
+type Counts = Record<string, { count: number }>;
+function addItemCount(counts: Counts, item: Item): Counts {
+  const previous = counts[item.id];
+  return {
+    ...counts,
+    [item.id]: { ...previous, count: (previous?.count ?? 0) + 1 }
+  };
 }
+const result = items.reduce(addItemCount, {});
 ```
 
 ### 4. Maintain Balance
@@ -189,15 +203,14 @@ If the "simplified" version is harder to understand or review, revert. Not every
 ### TypeScript / JavaScript
 
 ```typescript
-// SIMPLIFY: Unnecessary async wrapper
+// PRESERVE: async converts synchronous service errors into rejected promises
 // Before
 async function getUser(id: string): Promise<User> {
   return await userService.findById(id);
 }
-// After
-function getUser(id: string): Promise<User> {
-  return userService.findById(id);
-}
+// Keep this wrapper unless the service's return and throw behavior are proven
+// equivalent for every supported path. Removing async can break callers that
+// handle failures with getUser(id).catch(...).
 
 // SIMPLIFY: Verbose conditional assignment
 // Before

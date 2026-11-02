@@ -186,7 +186,11 @@ Agent starts work
     └── Feature complete → All commits form a clean history
 ```
 
-This pattern means you never lose more than one increment of work. If an agent goes off the rails, `git reset --hard HEAD` takes you back to the last successful state.
+Before starting, inspect staged, unstaged and untracked work. Preserve existing
+changes and keep the current increment isolated. On failure, inspect the diff
+and undo only your own changes; a commit does not protect uncommitted user work.
+Use `git reset --hard HEAD` only in a verified disposable worktree or for a
+rollback explicitly authorized by the user after preserving other work.
 
 ## Change Summaries
 
@@ -210,7 +214,11 @@ This pattern catches wrong assumptions early and gives reviewers a clear map of 
 
 ## Pre-Commit Hygiene
 
-Before every commit:
+Before every commit, inspect the staged changes and run the active project's
+documented tests and applicable lint/type checks. Discover those commands from
+its README, CI and build configuration; skip checks the stack does not define.
+For Siesta itself, use [Testing Siesta](../../../docs/testing.md). The Node/
+TypeScript commands below are examples, not requirements for Python projects:
 
 ```bash
 # 1. Check what you're about to commit
@@ -249,13 +257,13 @@ Automate this with git hooks:
 
 ## Using Git for Debugging
 
-```bash
-# Find which commit introduced a bug
-git bisect start
-git bisect bad HEAD
-git bisect good <known-good-commit>
-# Git checkouts midpoints; run your test at each to narrow down
+For bisection, follow the isolated diagnostic-worktree workflow in
+[debugging and recovery](../debugging-and-error-recovery/SKILL.md). Preserve
+existing work, keep the active checkout unchanged and finish with `git bisect
+reset` in the diagnostic worktree. Pipeline workers must not change the active
+product revision; Python owns it.
 
+```bash
 # View what changed recently
 git log --oneline -20
 git diff HEAD~5..HEAD -- src/

@@ -5,6 +5,15 @@ description: Delivers changes incrementally. Use when implementing any feature o
 
 # Incremental Implementation
 
+## Siesta Pipeline Contract
+
+In generated-project worker calls, implement and test incrementally but leave
+all changes uncommitted. Python owns staging, commits, completion records and
+recovery; the supplied issue-executor contract overrides the commit steps below.
+Do not rewrite reviewed `spec.md` or `issues.md`. Use the supported issue handoff
+when scope or approval is unresolved. Interactive repository work follows the
+ordinary commit workflow below.
+
 ## Overview
 
 Build in thin vertical slices — implement one piece, test it, verify it, then expand. Avoid implementing an entire feature in one pass. Each increment should leave the system in a working, testable state. This is the execution discipline that makes large features manageable.

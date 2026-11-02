@@ -139,6 +139,17 @@ class ApplySkillUpdates(unittest.TestCase):
         self.assertIn("new: yes", target.read_text())
         self.assertNotIn("old body", target.read_text())
 
+    def test_complete_learner_skill_round_trips_without_phantom_kb_actions(self):
+        source = Path(__file__).resolve().parents[1] / 'skills/factory-learner/SKILL.md'
+        body = source.read_text().rstrip('\n')
+        output = f'SKILL_UPDATE_START: factory-learner\n{body}\nSKILL_UPDATE_END\n'
+        self.assertEqual(learn.apply_skill_updates(output, self.skills), ['factory-learner'])
+        self.assertEqual((self.skills / 'factory-learner/SKILL.md').read_text(), body + '\n')
+        graph = Graph(Path(self.tmp.name) / 'graph.json')
+        self.assertEqual(learn.act_on_learnings(output, graph, None),
+                         {'learnings': 0, 'improvements': 0, 'new_skills': 0})
+        self.assertEqual(graph.query(), [])
+
     def test_creates_new_skill_dir_when_missing(self):
         applied = learn.apply_skill_updates(LEARNER_OUTPUT, self.skills)
         self.assertEqual(applied, ["issue-executor"])

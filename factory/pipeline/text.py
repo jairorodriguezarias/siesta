@@ -43,10 +43,8 @@ LEARN = re.compile(
     r"^[ \t]*(LEARNING|SKILL_IMPROVEMENT|NEW_SKILL):[ \t]*(.+?)"
     r"(?:[ \t]+[—–-][ \t]+(.+))?$", re.M
 )
-SKILL_BLOCK = re.compile(
-    r"^[ \t]*SKILL_UPDATE_START:[ \t]*(\S+)[ \t]*\n(.*?)^[ \t]*SKILL_UPDATE_END",
-    re.M | re.S,
-)
+SKILL_START = re.compile(r"^SKILL_UPDATE_START:[ \t]*(\S+)[ \t]*$")
+MARKDOWN_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 
 
 # ─── Degenerate-output guard (silence is not success) ─────────────────────
@@ -113,15 +111,43 @@ def intent_from(output: str, idea: str) -> str:
 
 
 def learnings(output: str) -> list[tuple[str, str, str]]:
-    """Return (kind, summary, detail) for every learning-style line."""
+    """Read actions outside quoted examples and skill replacement bodies."""
+    prose, _ = _learning_parts(output)
     return [(kind, summary.strip(), (detail or "").strip())
-            for kind, summary, detail in LEARN.findall(output)]
+            for kind, summary, detail in LEARN.findall(prose)]
 
 
 def skill_updates(output: str) -> list[tuple[str, str]]:
-    """Return (skill_name, replacement_body) for SKILL_UPDATE_START/END blocks."""
-    return [(name.replace("/", ""), body.strip("\n"))
-            for name, body in SKILL_BLOCK.findall(output)]
+    """Preserve complete Markdown bodies, including their literal examples."""
+    return _learning_parts(output)[1]
+
+
+def _learning_parts(output: str) -> tuple[str, list[tuple[str, str]]]:
+    prose, updates, body = [], [], []
+    name = None
+    for raw, fenced in _fenced_lines(output):
+        line = raw.rstrip('\r\n')
+        if fenced:
+            if name is not None:
+                body.append(line)
+            continue
+        start = SKILL_START.match(line)
+        if name is not None:
+            if start:
+                # Unquoted nesting makes the outer boundary ambiguous. Discard
+                # the unfinished block and remainder rather than execute it.
+                break
+            if line.rstrip() == "SKILL_UPDATE_END":
+                updates.append((name, "\n".join(body).strip("\n")))
+                name, body = None, []
+            else:
+                body.append(line)
+        elif start:
+            name = start[1]
+        else:
+            prose.append(line)
+    # An unfinished replacement is neither a file update nor a set of actions.
+    return "\n".join(prose), updates
 
 
 def head(text: str, n: int) -> str:
@@ -194,21 +220,30 @@ def _strip_code_fences(doc: str) -> str:
     return "\n".join(lines)
 
 
+def _fenced_lines(out: str):
+    """Yield original lines with their Markdown-fence membership."""
+    fence = None
+    for line in out.splitlines(keepends=True):
+        boundary = MARKDOWN_FENCE.match(line.rstrip('\r\n'))
+        fenced = fence is not None or boundary is not None
+        if fence:
+            if (boundary and boundary[1][0] == fence[0]
+                    and len(boundary[1]) >= len(fence) and not boundary[2].strip()):
+                fence = None
+        elif boundary:
+            fence = boundary[1]
+        yield line, fenced
+
+
 def without_fences(out: str) -> str:
-    """Remove every fenced region before checking protocol markers.
-    Quoted examples never authorize actions. An unclosed fence removes
-    all remaining content."""
-    lines, cutting = [], False
-    for line in out.splitlines():
-        if cutting:
-            if BARE_FENCE.match(line):
-                cutting = False
-            continue
-        if BARE_FENCE.match(line) or _fence_tag(line) is not None:
-            cutting = True
-            continue
-        lines.append(line)
-    return "\n".join(lines)
+    """Mask fenced examples while preserving offsets into the original output.
+
+    Only real markers authorize actions. Matching offsets let callers forward
+    the associated raw code/error evidence without treating it as a signal.
+    An unclosed fence masks all remaining content.
+    """
+    return ''.join(re.sub(r'[^\r\n]', ' ', line) if fenced else line
+                   for line, fenced in _fenced_lines(out))
 
 
 def spec_doc(out: str) -> str | None:

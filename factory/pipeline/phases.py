@@ -626,16 +626,25 @@ Rules:
   CONTEXT: <why>
 - Otherwise implement fully"""
 
+def _approval_context(proj: Path, kb: Graph) -> str:
+    records = [node for node in kb.query() if node['type'] in {'intent', 'decision'}]
+    spec = proj / 'spec.md'
+    return ("Original intent and recorded decisions (full records):\n"
+            + json.dumps(records, ensure_ascii=False)
+            + "\n\nCurrent specification:\n"
+            + (spec.read_text() if spec.exists() else "MISSING: specification not supplied"))
+
+
 PROXY_PROMPT = """You are the human-proxy. Follow the human-proxy skill.
 A worker requests approval as if you were the human.
 
 Request:
 {request}
 
-KB Context (original intent and all decisions):
+Approval context:
 {kb}
 
-Evaluate against the original human intent in the KB.
+Evaluate against the supplied intent, specification and decisions.
 Decide: APPROVED, REJECTED, or NEEDS_REVISION — and output the decision as a
 line starting with the marker (e.g. APPROVED: <reason>). A decision line that
 does not start with a marker counts as NOT approved."""
@@ -787,6 +796,10 @@ def _repair_regression(proj: Path, n: int, issue_text: str, source: str) -> bool
                  skills=REPAIR_SKILLS,
                  thinking=WORKER_THINKING, cwd=proj,
                  artifact=proj / f"regression_repair_{n}.txt")
+    spoken = text.without_fences(fix)
+    if text.CONSULT.search(spoken) or text.PROXY.search(spoken):
+        warn("Repair needs advice or approval; no handoff is available in this attempt")
+        return False
     if text.degenerate(fix):
         warn("Regression repair output degenerate — attempting re-run anyway")
     return run_regression(proj, n) == "passed"
@@ -957,9 +970,10 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
             proxy_attempts += 1
             if proxy_attempts > 2:
                 return block("Worker still requesting approval after proxy retries")
-            request = text.after(spoken, text.PROXY.search(spoken), 20)
+            request = text.after(output, text.PROXY.search(spoken), 20)
             decision = run_pi(
-                "consultant", PROXY_PROMPT.format(request=request, kb=kb_summaries),
+                "consultant", PROXY_PROMPT.format(
+                    request=request, kb=_approval_context(proj, kb) + f"\n\nActive issue:\n{issue_text}"),
                 request, skills=(FACTORY_SKILLS / "human-proxy", FACTORY_SKILLS / "kb-manager"),
                 cwd=proj, tools="no", artifact=proj / f"proxy_{num}_output.txt")
             kb.node("proxy_decision", f"Proxy decision for issue #{num}", decision)
@@ -981,7 +995,7 @@ def _escalate(proj: Path, num: int, output: str, issue_text: str, kb_summaries: 
             fail = fails[num]
             if fail > 3:
                 return block("Worker still stuck after deep diagnosis", "blocked after diagnosis")
-            consult = text.after(spoken, stuck_at, 50)
+            consult = text.after(output, stuck_at, 50)
             history[num] = history.get(num, "") + f"Attempt {fail}: {consult}\n"
             if fail == 3:
                 diagnosis = run_pi(
@@ -1065,7 +1079,7 @@ def review(proj: Path, kb: Graph) -> None:
         if passed:
             proxy_out = run_pi(
                 "consultant",
-                PROXY_REVIEW_PROMPT.format(review=review_out, kb=kb_summaries),
+                PROXY_REVIEW_PROMPT.format(review=review_out, kb=_approval_context(proj, kb)),
                 review_out, skills=(FACTORY_SKILLS / "human-proxy",),
                 artifact=proj / "proxy_review_output.txt", cwd=proj, tools="no")
             kb.node("proxy_decision", "Proxy review approval", proxy_out)
@@ -1077,11 +1091,15 @@ def review(proj: Path, kb: Graph) -> None:
             feedback += "\nProxy feedback: " + proxy_out
         if attempt == 0:
             warn("Review not approved — one fix attempt before reviewing again")
-            run_pi(
+            fix = run_pi(
                 "worker", f"Review feedback: {feedback}\n\nSource files:\n{source}\n\n"
                 "Apply the fixes in files and run tests. Report what changed.",
                 "Fix review issues", skills=REVIEW_SKILLS + RETRY_SKILLS,
                 artifact=proj / "review_fixes_output.txt", cwd=proj)
+            spoken = text.without_fences(fix)
+            if text.CONSULT.search(spoken) or text.PROXY.search(spoken):
+                _discard_residue(proj, 0, 'review fix needs advice or approval')
+                raise RuntimeError('Review fix blocked awaiting advice or approval; work archived')
             # Save applied work; a commit is not an approval.
             if repository.requirements_digest(proj) != contract:
                 _discard_residue(proj, 0, 'review changed the requirements')

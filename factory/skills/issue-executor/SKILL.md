@@ -18,9 +18,11 @@ Use only skills and tools actually supplied; references do not install skills.
 **Python owns completion records, checkpoints, recovery and Git commits.**
 Leave product edits uncommitted. Do not stage or commit files, reset or clean
 the repository, create completion nodes, or edit checkpoints/verdicts.
-This applies during implementation, repair and review-fix calls. It overrides
-generic advice to commit after each increment: Python first runs its tests,
-then records completion and commits.
+This ownership applies during implementation, repair and review-fix calls.
+It overrides generic advice to commit after each increment. For issue completion
+and successful regression repair, Python runs its tests before committing.
+Review-fix commits only save work awaiting fresh review and later phase-5
+verification; they do not establish that tests passed or the project is complete.
 
 ## Process
 
@@ -49,9 +51,15 @@ If a supplied skill asks for human approval, return:
     PROXY_REQUEST: <decision that needs approval>
     CONTEXT: <why it is needed and how it relates to the issue>
 
-Put markers at line start, outside fences, and end the turn. Python routes
-the request and provides feedback. After approval or guidance, implement and
-test; approval alone is not completed work. Report any remaining blocker.
+Put markers at line start, outside fences, and end the turn. During normal
+issue execution and its retries, Python routes the request and provides
+feedback. After approval or guidance, implement and test; approval alone is
+not completed work. Report any remaining blocker.
+
+Regression repair and review-fix calls have one bounded attempt, without an
+advisory loop. A `CONSULT:` or `PROXY_REQUEST:` there blocks the attempt; Python
+preserves recovery evidence and stops or skips the affected work. Do not assume
+that another model will answer inside that repair call.
 
 ## Handoff
 
@@ -59,8 +67,8 @@ Provide a concise factual final report. Do not narrate tool-call JSON, ask
 the absent human questions, or quote example markers as real requests.
 Do not label the issue completed yourself.
 
-Python runs the regression suite before writing the completion decision and
-commit. Red or absent tests block the issue. Python archives and discards
+For issue completion, Python runs the regression suite before writing the
+completion decision and commit. Red or absent tests block the issue. Python archives and discards
 blocked uncommitted work; leave that recovery to it. Per-issue learning runs
 after successful completion is recorded.
 

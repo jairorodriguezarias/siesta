@@ -23,6 +23,8 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "Siesta Test", "GIT_AUTHOR_EMAIL": "test@example.i
            "GIT_COMMITTER_NAME": "Siesta Test", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
 STUB = r"""#!/bin/bash
 # fake-pi — canned model responses for the pipeline integration tests.
+piped_prompt=$(cat)
+if [ -n "$piped_prompt" ]; then set -- "$@" "$piped_prompt"; fi
 printf '%s\n' "$*" >> "${FAKE_PI_LOG:-/dev/null}"
 
 model="" prev=""
@@ -67,13 +69,13 @@ TEST
 case "$model" in
   planner-model)
     case "$*" in
-      *"spec-driven-development"*)
+      *"You are a software architect."*)
         # No file writes: the model prints the document, the pipeline saves it.
         case "$FAKE_PI_SCENARIO" in
           never_spec) echo "sorry, cannot write a spec right now" ;;
           *) printf '# Spec\n\nA tiny todo CLI in Python with root-tested behavior.\nStores tasks in memory, runs offline.\n\n## Acceptance criteria\n- R1: Return a hello greeting.\n' ;;
         esac ;;
-      *"planning-and-task-breakdown"*)
+      *"You are a project planner."*)
         case "$FAKE_PI_SCENARIO" in
           repair_fails_forever_3) printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n\n## Issue #3: Add more\nWrite more.\n' ;;
           *) printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n' ;;
@@ -224,6 +226,7 @@ class PipelineRun(unittest.TestCase):
         self.name = self.idea.replace(" ", "-")
         for name in ("config", "skills"):
             shutil.copytree(FACTORY / name, self.tmp / "factory" / name)
+        shutil.copytree(FACTORY.parent / ".agents", self.tmp / ".agents")
         kb_dir = self.tmp / "factory/kb"
         kb_dir.mkdir()
         for name in ("schema.json", "global-seed.json"):
@@ -956,6 +959,7 @@ class RootLevelSuiteVerifyFallback(unittest.TestCase):
         self.name = self.idea.replace(" ", "-")
         for name in ("config", "skills"):
             shutil.copytree(FACTORY / name, self.tmp / "factory" / name)
+        shutil.copytree(FACTORY.parent / ".agents", self.tmp / ".agents")
         kb_dir = self.tmp / "factory/kb"
         kb_dir.mkdir()
         for name in ("schema.json", "global-seed.json"):

@@ -143,6 +143,32 @@ class LearningLines(unittest.TestCase):
 
 
 class SkillUpdateBlocks(unittest.TestCase):
+    def test_literal_examples_survive_without_becoming_actions(self):
+        body = ('---\nname: learner\ndescription: Learn.\n---\n'
+                '    LEARNING: example — never execute\n'
+                '    SKILL_UPDATE_END\n'
+                '```text\nSKILL_UPDATE_START: example\n'
+                'LEARNING: fenced example\nSKILL_UPDATE_END\n```\n'
+                'Final constraint: preserve this paragraph.')
+        output = ('LEARNING: real lesson — actual evidence\n'
+                  'SKILL_UPDATE_START: learner\n' + body + '\nSKILL_UPDATE_END\n')
+        self.assertEqual(text.skill_updates(output), [('learner', body)])
+        self.assertEqual(text.learnings(output), [('LEARNING', 'real lesson', 'actual evidence')])
+
+    def test_quoted_updates_and_unfinished_blocks_do_not_execute(self):
+        output = ('~~~text\nSKILL_UPDATE_START: example\nLEARNING: quoted\n'
+                  'SKILL_UPDATE_END\n~~~\nSKILL_UPDATE_START: unfinished\n'
+                  'LEARNING: belongs to an incomplete replacement\n')
+        self.assertEqual(text.skill_updates(output), [])
+        self.assertEqual(text.learnings(output), [])
+
+    def test_nested_unquoted_update_cannot_expose_outer_body_as_actions(self):
+        output = ('SKILL_UPDATE_START: outer\nSKILL_UPDATE_START: inner\n'
+                  'SKILL_UPDATE_END\nLEARNING: still inside the outer replacement\n'
+                  'SKILL_UPDATE_END\n')
+        self.assertEqual(text.skill_updates(output), [])
+        self.assertEqual(text.learnings(output), [])
+
     def test_extracts_named_blocks(self):
         updates = text.skill_updates(SKILL_UPDATE_OUTPUT)
         self.assertEqual([name for name, _ in updates], ["issue-executor", "new-skill"])
@@ -392,6 +418,19 @@ class WithoutFences(unittest.TestCase):
         out = text.without_fences("real answer\n```\nVERIFY_PASSED: quoted\n```\n")
         self.assertNotIn("VERIFY_PASSED", out)
         self.assertIn("real answer", out)
+
+    def test_matching_fence_types_and_lengths_hide_protocol_examples(self):
+        for opening, shorter, closing in [('~~~text', '```', '~~~~'),
+                                           ('````text', '```', '`````')]:
+            with self.subTest(opening=opening):
+                raw = (f'{opening}\nPROXY_DECISION: APPROVED\n{shorter}\n'
+                       f'CRITICAL: quoted\n{closing}\nCONSULT: actual question')
+                visible = text.without_fences(raw)
+                self.assertIsNone(text.APPROVED.search(visible))
+                self.assertIsNone(text.CRITICAL.search(visible))
+                actual = text.CONSULT.search(visible)
+                self.assertIsNotNone(actual)
+                self.assertEqual(actual.start(), raw.index('CONSULT: actual question'))
 
     def test_tagged_fence_cut(self):
         out = text.without_fences("intro\n```python\nCONSULT: example\n```\noutro")

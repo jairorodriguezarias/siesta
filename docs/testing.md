@@ -25,6 +25,8 @@ requires live model access. Backend HTTP/process tests run in the normal suite.
 - Real Git commits, failed commit hooks, recovery archives and residue cleanup.
 - Checkpoints, issue idempotency, incomplete resumes and completed reruns.
 - Model routing, tool permissions, timeouts and context warnings.
+- Full skill delivery to tool-free calls, large-prompt transport, complete proxy
+  decision evidence, and skill replacement examples isolated from KB actions.
 - Isolated design review, malformed replies, changed requirements and cached approvals.
 - Requirement mappings to actual passing pytest IDs, including parametrized IDs.
 - Product changes during verification, failed completion commits and legacy resume gates.
@@ -33,8 +35,10 @@ requires live model access. Backend HTTP/process tests run in the normal suite.
 
 When Pi and Node are installed, the native isolation test also exercises Pi's
 actual argument parser and resource loader with temporary sentinel files. It
-checks global/project system-prompt inheritance without model calls or account
-credentials. It skips when Pi is unavailable, as in offline CI.
+checks global/project system-prompt inheritance and confirms that a tool-free
+call's skill body survives native argument parsing even though Pi omits its
+skill catalog. These checks need no model calls or account credentials. They
+skip when Pi is unavailable, as in offline CI.
 
 A passing factory suite validates the orchestrator against those scenarios.
 It does not establish that a particular model can finish arbitrary projects.

@@ -16,7 +16,11 @@ cannot read or write files, and no human is present to review your work.
   and dependency constraints in Boundaries. Preserve the requested issue count
   and scope so the planner does not expand a small application.
 - The human-review gates below do not apply — the pipeline's human-proxy,
-  review and verify phases fill that role.
+  independent design review and later verification provide automated gates.
+  These are model judgments, not a claim of human approval. Keep one `spec.md`;
+  describe capability boundaries inside it rather than creating module files.
+- Use only supplied evidence. Required decisions belong in the document;
+  do not attempt to load another skill or a linked reference without tools.
 - Write the SPECIFICATION only. Never write code, never create files, never
   start building the product: the worker builds it in a later phase, and
   pre-building here corrupts the phase separation the pipeline depends on.
@@ -215,7 +219,7 @@ Break the plan into discrete, implementable tasks:
 
 ### Phase 4: Implement
 
-Execute tasks one at a time following `skills/incremental-implementation/SKILL.md` (`incremental-implementation`) and `skills/test-driven-development/SKILL.md` (`test-driven-development`). Use `skills/context-engineering/SKILL.md` (`context-engineering`) to load the right spec sections and source files at each step rather than flooding the agent with the entire spec.
+Execute tasks one at a time following [incremental implementation](../incremental-implementation/SKILL.md) and [TDD](../test-driven-development/SKILL.md). Load the relevant specification sections and source files for the current task. The upstream `context-engineering` skill is optional and is not bundled here.
 
 ## Keeping the Spec Alive
 

@@ -11,6 +11,23 @@ Agent Skills is a collection of engineering workflow skills organized by develop
 
 ## Skill Discovery
 
+This repository bundles exactly these ten adapted skills: `using-agent-skills`,
+`interview-me`, `spec-driven-development`, `planning-and-task-breakdown`,
+`incremental-implementation`, `test-driven-development`,
+`debugging-and-error-recovery`, `code-review-and-quality`, `code-simplification`
+and `git-workflow-and-versioning`.
+
+The broader map and lifecycle below also name optional upstream workflows.
+Check the current skill inventory before using one. A reference does not install
+it and is not a reason to stop if the task can be completed with available
+instructions and tools. For unavailable context, security, API, browser or
+documentation skills, use focused source reads, the bundled review checklists
+and actual project tooling. Report any evidence gap that remains.
+
+The Python pipeline selects its own skills explicitly; this discovery workflow
+is for interactive repository development. Its five factory skills live under
+`factory/skills/`, with different tool and handoff contracts.
+
 When a task arrives, identify the development phase and apply the corresponding skill:
 
 ```

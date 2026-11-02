@@ -130,10 +130,9 @@ ISSUE_LEARNING #{n}:
     LEARNING: <summary> — <detail> (if more than one)
     NO_ACTION: nothing to learn (rare)
 
-  If improving a skill, also output the updated content block:
-  SKILL_UPDATE_START: <skill-name>
-  <full updated SKILL.md content>
-  SKILL_UPDATE_END"""
+Only propose improvements for skills whose complete current text was not supplied.
+A directory name is not its content. Optional replacements must follow the
+factory-learner skill's complete-block format, with unindented outer markers."""
 
 
 def _issue_facts(proj: Path, n: int, issue_text: str, kb: Graph) -> dict:
@@ -203,12 +202,10 @@ def learn_issue(proj: Path, n: int, issue_text: str, kb: Graph, gkb: Graph) -> s
                  skills=(FACTORY_SKILLS / "factory-learner", FACTORY_SKILLS / "kb-manager"),
                  cwd=proj, tools="no", artifact=proj / f"learning_issue_{n}.txt")
 
-    # Fence-free parse (round-7 hardening): a SKILL_UPDATE/LEARNING block
-    # quoted as a code example is not the learner speaking — it can never
-    # rewrite a factory skill or log a phantom learning.
-    spoken = text.without_fences(out)
-    counts = act_on_learnings(spoken, gkb, n)
-    applied = apply_skill_updates(spoken, FACTORY_SKILLS)
+    # Parse raw output: quoted actions are ignored, while examples inside a
+    # replacement remain part of that file instead of becoming KB actions.
+    counts = act_on_learnings(out, gkb, n)
+    applied = apply_skill_updates(out, FACTORY_SKILLS)
     if applied:
         log(f"Applied skill updates: {', '.join(applied)}")
     transcript = "\n".join([
@@ -279,10 +276,9 @@ PROJECT_LEARNING:
     SKILL_IMPROVEMENT: <skill> — <structural change> (if any)
     NEW_SKILL: <name> — <what> (if any)
 
-  If restructuring a skill, output the full updated content:
-  SKILL_UPDATE_START: <skill-name>
-  <full updated SKILL.md>
-  SKILL_UPDATE_END"""
+Only propose improvements for skills whose complete current text was not supplied.
+A directory name is not its content. Optional replacements must follow the
+factory-learner skill's complete-block format, with unindented outer markers."""
 
 
 def learn_project(proj: Path, name: str, kb: Graph, gkb: Graph) -> str:
@@ -307,10 +303,9 @@ def learn_project(proj: Path, name: str, kb: Graph, gkb: Graph) -> str:
                  skills=(FACTORY_SKILLS / "factory-learner", FACTORY_SKILLS / "kb-manager"),
                  cwd=proj, tools="no", artifact=proj / "project_learning_output.txt")
 
-    # Fence-free parse (round-7 hardening) — same as the per-issue learner.
-    spoken = text.without_fences(out)
-    counts = act_on_learnings(spoken, gkb, None)
-    applied = apply_skill_updates(spoken, FACTORY_SKILLS)
+    # Preserve replacement bodies while excluding their examples from actions.
+    counts = act_on_learnings(out, gkb, None)
+    applied = apply_skill_updates(out, FACTORY_SKILLS)
     if applied:
         log(f"Applied project-level skill updates: {', '.join(applied)}")
     transcript = "\n".join([

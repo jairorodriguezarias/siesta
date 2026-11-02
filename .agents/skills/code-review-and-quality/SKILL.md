@@ -5,6 +5,16 @@ description: Conducts multi-axis code review. Use before merging any change. Use
 
 # Code Review and Quality
 
+## Siesta Pipeline Contract
+
+For a tool-free review, assess only the supplied source and evidence. Report
+findings with paths and proposed fixes; do not claim edits or executed tests.
+Use the caller's `REVIEW_PASSED:` or `REVIEW_FAILED:` output contract. Python
+owns proxy approval, fix calls, mechanical verification and commits.
+In a tool-enabled fix call, apply the requested corrections and run available
+tests, leaving changes uncommitted. The issue-executor contract applies.
+Interactive repository reviews follow the general workflow below.
+
 ## Overview
 
 Multi-dimensional code review with quality gates. Every change gets reviewed before merge — no exceptions. Review covers five axes: correctness, readability, architecture, security, and performance.

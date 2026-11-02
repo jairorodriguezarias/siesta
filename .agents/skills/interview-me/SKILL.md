@@ -31,6 +31,19 @@ Apply this skill when:
 - Mechanical operations (renames, formats, file moves)
 - You already have ≥95% confidence; re-read the stop condition below before assuming you don't
 
+## Siesta Pipeline Contract
+
+When Python invokes this skill, it supplies the transcript and reads the human's
+answers between model calls. During that live interview, return one `Q:` with
+`GUESS:`, or an `INTENT_FINALIZED:` paragraph for Python to ask the human to
+confirm. Do not claim that a proposed summary has already been confirmed.
+
+Only when the caller explicitly requests autonomous closeout after `auto`, EOF
+or an interrupted interview, return `INTENT_FINALIZED:` with chosen defaults
+made explicit. That is a delegated/fallback result, not human confirmation.
+Do not ask another question in closeout. This exception belongs to Siesta's
+explicit closeout contract; the interactive rules below still apply elsewhere.
+
 ## Loading Constraints
 
 This skill needs a live, responsive user. **Do not invoke in non-interactive contexts** like CI pipelines, scheduled runs, `/loop`, or autonomous-loop. If you're in one of those and the ask is underspecified, flag that as a blocker for the user instead of guessing.
