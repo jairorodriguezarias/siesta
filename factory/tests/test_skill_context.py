@@ -1,11 +1,12 @@
 """Skills must reach text-only roles without asking the model to read files."""
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from unittest.mock import patch
 
-from pipeline import phases, pi
+from pipeline import model_selection, phases, pi
 from pipeline.kb import Graph
 from pipeline.pi import build_args
 
@@ -62,16 +63,116 @@ class SkillContext(unittest.TestCase):
             proj = Path(directory)
             (proj / 'spec.md').write_text('# Spec\n- R1: Keep all data on this machine.\n')
             (proj / 'issues.md').write_text('## Issue #1: Store notes\nImplement storage.\n')
+            (proj / '.siesta').mkdir()
+            (proj / '.siesta/tests.json').write_text(
+                json.dumps({'status': 'passed', 'passed': ['tests/test_store.py::test_local']}))
+            (proj / 'regression_0.log').write_text('1 passed in 0.01s\n')
             kb = Graph(proj / 'kb/graph.json')
             kb.node('intent', 'Human intent', 'Private notes must never leave this machine.')
             kb.node('decision', 'Storage choice', 'Use SQLite without network sync.')
             with patch.object(phases, 'run_pi', side_effect=[
-                    'REVIEW_PASSED: storage is correct', 'APPROVED: within scope']) as call:
+                    json.dumps({"version": 1, "verdict": "pass", "summary": "Requirements met.",
+                                "findings": []}),
+                    json.dumps({"version": 1, "verdict": "pass", "summary": "Code is sound.",
+                                "findings": []}),
+                    'APPROVED: within scope']) as call, \
+                    patch.object(phases, 'run_regression', return_value='passed'):
                 phases.review(proj, kb)
+            self.assertEqual(len(call.call_args_list), 3)
+            for reviewer_call, expected_agent in zip(
+                    call.call_args_list[:2],
+                    ('integration-reviewer', 'quality-reviewer')):
+                self.assertEqual(reviewer_call.kwargs['agent'], expected_agent)
+                self.assertTrue(reviewer_call.kwargs['isolated'])
+                self.assertEqual(reviewer_call.kwargs['tools'], 'no')
+                self.assertIn('1 passed in 0.01s', reviewer_call.args[1])
             body = call.call_args.args[1]
             self.assertIn('Private notes must never leave this machine.', body)
             self.assertIn('- R1: Keep all data on this machine.', body)
             self.assertIn('Use SQLite without network sync.', body)
+
+    def test_review_configuration_fingerprint_includes_specialist_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proj = Path(directory)
+            original = phases._review_configuration(proj)
+            selection = model_selection.from_overrides({
+                'agents': {'review': {'integration-reviewer': {
+                    'model': 'specialist-review-model', 'provider': 'ollama'}}}},
+                role_defaults=phases.ROLE)
+            model_selection.save_project(proj, selection)
+            selected = phases._review_configuration(proj)
+        self.assertNotEqual(original, selected)
+
+    def test_expanded_review_context_contains_real_additional_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proj = Path(directory)
+            (proj / '.siesta').mkdir()
+            marker = 'ADDITIONAL_REVIEW_CONTEXT_MARKER'
+            (proj / 'app.py').write_text('x = "' + ('a' * 150_000) + '"\n' + marker + '\n')
+            ordinary, _ = phases._review_context(proj, 'integration-reviewer')
+            expanded, manifest = phases._review_context(
+                proj, 'integration-reviewer', expanded=True)
+            self.assertNotIn(marker, ordinary)
+            self.assertIn(marker, expanded)
+            self.assertIn('.siesta/review-evidence.txt', manifest['included'])
+            self.assertIn(marker, (proj / '.siesta/review-evidence.txt').read_text())
+
+    def test_review_context_retry_fails_when_no_more_evidence_exists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proj = Path(directory)
+            (proj / '.siesta').mkdir()
+            (proj / 'app.py').write_text('def calculate(): return 42\n')
+            with self.assertRaisesRegex(
+                    phases.ReviewContextError, 'No additional source context'):
+                phases._review_context(proj, 'integration-reviewer', expanded=True)
+
+    def test_review_repair_can_add_the_project_first_test_suite(self):
+        finding = json.dumps({
+            'version': 1, 'verdict': 'findings', 'summary': 'The result is incorrect.',
+            'findings': [{
+                'id': 'F1', 'severity': 'major', 'target': 'R1 / app.py',
+                'evidence': 'calculate() returns 0 instead of 42.',
+                'requested_fix': 'Return 42 and add a regression test.'}]})
+        passed = json.dumps({
+            'version': 1, 'verdict': 'pass', 'summary': 'No blocking findings.',
+            'findings': []})
+
+        with tempfile.TemporaryDirectory() as directory:
+            proj = Path(directory)
+            (proj / 'spec.md').write_text(
+                '# Spec\n\n## Acceptance criteria\n- R1: calculate returns 42.\n')
+            (proj / 'issues.md').write_text('## Issue #1: Calculate\nReturn 42.\n')
+            (proj / 'app.py').write_text('def calculate(): return 0\n')
+            kb = Graph(proj / 'kb/graph.json')
+            calls = []
+
+            def model(role, body, user, **kwargs):
+                calls.append(kwargs.get('agent', 'consultant'))
+                if kwargs.get('agent') == 'integration-reviewer':
+                    return passed if (proj / 'tests/test_app.py').exists() else finding
+                if kwargs.get('agent') == 'quality-reviewer':
+                    return passed
+                if 'Evaluate if this review meets' in body:
+                    return 'APPROVED: both reports meet the definition of done'
+                if user == 'Fix review issues':
+                    (proj / 'app.py').write_text('def calculate(): return 42\n')
+                    (proj / 'tests').mkdir()
+                    (proj / 'tests/test_app.py').write_text(
+                        'from app import calculate\n'
+                        'def test_calculate(): assert calculate() == 42\n')
+                    return 'Corrected calculate() and added its regression test.'
+                self.fail(f'unexpected review call: {user}')
+
+            with patch.object(phases, 'run_pi', side_effect=model), \
+                    patch.object(phases, 'run_regression', side_effect=['skipped', 'passed']) as suite, \
+                    patch.object(phases.repository, 'require_committed_ledger'), \
+                    patch.object(phases, '_commit'):
+                phases.review(proj, kb)
+                self.assertEqual(suite.call_count, 2)
+                self.assertEqual(calls.count('integration-reviewer'), 2)
+                self.assertEqual(calls.count('quality-reviewer'), 2)
+                self.assertEqual((proj / 'app.py').read_text(),
+                                 'def calculate(): return 42\n')
 
     def test_repair_cannot_succeed_with_an_unresolved_approval_request(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -103,8 +204,19 @@ class SkillContext(unittest.TestCase):
             (proj / 'spec.md').write_text('# Spec\n- R1: Preserve input.\n')
             (proj / 'issues.md').write_text('## Issue #1: Preserve input\nImplement.\n')
             kb = Graph(proj / 'kb/graph.json')
+            finding = json.dumps({
+                "version": 1, "verdict": "findings", "summary": "Input is discarded.",
+                "findings": [{
+                    "id": "F1", "severity": "major", "target": "R1 / app.py",
+                    "evidence": "The implementation discards input.",
+                    "requested_fix": "Preserve the supplied input.",
+                }],
+            })
+            passed = json.dumps({"version": 1, "verdict": "pass",
+                                 "summary": "No code quality defect.", "findings": []})
             with patch.object(phases, 'run_pi', side_effect=[
-                    'REVIEW_FAILED: input is discarded', 'CONSULT: need a missing requirement']), \
+                    finding, passed, 'CONSULT: need a missing requirement']), \
+                    patch.object(phases, 'run_regression', return_value='passed'), \
                     patch.object(phases, '_discard_residue') as recover, \
                     patch.object(phases, '_commit') as commit:
                 with self.assertRaisesRegex(RuntimeError, 'blocked awaiting'):

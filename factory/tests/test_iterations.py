@@ -178,12 +178,15 @@ answer("execute",''')
         self.assertEqual(self.git('rev-parse', 'HEAD').strip(), self.original_head)
         self.assertFalse(self.calls('execute'))
 
-    def test_legacy_verification_without_fingerprint_is_checked_again(self):
+    def test_missing_verification_fingerprint_reuses_only_the_bound_review(self):
         self.prepare()
         (self.proj / '.git/siesta-state.json').unlink()
         result = self.run_cli('--project', self.proj, '--resume')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(self.calls('review'))
+        # The ignored review report remains bound to the unchanged product and
+        # review configuration, while the missing verification fingerprint
+        # forces a fresh verification.
+        self.assertFalse(self.calls('review'))
         self.assertTrue(self.calls('verify'))
 
 

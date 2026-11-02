@@ -42,11 +42,29 @@ def implement():
     Path("tests/test_answer.py").write_text(
         "from answer import answer\n\ndef test_answer():\n    assert answer() == 42\n")
 
+def review_pass(summary):
+    return json.dumps({"version": 1, "verdict": "pass", "summary": summary, "findings": []})
+
+def review_finding():
+    return json.dumps({"version": 1, "verdict": "findings", "summary": "Answer is incorrect.",
+        "findings": [{"id": "F1", "severity": "major", "target": "R1 / answer.py",
+            "evidence": "answer() returns 0 instead of 42.",
+            "requested_fix": "Return 42 and cover it with a regression test."}]})
+
 if model == "planner-model":
     answer("unexpected_planner", "Unexpected planner invocation during resume")
 if "You are the factory-learner" in prompt:
     answer("learner", "PROJECT_LEARNING:\n  Project: recovery\n  Actions:\n    LEARNING: Recovery observed — bounded protocol retries")
 if model == "consultant-model":
+    if "Agent identity: integration-reviewer" in prompt:
+        if scenario == "review_failed_but_proxy_approves":
+            answer("review_integration", '{"name":"bash","arguments":{"command":"ls"}}')
+        if scenario == "review_empty_fix" or (
+                scenario == "review_repaired" and "return 42" not in Path("answer.py").read_text()):
+            answer("review_integration", review_finding())
+        answer("review_integration", review_pass("Requirements and integration are sound."))
+    if "Agent identity: quality-reviewer" in prompt:
+        answer("review_quality", review_pass("No concrete code quality defects."))
     if "Independent design review:" in prompt:
         answer("design_review", '{"verdict":"passed","findings":[]}')
     if "Independent requirement evidence audit" in prompt:
@@ -54,8 +72,7 @@ if model == "consultant-model":
             "tests": ["tests/test_answer.py::test_answer"], "sources": ["answer.py"],
             "reason": "The test checks the answer is 42."}], "drift": []}))
     if "Evaluate if this review meets" in prompt:
-        if scenario == "review_proxy_denied" or (
-                scenario == "review_repaired" and "REVIEW_FAILED:" in prompt):
+        if scenario == "review_proxy_denied":
             answer("review_proxy", "NEEDS_REVISION: answer must return 42")
         answer("review_proxy", "APPROVED: meets the recorded acceptance criteria")
     if "A worker requests approval" in prompt:
@@ -173,6 +190,7 @@ class RecoveryGates(unittest.TestCase):
         self.git("reset", "--hard", self.seed_commit)
         self.calls_file.write_text("")
         (self.proj / ".pipeline-checkpoint").write_text(checkpoint + "\n")
+        shutil.rmtree(self.proj / ".siesta", ignore_errors=True)
 
     def run_pipeline(self, scenario="ok"):
         return subprocess.run([sys.executable, "-m", "pipeline", "--auto", self.idea],
@@ -182,8 +200,10 @@ class RecoveryGates(unittest.TestCase):
     def calls(self, kind):
         if not self.calls_file.exists():
             return []
+        selected = ({"review_integration", "review_quality"}
+                    if kind == "review" else {kind})
         return [call for line in self.calls_file.read_text().splitlines()
-                if (call := json.loads(line))["kind"] == kind]
+                if (call := json.loads(line))["kind"] in selected]
 
     def summaries(self, type_):
         return [node["summary"] for node in self.kb.query(type_=type_)]
@@ -263,11 +283,14 @@ class RecoveryGates(unittest.TestCase):
         self.assertNotIn("--no-tools", fix_args)
         self.assertTrue(any(arg.endswith("/issue-executor/") for arg in fix_args), fix_args)
         self.assertIn("return 42", self.git("show", "HEAD:answer.py"))
-        self.assertTrue(any(call["output"].startswith("REVIEW_FAILED:")
-                            for call in self.calls("review")))
-        self.assertTrue(any(call["output"].startswith("REVIEW_PASSED:")
-                            for call in self.calls("review")))
-        self.assertTrue(any("REVIEW_PASSED:" in call["prompt"]
+        self.assertTrue(any(call["output"].startswith('{"version": 1, "verdict": "findings"')
+                            for call in self.calls("review_integration")))
+        self.assertTrue(any('"verdict": "pass"' in call["output"]
+                            for call in self.calls("review_integration")))
+        self.assertTrue(any('"verdict": "pass"' in call["output"]
+                            for call in self.calls("review_quality")))
+        self.assertTrue(any("integration-reviewer" in call["prompt"]
+                            and "quality-reviewer" in call["prompt"]
                             for call in self.calls("review_proxy")))
         self.assertEqual((self.proj / ".pipeline-checkpoint").read_text().strip(), "complete")
 

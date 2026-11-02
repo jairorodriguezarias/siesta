@@ -55,5 +55,23 @@ finding: an independent adjudicator must record an evidence-based upheld or
 dismissed decision. An adjudicator also gets at most one retry. Dismissing all
 findings requires a fresh clean review round before approval.
 
-The module provides these gates; issue-level and final-review integrations are
-added in the following review issues.
+## Final product review
+
+The final review uses two required, isolated agents: `integration-reviewer`
+checks requirements and integration, and `quality-reviewer` checks concrete
+code defects and quality. Each receives the approved contracts, source, test
+results and an included/omitted context manifest. They do not receive author
+history or informal justifications, and Pi tools are disabled for both.
+
+Both specialists must return valid passing reports before the human-proxy can
+approve. The proxy receives both reports plus intent and recorded decisions.
+Proxy rejection becomes a repairable finding. A repair must preserve the
+requirements, change the product version and pass the regression suite before
+it is committed and reviewed again.
+
+Review evidence and call metrics are stored in `.siesta/`. The approval is
+bound to the product content and the review configuration, including selected
+routes, specialist definitions, proxy instructions and the Definition of Done.
+A resume reuses approval only when both fingerprints match. Test results,
+including a failing regression log, are shown to the specialists; final
+verification still determines whether delivery is verified or `UNVERIFIED`.

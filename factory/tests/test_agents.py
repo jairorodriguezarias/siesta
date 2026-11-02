@@ -88,6 +88,18 @@ class AgentDefinitions(unittest.TestCase):
 
 
 class AgentPermissions(unittest.TestCase):
+    def test_review_specialists_are_separate_tool_free_agents(self):
+        for agent_id in ("integration-reviewer", "quality-reviewer"):
+            with self.subTest(agent=agent_id):
+                agent = agents.get_agent(agent_id, model_role="consultant",
+                                         context_kind="review")
+                self.assertEqual(agent.allowed_tools, ())
+                self.assertIn("# Agent: " + agent_id, agents.load_definition(agent))
+                args = build_args("consultant", "contract and code", "Review",
+                                  agent=agent_id, context_kind="review", tools="no")
+                self.assertIn("Agent identity: " + agent_id, args[-1])
+                self.assertIn("--no-tools", args)
+
     def test_default_tools_are_bounded_by_registry_policy(self):
         args = build_args("worker", "context", "directive")
         self.assertEqual(args[args.index("--tools") + 1],

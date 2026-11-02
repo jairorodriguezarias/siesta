@@ -113,6 +113,13 @@ WAIT
           evidence_missing) echo '{"requirements":[],"drift":[]}' ;;
           *) echo '{"requirements":[{"id":"R1","status":"supported","tests":["test_todo.py::test_greeting"],"sources":["todo.py"],"reason":"The greeting assertion checks hello."}],"drift":[]}' ;;
         esac ;;
+      *"Agent identity: integration-reviewer"*)
+        case "$FAKE_PI_SCENARIO" in
+          review_degenerate) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
+          *) echo '{"version":1,"verdict":"pass","summary":"Requirements and integration are sound.","findings":[]}' ;;
+        esac ;;
+      *"Agent identity: quality-reviewer"*)
+        echo '{"version":1,"verdict":"pass","summary":"No concrete code quality defects.","findings":[]}' ;;
       *"You are the factory-learner"*)
         # #46: learning routes to the consultant — GLM owns the strict format
         echo "PROJECT_LEARNING:
@@ -160,9 +167,11 @@ APPROACH: take the simplest path" ;;
             echo "REPAIR_DONE: fixed the failing tests" ;;
           *) echo "REPAIR_DONE: tried to fix the tests but they stay broken" ;;
         esac ;;
-      *"code-reviewer"*)
+      *"Fix review issues"*)
         case "$FAKE_PI_SCENARIO" in
-          review_degenerate) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
+          review_needs_revision)
+            printf '\n# Applied the proxy requested revision\n' >> todo.py
+            echo "ISSUE_OK: applied the requested review revision and tests still pass" ;;
           *) echo "REVIEW_PASSED: no issues found" ;;
         esac ;;
       *)
@@ -381,15 +390,16 @@ class PipelineRun(unittest.TestCase):
         self.assertTrue((proj / "issue_2_output.txt").exists())
         self.assertTrue((proj / "learning_issue_1.txt").exists(),
                         "per-issue learning hook should run after each issue")
-        self.assertIn("APPROVED", (proj / "proxy_review_output.txt").read_text())
+        proxy_outputs = sorted((proj / ".siesta").glob("proxy-*.txt"))
+        self.assertTrue(proxy_outputs)
+        self.assertIn("APPROVED", proxy_outputs[-1].read_text())
         verify = (proj / "verify_output.txt").read_text()
         self.assertIn("VERIFY_PASSED", verify)
         self.assertIn("RUNTIME_CHECK: SKIPPED", verify)  # no runnable entry point
         self.assertEqual((proj / ".pipeline-checkpoint").read_text().strip(),
                          "complete")
-        # 2 issues + review + verify = 4 worker calls; the learner runs on
-        # the consultant (#46) — 2 per-issue + 1 project learning
-        self.assertEqual(self.log_count("--model worker-model"), 4)
+        # Two issue calls plus verification; final review uses consultants.
+        self.assertEqual(self.log_count("--model worker-model"), 3)
         log = (self.tmp / "pi_calls.log").read_text().splitlines()
         learner_calls = [l for l in log if "factory-learner/" in l]
         self.assertEqual(len(learner_calls), 3)
@@ -436,13 +446,12 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("Issue #2 blocked after diagnosis", blockers)
         # Per issue: initial + 2 resolution retries + 1 diagnosis-feedback
         # retry = 4 worker calls; learn hooks skipped when blocked.
-        # Phases 4 + 5 add 2 → 10 worker calls (project learning is a
-        # consultant call since #46, and blocked issues skip it anyway).
-        self.assertEqual(self.log_count("--model worker-model"), 10)
+        # Verification adds one worker call; final review uses specialists.
+        self.assertEqual(self.log_count("--model worker-model"), 9)
         # Per issue: 2 resolutions + 1 diagnosis = 3 consultant calls,
         # plus the review proxy → 7; the per-issue learn hooks never ran
         # (blocked) and project learning adds 1 → 8.
-        self.assertEqual(self.log_count("--model consultant-model"), 10)
+        self.assertEqual(self.log_count("--model consultant-model"), 12)
         self.assertIn("2 blocked", result.stdout)
         self.assertFalse((proj / "learning_issue_1.txt").exists())
 
@@ -456,13 +465,10 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("Issue #1 skipped after diagnosis", blockers)
         self.assertIn("Issue #2 skipped after diagnosis", blockers)
         self.assertFalse((proj / "stop.md").exists())  # SKIP, not CRITICAL
-        # Per issue: initial + 2 resolution retries = 3 worker calls (no
-        # diagnosis feedback for a skip) → 6, + review + verify = 8
-        # (project learning is a consultant call since #46).
-        self.assertEqual(self.log_count("--model worker-model"), 8)
-        # 2 resolutions + 1 diagnosis per issue + the review proxy = 7,
-        # plus project learning (consultant) → 8.
-        self.assertEqual(self.log_count("--model consultant-model"), 10)
+        # Each issue uses three workers; verification adds one. Specialists
+        # and the proxy use the consultant route.
+        self.assertEqual(self.log_count("--model worker-model"), 7)
+        self.assertEqual(self.log_count("--model consultant-model"), 12)
         self.assertIn("2 blocked", result.stdout)
 
     def test_single_consultation_recovers_issue(self):
@@ -476,13 +482,10 @@ class PipelineRun(unittest.TestCase):
         self.assertFalse((proj / "diagnosis_1_output.txt").exists())
         self.assertEqual(len(self.types(self.kb(), "decision")), 3)
         self.assertIn("0 blocked", result.stdout)
-        # Per issue: initial + 1 fed-back retry = 2 worker calls; review and
-        # verify add 2 → 6 total (the 2 learn hooks are consultant calls
-        # since #46).
-        self.assertEqual(self.log_count("--model worker-model"), 6)
-        # 1 resolution per issue + the review proxy = 3; per-issue learning
-        # ×2 + project learning = 3 more → 6.
-        self.assertEqual(self.log_count("--model consultant-model"), 9)
+        # Two issue retries plus verification; final review uses consultants.
+        self.assertEqual(self.log_count("--model worker-model"), 5)
+        # Issue guidance, specialist reviews, proxy, and learnings.
+        self.assertEqual(self.log_count("--model consultant-model"), 11)
         # recovered issues DO get the per-issue learning hook
         self.assertTrue((proj / "learning_issue_1.txt").exists())
 
@@ -548,9 +551,8 @@ class PipelineRun(unittest.TestCase):
         self.assertFalse((self.proj() / "learning_issue_1.txt").exists())
         self.assertIn("2 blocked", result.stdout)
         # per issue: initial + 1 degenerate feedback retry = 2 worker calls,
-        # no learn hooks when blocked → 4, + review + verify = 6 (project
-        # learning is a consultant call since #46)
-        self.assertEqual(self.log_count("--model worker-model"), 6)
+        # no learn hooks when blocked → 4, plus verification; review uses consultants.
+        self.assertEqual(self.log_count("--model worker-model"), 5)
 
     def test_blocked_issue_leaves_no_tree_residue(self):
         # #49: a blocked issue's uncommitted work is discarded — the tree
@@ -684,10 +686,10 @@ class PipelineRun(unittest.TestCase):
         self.assertNotIn("did not approve", result.stderr)  # recovered quietly
         # per issue: PROXY attempt + 1 feedback retry = 2 worker calls; then
         # review + verify = 2 (learn hooks are consultant calls since #46)
-        self.assertEqual(self.log_count("--model worker-model"), 6)
+        self.assertEqual(self.log_count("--model worker-model"), 5)
         # 2 issue-level proxies + 1 review proxy + 2 per-issue learnings
         # + 1 project learning = 6
-        self.assertEqual(self.log_count("--model consultant-model"), 9)
+        self.assertEqual(self.log_count("--model consultant-model"), 11)
 
     def test_proxy_rejection_retries_with_different_approach(self):
         result = self.siesta("--auto", self.idea, scenario="proxy_rejected")
@@ -695,7 +697,7 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("REJECTED", (self.proj() / "proxy_1_output.txt").read_text())
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         self.assertIn("Issue #1 completed", self.decisions())
-        self.assertEqual(self.log_count("--model consultant-model"), 9)
+        self.assertEqual(self.log_count("--model consultant-model"), 11)
 
     # ─── review revision now applies fixes (#16/#18) ─────────────────────
 
@@ -707,12 +709,14 @@ class PipelineRun(unittest.TestCase):
         # #16: the fix pass runs WITH write tools and its changes are committed
         fix_calls = [line for line in (self.tmp / "pi_calls.log").read_text()
                      .splitlines() if "Fix review issues" in line]
-        self.assertEqual(len(fix_calls), 1)
+        self.assertEqual(len(fix_calls), 2)
         self.assertNotIn("--no-tools", fix_calls[0])
         log = subprocess.run(["git", "-C", str(self.proj()), "log", "--oneline"],
                              capture_output=True, text=True).stdout
         self.assertIn("Review fixes", log)
-        self.assertIn("NEEDS_REVISION", (self.proj() / "proxy_review_output.txt").read_text())
+        proxy_outputs = sorted((self.proj() / ".siesta").glob("proxy-*.txt"))
+        self.assertTrue(proxy_outputs)
+        self.assertIn("NEEDS_REVISION", proxy_outputs[-1].read_text())
 
     def test_degenerate_review_never_reaches_the_proxy(self):
         # #41: tool-JSON review output is not a verdict — the proxy must
@@ -722,15 +726,20 @@ class PipelineRun(unittest.TestCase):
         self.assert_incomplete("phase-3")
         self.assertIn("Review not approved", self.types(self.kb(), "blocker"))
         # the proxy was never consulted for review approval
-        self.assertFalse((self.proj() / "proxy_review_output.txt").exists())
+        self.assertFalse(list((self.proj() / ".siesta").glob("proxy-*.txt")))
         log = (self.tmp / "pi_calls.log").read_text().splitlines()
         self.assertEqual(len([l for l in log
                                if "Evaluate if this review meets" in l]), 0)
-        # Two degenerate reviews surround one fix pass with write tools.
+        # Invalid structured reports exhaust the review retry before the proxy or a repair.
         review_calls = [l for l in log if "Fix review issues" in l]
-        self.assertEqual(len(review_calls), 1)
-        self.assertNotIn("--no-tools", review_calls[0])
-        self.assertTrue((self.proj() / "review_fixes_output.txt").exists())
+        self.assertEqual(len(review_calls), 0)
+        call_records = [json.loads(line) for line in
+                        (self.proj() / ".siesta/calls.jsonl").read_text().splitlines()]
+        self.assertEqual(sum(record["agent"] == "integration-reviewer"
+                             for record in call_records), 2)
+        self.assertEqual(sum(record["agent"] == "quality-reviewer"
+                             for record in call_records), 0)
+        self.assertFalse((self.proj() / "review_fixes_output.txt").exists())
         self.assertFalse((self.proj() / "verify_verdict.txt").exists())
 
     def test_fenced_verify_marker_is_not_a_verdict(self):
@@ -795,8 +804,9 @@ class PipelineRun(unittest.TestCase):
         # no issue-executor skill calls: both completed issues were skipped
         # (the path form only — the learner prompts also list the name)
         self.assertEqual(self.log_count("skills/issue-executor/"), 0)
-        # consultant side: review proxy + project learning = 2
-        self.assertEqual(self.log_count("consultant-model"), 3)
+        # The same-version specialist approval is reused; design and project
+        # learning remain in this resumed call sequence.
+        self.assertEqual(self.log_count("consultant-model"), 2)
         self.assertIn("0 blocked", result.stdout)
         self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
                          "complete")
@@ -906,7 +916,9 @@ class PipelineRun(unittest.TestCase):
         # the regression: phases 0 and 1 must NOT re-run (bash re-interviewed)
         self.assertEqual(self.log_count("interview-me"), 0)
         self.assertEqual(self.log_count("spec-driven-development"), 0)
-        self.assertGreaterEqual(self.log_count("--model worker-model"), 2)
+        # Verification runs; final review remains approved for this exact
+        # product and configuration.
+        self.assertGreaterEqual(self.log_count("--model worker-model"), 1)
         self.assertEqual((self.proj() / ".pipeline-checkpoint")
                          .read_text().strip(), "complete")
 

@@ -109,7 +109,7 @@ agotamiento de intentos y conservación de límites al reanudar.
 
 ## Issue #4: Sustituir la revisión final por especialistas independientes
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #3.
 
 Incorporar un revisor de integración y requisitos y otro de calidad del código.
@@ -124,6 +124,37 @@ Incorporar un revisor de integración y requisitos y otro de calidad del código
 
 **Verificación:** rechazo de especialista y proxy, reparación satisfactoria y
 cambios posteriores a una aprobación.
+
+**Evidencia de verificación:**
+
+- `tests.test_agents.AgentPermissions.test_review_specialists_are_separate_tool_free_agents`:
+  ambos agentes tienen identidades y permisos independientes sin herramientas.
+- `tests.test_reviews.ReviewBudgets.test_required_reviewer_group_needs_each_independent_pass`,
+  `test_external_approval_waits_until_both_specialists_pass` y
+  `test_external_rejection_becomes_a_repairable_finding`: rechazo hasta que
+  ambos especialistas aprueben y adjudicación del proxy. La reanudación después
+  de evidencia insuficiente conserva la ronda y el reintento asignado.
+- `tests.test_recovery_gates.RecoveryGates.test_review_repairs_are_reviewed_and_approved_before_completion`
+  y `test_unapproved_or_unusable_review_cannot_close_review_phase`: reparación,
+  nueva revisión y rechazo de informes inválidos o proxy no aprobado.
+- `tests.test_skill_context.SkillContext.test_review_proxy_receives_intent_specification_and_decision_details`
+  `test_review_configuration_fingerprint_includes_specialist_route`,
+  `test_review_repair_can_add_the_project_first_test_suite`,
+  `test_expanded_review_context_contains_real_additional_source` y
+  `test_review_context_retry_fails_when_no_more_evidence_exists`: contexto
+  contractual y de pruebas, reparaciones con tests, ampliación real del
+  contexto, y vínculo de aprobación con la ruta seleccionada.
+- `tests.test_iterations.IterationRuns.test_missing_verification_fingerprint_reuses_only_the_bound_review`
+  y `tests.test_recovery_gates.RecoveryGates.test_resume_retries_pending_issue_from_every_later_checkpoint`:
+  reanudación vinculada al contenido revisado; los cambios vuelven a pasar por
+  revisión y verificación.
+- `tests.test_integration`: el proxy se consulta solo tras ambos informes; los
+  proyectos con regresiones rojas siguen a verificación, que conserva el
+  resultado `UNVERIFIED`.
+- `python -B -m unittest discover -s tests -v`: suite completa, 384 tests,
+  aprobada con el entorno virtual temporal que proporciona pytest.
+- `docs/review-policy.md`: definición de revisores independientes, contexto,
+  proxy, reparaciones y vínculo de aprobación.
 
 ## Issue #5: Revisar cada issue antes de completarla
 

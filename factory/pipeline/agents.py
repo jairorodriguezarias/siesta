@@ -39,6 +39,18 @@ AGENTS = {
         allowed_contexts=("consultation", "review", "learning", "design", "pipeline"),
         response_format="Follow the caller's explicit advice or review format.",
     ),
+    "integration-reviewer": Agent(
+        id="integration-reviewer", model_role="consultant",
+        definition_path=AGENT_DIR / "integration-reviewer.md", allowed_tools=(),
+        allowed_contexts=("review",),
+        response_format="Return one structured JSON review report.",
+    ),
+    "quality-reviewer": Agent(
+        id="quality-reviewer", model_role="consultant",
+        definition_path=AGENT_DIR / "quality-reviewer.md", allowed_tools=(),
+        allowed_contexts=("review",),
+        response_format="Return one structured JSON review report.",
+    ),
 }
 
 

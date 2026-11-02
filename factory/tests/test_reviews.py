@@ -180,6 +180,110 @@ class ReviewBudgets(unittest.TestCase):
         begin(session, "fingerprint-a")
         self.assertEqual(session.state["status"], "approved")
 
+    def test_required_reviewer_group_needs_each_independent_pass(self):
+        session = ReviewSession(self.project, "reviewer-group")
+        reviewers = ("integration-reviewer", "quality-reviewer")
+        session.start_round("fingerprint", reviewers=reviewers)
+        context = {"included": ["spec.md", "app.py", "tests/test_app.py"], "omitted": []}
+        first = session.begin_attempt(agent=reviewers[0], context=context)
+        session.finish_attempt(first, response=report())
+        self.assertEqual(session.state["status"], "active")
+        second = session.begin_attempt(agent=reviewers[1], context=context)
+        session.finish_attempt(second, response=report())
+        self.assertEqual(session.state["status"], "approved")
+        self.assertEqual(set(session.state["rounds"][0]["reviewer_reports"]), set(reviewers))
+
+    def test_reviewer_group_aggregates_findings_and_keeps_attempts_per_agent(self):
+        session = ReviewSession(self.project, "reviewer-findings")
+        reviewers = ("integration-reviewer", "quality-reviewer")
+        session.start_round("before", reviewers=reviewers)
+        context = {"included": ["spec.md", "app.py"], "omitted": []}
+        first = session.begin_attempt(agent=reviewers[0], context=context)
+        session.finish_attempt(
+            first, response=report("findings", [finding("F1")]))
+        second = session.begin_attempt(agent=reviewers[1], context=context)
+        session.finish_attempt(second, response=report())
+        current = session.state["rounds"][0]
+        self.assertEqual(current["status"], "findings")
+        self.assertEqual(current["report"]["findings"][0]["id"],
+                         "integration-reviewer/F1")
+
+    def test_reviewer_group_retries_failure_for_the_same_reviewer_only(self):
+        session = ReviewSession(self.project, "reviewer-retry-group")
+        reviewers = ("integration-reviewer", "quality-reviewer")
+        session.start_round("fingerprint", reviewers=reviewers)
+        context = {"included": ["spec.md", "app.py"], "omitted": []}
+        first = session.begin_attempt(agent=reviewers[0], context=context)
+        session.finish_attempt(first, error="first reviewer unavailable")
+        second = session.begin_attempt(agent=reviewers[1], context=context)
+        session.finish_attempt(second, response=report())
+        retry = session.begin_attempt(
+            agent=reviewers[0], retry_reason="reviewer_failure", context=context)
+        session.finish_attempt(retry, response=report())
+        self.assertEqual(session.state["status"], "approved")
+
+    def test_reviewer_group_resumes_after_insufficient_evidence(self):
+        session = ReviewSession(self.project, "group-evidence-resume")
+        reviewers = ("integration-reviewer", "quality-reviewer")
+        session.start_round("fingerprint", reviewers=reviewers,
+                            external_approver="consultant")
+        attempt = session.begin_attempt(
+            agent=reviewers[0], context={"included": ["app.py"], "omitted": ["tests"]})
+        session.finish_attempt(attempt, response=report("insufficient_evidence"))
+
+        resumed = ReviewSession(self.project, "group-evidence-resume")
+        current = resumed.start_round("fingerprint", reviewers=reviewers,
+                                      external_approver="consultant")
+        self.assertEqual(current["status"], "insufficient_evidence")
+        retry = resumed.begin_attempt(
+            agent=reviewers[0], retry_reason="expanded_context",
+            context={"included": ["app.py", "tests/test_app.py"], "omitted": []})
+        resumed.finish_attempt(retry, response=report())
+        second = resumed.begin_attempt(
+            agent=reviewers[1],
+            context={"included": ["app.py", "tests/test_app.py"], "omitted": []})
+        resumed.finish_attempt(second, response=report())
+        self.assertEqual(resumed.state["rounds"][0]["status"],
+                         "awaiting_external_approval")
+
+    def test_external_approval_waits_until_both_specialists_pass(self):
+        session = ReviewSession(self.project, "proxy-gate")
+        reviewers = ("integration-reviewer", "quality-reviewer")
+        context = {"included": ["spec.md", "app.py"], "omitted": []}
+        session.start_round("fingerprint", reviewers=reviewers,
+                            external_approver="consultant")
+        first = session.begin_attempt(agent=reviewers[0], context=context)
+        session.finish_attempt(first, response=report())
+        with self.assertRaisesRegex(ReviewError, "awaiting_external_approval"):
+            session.record_external_decision(
+                "consultant", approved=True, evidence="APPROVED: policy met")
+        second = session.begin_attempt(agent=reviewers[1], context=context)
+        session.finish_attempt(second, response=report())
+        self.assertEqual(session.state["rounds"][0]["status"],
+                         "awaiting_external_approval")
+        self.assertEqual(session.state["status"], "active")
+        session.record_external_decision(
+            "consultant", approved=True, evidence="APPROVED: policy met")
+        self.assertEqual(session.state["status"], "approved")
+
+    def test_external_rejection_becomes_a_repairable_finding(self):
+        session = ReviewSession(self.project, "proxy-repair")
+        reviewers = ("integration-reviewer", "quality-reviewer")
+        context = {"included": ["spec.md", "app.py"], "omitted": []}
+        session.start_round("before", reviewers=reviewers,
+                            external_approver="consultant")
+        for agent in reviewers:
+            attempt = session.begin_attempt(agent=agent, context=context)
+            session.finish_attempt(attempt, response=report())
+        session.record_external_decision(
+            "consultant", approved=False,
+            evidence="NEEDS_REVISION: add error handling.")
+        self.assertEqual(session.state["rounds"][0]["status"], "findings")
+        session.record_repair("after", ["tests"], evidence="Added error handling.")
+        session.record_check("tests", "pytest passed", passed=True)
+        session.start_round("after", reviewers=reviewers,
+                            external_approver="consultant")
+
     def test_repair_requires_a_new_version_and_rechecking_affected_checks(self):
         session = ReviewSession(self.project, "repair")
         begin(session, "before", report("findings", [finding()]))

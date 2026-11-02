@@ -214,20 +214,47 @@ class ReviewSession:
         self.state["updated_at"] = _now()
         self._save()
 
+    def block(self, reason: str) -> None:
+        """Persist an external hard stop without manufacturing a review result."""
+        self._active()
+        self._block(_text(reason, "review block reason", limit=2000))
+
     def _current_round(self) -> dict:
         if not self.state["rounds"]:
             raise ReviewError("review has no open round")
         return self.state["rounds"][-1]
 
-    def start_round(self, version: str) -> dict:
+    def start_round(self, version: str, *,
+                    reviewers: tuple[str, ...] | list[str] | None = None,
+                    external_approver: str | None = None) -> dict:
         """Open a round, or return its existing state when resuming it."""
         self._active()
         version = _text(version, "reviewed version", limit=256)
+        reviewer_group = None
+        if reviewers is not None:
+            if (not isinstance(reviewers, (tuple, list)) or not reviewers
+                    or any(not isinstance(agent, str) or not agent.strip()
+                           for agent in reviewers)):
+                raise ReviewError("reviewer group must contain unique agent IDs")
+            reviewer_group = [agent.strip() for agent in reviewers]
+            if len(reviewer_group) != len(set(reviewer_group)):
+                raise ReviewError("reviewer group must contain unique agent IDs")
+        if external_approver is not None:
+            external_approver = _text(external_approver, "external approver", limit=80)
+            if reviewer_group and external_approver in reviewer_group:
+                raise ReviewError("external approver must be separate from specialist reviewers")
         if self.state["rounds"]:
             previous = self._current_round()
-            if previous["status"] == "reviewing":
+            if previous["status"] in {
+                    "reviewing", "insufficient_evidence", "awaiting_external_approval"}:
                 if previous["version"] != version:
                     raise ReviewError("an open review round cannot change version")
+                if (reviewer_group is not None
+                        and reviewer_group != previous.get("reviewers", [])):
+                    raise ReviewError("reviewer group cannot change during an open round")
+                if (external_approver is not None
+                        and external_approver != previous.get("external_approver")):
+                    raise ReviewError("external approver cannot change during an open round")
                 return previous
             if previous["status"] == "repaired":
                 repair = self.state["repairs"][-1]
@@ -235,7 +262,7 @@ class ReviewSession:
                     raise ReviewError("next round must review the repaired version")
                 if not repair["checks_complete"]:
                     raise ReviewError("affected checks must be rerun before the next round")
-            elif previous["status"] in {"findings", "insufficient_evidence"}:
+            elif previous["status"] == "findings":
                 raise ReviewError("resolve findings or evidence gaps before the next round")
             elif previous["status"] not in {"clean", "disputed_resolved"}:
                 raise ReviewError("previous review round is not complete")
@@ -254,6 +281,9 @@ class ReviewSession:
             "attempts": [],
             "report": None,
             "disputes": {},
+            "reviewers": reviewer_group or [],
+            "reviewer_reports": {},
+            "external_approver": external_approver,
             "opened_at": _now(),
         }
         self.state["rounds"].append(round_state)
@@ -271,6 +301,8 @@ class ReviewSession:
         agent = _text(agent, "reviewer identity", limit=80)
         if agent == self.state["author"]:
             raise ReviewError("reviewer must be independent of the author")
+        if current["reviewers"] and agent not in current["reviewers"]:
+            raise ReviewError(f"agent is not required for this review: {agent}")
         manifest = _validate_context(context)
         attempts = current["attempts"]
         if attempts and attempts[-1]["status"] == "running":
@@ -278,11 +310,12 @@ class ReviewSession:
             attempts[-1]["error"] = "reviewer call did not finish before resume"
             attempts[-1]["finished_at"] = _now()
             self._save()
-        if not attempts:
+        agent_attempts = [item for item in attempts if item["agent"] == agent]
+        if not agent_attempts:
             if retry_reason is not None:
                 raise ReviewError("the first reviewer attempt cannot be a retry")
         else:
-            previous = attempts[-1]
+            previous = agent_attempts[-1]
             expected = ("expanded_context" if previous.get("outcome") == "insufficient_evidence"
                         else "reviewer_failure" if previous["status"] in {"failed", "invalid"}
                         else None)
@@ -293,11 +326,11 @@ class ReviewSession:
                 if (len(set(manifest["included"]) - set(old_context["included"])) == 0
                         and len(set(old_context["omitted"]) - set(manifest["omitted"])) == 0):
                     raise ReviewError("expanded-context retry must include additional evidence")
-        if len(attempts) >= MAX_REVIEW_ATTEMPTS:
+        if len(agent_attempts) >= MAX_REVIEW_ATTEMPTS:
             self._block("reviewer retry exhausted")
             raise ReviewError("reviewer retry exhausted")
         current["status"] = "reviewing"
-        attempt = {"number": len(attempts) + 1, "agent": agent,
+        attempt = {"number": len(agent_attempts) + 1, "agent": agent,
                    "retry_reason": retry_reason, "context": manifest,
                    "status": "running", "started_at": _now()}
         attempts.append(attempt)
@@ -337,18 +370,25 @@ class ReviewSession:
         attempt["status"] = "report"
         attempt["outcome"] = parsed["verdict"]
         attempt["response"] = response
+        if current["reviewers"]:
+            current["reviewer_reports"][attempt["agent"]] = parsed
+            if parsed["verdict"] == "insufficient_evidence":
+                current["status"] = "insufficient_evidence"
+                self.state["clean_streak"] = 0
+                if number >= MAX_REVIEW_ATTEMPTS:
+                    self._block("review evidence remained insufficient after context expansion")
+            else:
+                current["status"] = "reviewing"
+                if all(agent in current["reviewer_reports"]
+                       and current["reviewer_reports"][agent]["verdict"] != "insufficient_evidence"
+                       for agent in current["reviewers"]):
+                    self._complete_reviewer_group(current)
+            self.state["updated_at"] = _now()
+            self._save()
+            return parsed
         current["report"] = parsed
         if parsed["verdict"] == "pass":
-            current["status"] = "clean"
-            prior = self.state["rounds"][-2] if len(self.state["rounds"]) > 1 else None
-            if (prior and prior["status"] == "clean" and prior["version"] == current["version"]):
-                self.state["clean_streak"] += 1
-            else:
-                self.state["clean_streak"] = 1
-            if self.state["clean_streak"] >= self.state["policy"]["clean_rounds"]:
-                self.state["status"] = "approved"
-                self.state["approved_version"] = current["version"]
-                self.state["approved_at"] = _now()
+            self._mark_clean(current)
         elif parsed["verdict"] == "findings":
             current["status"] = "findings"
             self.state["clean_streak"] = 0
@@ -362,6 +402,85 @@ class ReviewSession:
         self.state["updated_at"] = _now()
         self._save()
         return parsed
+
+    def _complete_reviewer_group(self, current: dict) -> None:
+        reports = [current["reviewer_reports"][agent] for agent in current["reviewers"]]
+        findings = []
+        for agent, report in zip(current["reviewers"], reports):
+            findings.extend({**item, "id": f"{agent}/{item['id']}"}
+                            for item in report["findings"])
+        if findings:
+            summaries = [report["summary"] for report in reports]
+            current["report"] = {
+                "version": 1,
+                "verdict": "findings",
+                "summary": " | ".join(summaries),
+                "findings": findings,
+            }
+            current["status"] = "findings"
+            current["disputes"] = {item["id"]: {"status": "uncontested"}
+                                   for item in findings}
+            self.state["clean_streak"] = 0
+        else:
+            current["report"] = {
+                "version": 1,
+                "verdict": "pass",
+                "summary": "All required reviewers approved this version.",
+                "findings": [],
+            }
+            if current["external_approver"]:
+                current["status"] = "awaiting_external_approval"
+            else:
+                self._mark_clean(current)
+
+    def record_external_decision(self, agent: str, *, approved: bool,
+                                 evidence: str) -> None:
+        """Record a final approval or turn its feedback into a blocking finding."""
+        self._active()
+        current = self._current_round()
+        if current["status"] != "awaiting_external_approval":
+            raise ReviewError("review is not awaiting_external_approval")
+        if agent != current["external_approver"]:
+            raise ReviewError("decision must come from the configured external approver")
+        if not isinstance(approved, bool):
+            raise ReviewError("external decision must explicitly approve or reject")
+        evidence = _text(evidence, "external approval evidence")
+        current["external_decision"] = {
+            "agent": agent, "approved": approved, "evidence": evidence,
+            "recorded_at": _now(),
+        }
+        if approved:
+            self._mark_clean(current)
+        else:
+            finding = {
+                "id": f"{agent}/revision",
+                "severity": "major",
+                "target": "final approval / Definition of Done",
+                "evidence": evidence,
+                "requested_fix": evidence,
+            }
+            current["report"] = {
+                "version": 1, "verdict": "findings",
+                "summary": "External approval requested a revision.",
+                "findings": [finding],
+            }
+            current["disputes"] = {finding["id"]: {"status": "uncontested"}}
+            current["status"] = "findings"
+            self.state["clean_streak"] = 0
+        self.state["updated_at"] = _now()
+        self._save()
+
+    def _mark_clean(self, current: dict) -> None:
+        current["status"] = "clean"
+        prior = self.state["rounds"][-2] if len(self.state["rounds"]) > 1 else None
+        if (prior and prior["status"] == "clean" and prior["version"] == current["version"]):
+            self.state["clean_streak"] += 1
+        else:
+            self.state["clean_streak"] = 1
+        if self.state["clean_streak"] >= self.state["policy"]["clean_rounds"]:
+            self.state["status"] = "approved"
+            self.state["approved_version"] = current["version"]
+            self.state["approved_at"] = _now()
 
     def _retry_or_block(self, attempt: dict) -> None:
         if attempt["number"] >= MAX_REVIEW_ATTEMPTS:
