@@ -103,6 +103,9 @@ def main(argv: list[str] | None = None) -> None:
         ap.error('--project uses the saved intent; pass a new request with --iterate')
     if args.iterate is not None and (not args.project or not args.iterate.strip()):
         ap.error('--iterate requires --project and a nonempty request')
+    log(f"Model configuration: {os.path.relpath(CONFIG)}")
+    for role, route in ROLE.items():
+        log(f"Model {role}: {route['model']} (provider: {route['provider']})")
     # Selection and human-edit checks are read-only unless adoption is explicit.
     # Rejections here must not write failure nodes to someone else's project.
     try:
@@ -197,9 +200,6 @@ def _failure_learn(args, e) -> None:
 
 
 def _run(args) -> None:
-    log(f"Model configuration: {os.path.relpath(CONFIG)}")
-    for role, route in ROLE.items():
-        log(f"Model {role}: {route['model']} (provider: {route['provider']})")
     idea = args.idea
     proj = args.proj
     name = proj.name
