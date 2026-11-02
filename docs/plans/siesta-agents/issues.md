@@ -351,7 +351,7 @@ ejecutar sin hacerlo y escenario válido.
 
 ## Issue #10: Probar el protocolo de aprobación
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #9.
 
 Añadir `TEST.md` y escenarios ejecutables para `human-proxy`.
@@ -363,6 +363,22 @@ Añadir `TEST.md` y escenarios ejecutables para `human-proxy`.
 - El proxy recibe intención, decisiones y contexto pertinente.
 
 **Verificación:** escenarios conectados al ejecutor y regresiones del protocolo.
+
+**Evidencia de verificación:**
+
+- `factory/skills/human-proxy/test_scenarios.yaml` y `TEST.md`: casos para
+  aprobación, rechazo, evidencia insuficiente y un marcador de aprobación
+  dentro de un fence. Los prompts contienen intención, decisiones, especificación
+  y contexto pertinente.
+- `tests.test_skill_scenarios.SkillScenarioValidation.test_human_proxy_scenarios_cover_decisions_and_supply_full_context`:
+  valida el formato y ejecuta los cuatro fixtures a través del lector de
+  escenarios.
+- `tests.test_skill_context.SkillContext.test_issue_proxy_uses_decision_details_even_when_summaries_are_empty`:
+  el proxy de runtime recibe la intención, la decisión, la especificación y la
+  issue activa.
+- `tests.test_text.ExplicitApproval`, `tests.test_text.WithoutFences` y la suite
+  completa: 437 tests aprobados, `EXIT_CODE=0`. No se hizo una llamada a un
+  modelo real para esta issue.
 
 ## Issue #11: Probar el ejecutor de issues
 

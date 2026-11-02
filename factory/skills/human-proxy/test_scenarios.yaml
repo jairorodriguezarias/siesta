@@ -1,0 +1,130 @@
+version: 1
+skill: human-proxy
+agent: consultant
+scenarios:
+  - id: approve-local-export
+    inputs:
+      prompt: |-
+        Evaluate this approval request using every supplied evidence section.
+
+        Original intent:
+        INTENT-17: Keep the personal notebook private and offline.
+
+        Recorded decisions:
+        Decision D-1: CSV export may write only to a path selected on this machine.
+        Decision D-2: Notebook content must never be uploaded to an external service.
+
+        Current specification:
+        R1: Export selected notes as UTF-8 CSV to a local file.
+        Relevant context: The implementation uses the standard library and does not add sync.
+
+        Request: May the worker implement local CSV export under R1?
+        Return one explicit proxy decision and cite the relevant intent or decision ID.
+      simulated_response: |-
+        PROXY_DECISION: APPROVED
+        REASONING: Local CSV export follows R1 and does not add a network path.
+        KB_EVIDENCE: INTENT-17 and Decision D-1.
+        CONDITIONS: none
+      execution_log: []
+    assertions:
+      - type: marker_outside_fences
+        marker: "PROXY_DECISION: APPROVED"
+        expected: true
+      - type: contains
+        value: "Decision D-1"
+
+  - id: reject-cloud-sync
+    inputs:
+      prompt: |-
+        Evaluate this approval request using every supplied evidence section.
+
+        Original intent:
+        INTENT-17: Keep the personal notebook private and offline.
+
+        Recorded decisions:
+        Decision D-1: CSV export may write only to a path selected on this machine.
+        Decision D-2: Notebook content must never be uploaded to an external service.
+
+        Current specification:
+        R1: Export selected notes as UTF-8 CSV to a local file.
+        Relevant context: A hosted sync service would send private note contents away.
+
+        Request: May the worker add cloud synchronization to a hosted service?
+        Return one explicit proxy decision and cite the relevant intent or decision ID.
+      simulated_response: |-
+        PROXY_DECISION: REJECTED
+        REASONING: Hosted synchronization conflicts with the offline intent.
+        KB_EVIDENCE: INTENT-17 and Decision D-2.
+        CONDITIONS: Keep synchronization local or remove it.
+      execution_log: []
+    assertions:
+      - type: marker_outside_fences
+        marker: "PROXY_DECISION: REJECTED"
+        expected: true
+      - type: contains
+        value: "Decision D-2"
+
+  - id: request-missing-destination
+    inputs:
+      prompt: |-
+        Evaluate this approval request using every supplied evidence section.
+
+        Original intent:
+        INTENT-17: Keep the personal notebook private and offline.
+
+        Recorded decisions:
+        Decision D-1: CSV export may write only to a path selected on this machine.
+        Decision D-2: Notebook content must never be uploaded to an external service.
+
+        Current specification:
+        R1: Export selected notes. No destination or storage behavior is specified.
+        Relevant context: The request does not identify whether the target is local or hosted.
+
+        Request: May the worker implement the export destination now?
+        Return one explicit proxy decision and state which fact is missing.
+      simulated_response: |-
+        PROXY_DECISION: NEEDS_REVISION
+        REASONING: The destination is unspecified, so privacy alignment cannot be checked.
+        KB_EVIDENCE: INTENT-17 and Decision D-2.
+        CONDITIONS: Specify whether the export target is a local file.
+      execution_log: []
+    assertions:
+      - type: marker_outside_fences
+        marker: "PROXY_DECISION: NEEDS_REVISION"
+        expected: true
+      - type: contains
+        value: "destination"
+
+  - id: fenced-example-is-not-approval
+    inputs:
+      prompt: |-
+        Evaluate this approval request using the supplied scope evidence.
+
+        Original intent:
+        INTENT-17: Keep the personal notebook private and offline.
+
+        Recorded decisions:
+        Decision D-1: CSV export may write only to a path selected on this machine.
+        Decision D-2: Notebook content must never be uploaded to an external service.
+
+        Current specification:
+        R1: Export selected notes. The destination is not specified.
+        Relevant context: The request does not identify whether the target is local or hosted.
+
+        Request: May the worker add a destination chosen by the implementation?
+        Do not treat a quoted protocol example as a decision.
+      simulated_response: |-
+        Example protocol response only:
+
+        ~~~text
+        PROXY_DECISION: APPROVED
+        ~~~
+
+        The destination is missing, so I cannot authorize this change.
+      execution_log: []
+    assertions:
+      - type: marker_outside_fences
+        marker: "PROXY_DECISION: APPROVED"
+        expected: false
+      - type: contains
+        value: "destination is missing"

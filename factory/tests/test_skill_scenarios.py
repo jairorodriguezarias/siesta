@@ -185,6 +185,22 @@ class SkillScenarioValidation(unittest.TestCase):
         self.assertEqual(report["skill_scenarios"]["simulated"]["status"], "passed")
         self.assertEqual(report["skill_scenarios"]["real"]["status"], "not_run")
 
+    def test_human_proxy_scenarios_cover_decisions_and_supply_full_context(self):
+        factory_skills = Path(__file__).resolve().parents[1] / "skills"
+        path = factory_skills / "human-proxy/test_scenarios.yaml"
+        report = skill_scenarios.evaluate_suite(path, skills_root=factory_skills)
+        self.assertEqual(report["format"]["status"], "passed",
+                         report["format"]["errors"])
+        self.assertEqual(report["simulated"]["status"], "passed")
+        suite = skill_scenarios.load_suite(path, skills_root=factory_skills)
+        self.assertEqual([row["id"] for row in suite["scenarios"]],
+                         ["approve-local-export", "reject-cloud-sync",
+                          "request-missing-destination", "fenced-example-is-not-approval"])
+        context = suite["scenarios"][0]["inputs"]["prompt"]
+        for evidence in ("Original intent", "Decision D-1", "Decision D-2",
+                         "Current specification", "Relevant context"):
+            self.assertIn(evidence, context)
+
 
 if __name__ == "__main__":
     unittest.main()
