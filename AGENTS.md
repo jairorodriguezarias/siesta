@@ -180,6 +180,8 @@ model routing and actual skill attachments aligned. Preserve license notices.
 | [`pipeline/__main__.py`](factory/pipeline/__main__.py) | Dispatch, checkpoints, completion and failure records |
 | [`pipeline/phases.py`](factory/pipeline/phases.py) | Prompts, execution, recovery and verification |
 | [`pipeline/pi.py`](factory/pipeline/pi.py) | Model calls, thinking, timeouts and context probe |
+| [`pipeline/web/`](factory/pipeline/web/) | Local retro desktop, serialized CLI process adapter and Snake |
+| [`pipeline/events.py`](factory/pipeline/events.py) | Optional atomic status channel for desktop phases and interview input |
 | [`pipeline/design.py`](factory/pipeline/design.py) | Isolated design review and requirement evidence |
 | [`pipeline/repository.py`](factory/pipeline/repository.py) | Committed ledger, product identity and Git state |
 | [`pipeline/files.py`](factory/pipeline/files.py) | Source selection and local evidence directory |

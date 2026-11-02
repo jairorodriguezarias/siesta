@@ -25,6 +25,16 @@ and the requirement report before relying on the result.
 
 ## Try a small project
 
+Prefer windows to a terminal? Start the **[local desktop](docs/desktop.md)**:
+
+```bash
+PYTHONPATH=factory python -m pipeline.web
+```
+
+Open `http://127.0.0.1:8765` to launch projects, answer the interview and read
+results. Play Snake while the agents work; the desktop alerts you when your
+attention is needed. Use the Python environment from the setup guide below.
+
 With Python, Git, [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)
 and your model access configured:
 
@@ -107,6 +117,7 @@ behavior. See **[validation and recorded results](docs/testing.md)**.
 ## Documentation
 
 - [Getting started](docs/getting-started.md) — install, configure, run and resume.
+- [Desktop](docs/desktop.md) — local retro interface, project activity and Snake.
 - [Architecture](docs/architecture.md) — roles, gates, recovery and learning.
 - [Local Ollama](docs/ollama-local.md) — native tools and actual context windows.
 - [Testing](docs/testing.md) — offline checks, live evaluations and limitations.

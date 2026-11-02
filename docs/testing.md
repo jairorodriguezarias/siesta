@@ -12,6 +12,10 @@ The suite uses temporary directories and a fake Pi executable; it does not
 need model credentials or a running Ollama server. Pytest is required because
 integration tests exercise generated projects with real test subprocesses.
 
+The [desktop guide](desktop.md#verification) adds the Node Snake-rule tests and
+an optional Playwright check using a controlled local child process. Neither
+requires live model access. Backend HTTP/process tests run in the normal suite.
+
 ## What the suite covers
 
 - Protocol parsing, fenced examples and malformed model output.

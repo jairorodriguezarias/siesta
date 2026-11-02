@@ -21,6 +21,11 @@ Configure your Git name and email so generated projects can create commits.
 Keep the Python environment active while running Siesta. The runtime itself
 uses the standard library; pytest checks generated Python projects.
 
+For the [retro browser desktop](desktop.md), run
+`PYTHONPATH=factory python -m pipeline.web` from the repository root and open
+`http://127.0.0.1:8765`. It shares the model setup below and adds project
+controls, interview input, live activity and Snake for the waiting time.
+
 ## Configure models
 
 Edit [`factory/config/models.json`](../factory/config/models.json):
