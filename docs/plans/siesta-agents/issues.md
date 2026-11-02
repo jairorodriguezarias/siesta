@@ -382,7 +382,7 @@ Añadir `TEST.md` y escenarios ejecutables para `human-proxy`.
 
 ## Issue #11: Probar el ejecutor de issues
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #5, #9.
 
 Añadir el paquete de pruebas de `issue-executor`.
@@ -395,6 +395,23 @@ Añadir el paquete de pruebas de `issue-executor`.
 
 **Verificación:** escenarios del protocolo y ejecución controlada en proyecto
 temporal.
+
+**Evidencia de verificación:**
+
+- `factory/skills/issue-executor/test_scenarios.yaml` y `TEST.md`: implementación
+  con logs, consulta, solicitud de aprobación, implementación tras guía y
+  consulta persistente sin resolución.
+- `tests.test_issue_executor_scenarios`: ejecuta los cinco escenarios; comprueba
+  que una narración de escritura/tests sin registro estructurado falla; crea un
+  proyecto temporal y confirma que una regresión roja queda fallida y que un
+  pytest real pasa con su test ID registrado.
+- `tests.test_recovery_gates.RecoveryGates.test_unusable_retries_after_consultation_do_not_complete_issue`:
+  las respuestas inutilizables tras consulta no escriben el nodo de finalización.
+- `test_issue_executor_completion_uses_real_test_evidence_and_preserves_documents`:
+  pipeline completa con Git y pytest reales; la evidencia marca el test como
+  aprobado y `spec.md` e `issues.md` conservan sus bytes originales.
+- Suite completa: 441 tests, `/tmp/siesta-test-venv/bin/python -B -m unittest discover -s tests -v`,
+  `EXIT_CODE=0`.
 
 ## Issue #12: Probar el aprendizaje y sus propuestas
 

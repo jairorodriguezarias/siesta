@@ -1,0 +1,102 @@
+version: 1
+skill: issue-executor
+agent: worker
+scenarios:
+  - id: implementation-with-test-evidence
+    inputs:
+      prompt: |-
+        Implement answer() returning 42 in answer.py. Add a pytest test that
+        asserts the value is 42. Do not edit spec.md or issues.md. Report only
+        actions supported by the execution log.
+      simulated_response: |-
+        I wrote answer.py and tests/test_answer.py, then ran pytest.
+        ISSUE_OK: pytest reported 1 passed.
+      execution_log:
+        - tool: write
+          action: create answer.py with answer() returning 42
+          result: answer.py saved
+        - tool: write
+          action: create tests/test_answer.py asserting answer() equals 42
+          result: regression test saved
+        - tool: bash
+          action: run pytest
+          result: exit code 0; 1 test passed
+    assertions:
+      - type: contains
+        value: "ISSUE_OK"
+      - type: contains
+        value: "1 passed"
+      - type: tool_claim_has_execution_evidence
+
+  - id: consult-on-missing-fact
+    inputs:
+      prompt: |-
+        Implement the date parser, but the specification does not state
+        whether dates use day-month-year or month-day-year. Do not guess.
+      simulated_response: |-
+        CONSULT: Which date order should the parser accept?
+        CONTEXT: The specification names a date parser but gives no date format.
+        CODE: No parser has been written because the accepted format is unknown.
+      execution_log: []
+    assertions:
+      - type: contains
+        value: "CONSULT:"
+      - type: contains
+        value: "date format"
+
+  - id: request-approval-with-scope-context
+    inputs:
+      prompt: |-
+        The approved intent is a private local notes tool. A prior decision
+        permits optional CSV export to a path selected on this machine. The
+        current issue asks only for note search. The worker wants to add local
+        CSV export as well. Request approval before expanding the issue.
+      simulated_response: |-
+        PROXY_REQUEST: May I add optional local CSV export alongside search?
+        CONTEXT: The current issue does not include export, although a prior decision permits local CSV.
+      execution_log: []
+    assertions:
+      - type: contains
+        value: "PROXY_REQUEST:"
+      - type: contains
+        value: "current issue does not include export"
+
+  - id: implement-after-consultation
+    inputs:
+      prompt: |-
+        The consultant confirmed that dates must use day-month-year. Implement
+        that format, add a test for 31-12-2026, and run the project test suite.
+      simulated_response: |-
+        I updated the parser for day-month-year dates and ran pytest.
+        ISSUE_OK: pytest reported 2 passed.
+      execution_log:
+        - tool: edit
+          action: update the parser to accept day-month-year
+          result: parser change saved
+        - tool: write
+          action: add a regression test for 31-12-2026
+          result: test saved
+        - tool: bash
+          action: run pytest
+          result: exit code 0; 2 tests passed
+    assertions:
+      - type: contains
+        value: "day-month-year"
+      - type: tool_claim_has_execution_evidence
+
+  - id: consultation-still-unresolved
+    inputs:
+      prompt: |-
+        The worker already received one consultation, but it did not resolve
+        the date format. No authoritative evidence or human answer is available.
+        Do not implement a guessed format; return the precise unresolved question.
+      simulated_response: |-
+        CONSULT: The accepted date format is still unknown. Should this parser use day-month-year or month-day-year?
+        CONTEXT: The prior guidance did not select either format, and the specification remains silent.
+        CODE: No implementation or tests were added.
+      execution_log: []
+    assertions:
+      - type: contains
+        value: "CONSULT:"
+      - type: contains
+        value: "No implementation"

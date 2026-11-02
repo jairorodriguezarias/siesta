@@ -289,6 +289,21 @@ class RecoveryGates(unittest.TestCase):
         self.assertIn("return 42", self.git("show", "HEAD:answer.py"))
         self.assertIn("assert answer() == 42", self.git("show", "HEAD:tests/test_answer.py"))
 
+    def test_issue_executor_completion_uses_real_test_evidence_and_preserves_documents(self):
+        self.seed()
+        spec = (self.proj / "spec.md").read_bytes()
+        plan = (self.proj / "issues.md").read_bytes()
+
+        result = self.run_pipeline("ok")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Issue #1 completed", self.summaries("decision"))
+        test_record = json.loads((self.proj / ".siesta/tests.json").read_text())
+        self.assertEqual(test_record["status"], "passed")
+        self.assertIn("tests/test_answer.py::test_answer", test_record["passed"])
+        self.assertEqual((self.proj / "spec.md").read_bytes(), spec)
+        self.assertEqual((self.proj / "issues.md").read_bytes(), plan)
+
     def test_issue_review_repairs_then_rechecks_and_approves_before_completion(self):
         self.seed()
         result = self.run_pipeline("issue_review_repaired")
