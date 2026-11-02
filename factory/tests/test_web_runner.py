@@ -79,6 +79,23 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(self.desktop.rename_project('legacy-app', 'Legacy renamed')
                          ['display_name'], 'Legacy renamed')
 
+    def test_knowledge_item_preserves_edge_direction_and_limit(self):
+        center = self.desktop.add_reference('Center', 'Main note')['id']
+        graph = self.desktop._knowledge_graph('global')
+        outgoing = graph.node('decision', 'Outgoing', '')
+        incoming = graph.node('decision', 'Incoming', '')
+        graph.edge(center, outgoing, 'supports')
+        graph.edge(incoming, center, 'depends_on')
+        for index in range(100):
+            other = graph.node('decision', f'Extra {index}', '')
+            graph.edge(center, other, 'supports')
+        relations = self.desktop.knowledge_item('global', center)['relations']
+        self.assertEqual(len(relations), 100)
+        self.assertEqual(relations[0], {'type': 'supports', 'direction': 'out',
+                                        'id': outgoing, 'summary': 'Outgoing'})
+        self.assertEqual(relations[1], {'type': 'depends_on', 'direction': 'in',
+                                        'id': incoming, 'summary': 'Incoming'})
+
     def test_stop_terminates_active_run_and_allows_another(self):
         run = self.launch('import time; time.sleep(30)')
         with self.assertRaises(Conflict):

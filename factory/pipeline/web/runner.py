@@ -77,6 +77,9 @@ class Desktop:
             (project / '.pipeline-idea').is_file()
             or ((project / '.git').is_dir() and (project / 'kb/graph.json').is_file()))
 
+    def _active(self):
+        return self.process is not None and self.process.poll() is None
+
     def projects(self):
         root = self.factory / 'projects'
         if not root.exists():
@@ -182,19 +185,24 @@ class Desktop:
             result['detail'] = result['detail'][:LIMIT]
             result['truncated'] = True
         names = {item['id']: item['summary'] for item in graph.data['nodes']}
-        result['relations'] = [
-            {'type': edge['type'], 'direction': 'out' if edge['from'] == node_id else 'in',
-             'id': edge['to'] if edge['from'] == node_id else edge['from'],
-             'summary': names.get(edge['to'] if edge['from'] == node_id else edge['from'],
-                                  '(missing node)')}
-            for edge in graph.data['edges']
-            if edge['from'] == node_id or edge['to'] == node_id
-        ][:100]
+        relations = []
+        for edge in graph.data['edges']:
+            outgoing = edge['from'] == node_id
+            if not outgoing and edge['to'] != node_id:
+                continue
+            neighbor = edge['to'] if outgoing else edge['from']
+            relations.append({'type': edge['type'],
+                              'direction': 'out' if outgoing else 'in',
+                              'id': neighbor,
+                              'summary': names.get(neighbor, '(missing node)')})
+            if len(relations) == 100:
+                break
+        result['relations'] = relations
         return result
 
     def add_reference(self, summary, detail):
         with self.lock:
-            if self.process is not None and self.process.poll() is None:
+            if self._active():
                 raise Conflict('Wait for the active project before editing the KB')
             graph = self._knowledge_graph('global')
             node_id = references.add(graph, summary, detail)
@@ -202,7 +210,7 @@ class Desktop:
 
     def rename_project(self, name, display_name):
         with self.lock:
-            if self.process is not None and self.process.poll() is None:
+            if self._active():
                 raise Conflict('Wait for the active project before editing a name')
             project = self._project(name)
             if not self._managed_project(project):
@@ -212,7 +220,7 @@ class Desktop:
 
     def delete_project(self, name, confirmation):
         with self.lock:
-            if self.process is not None and self.process.poll() is None:
+            if self._active():
                 raise Conflict('Wait for the active project before deleting')
             project = self._project(name)
             if not self._managed_project(project):
@@ -264,7 +272,7 @@ class Desktop:
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
                 raise ValueError(f'Invalid model selection: {exc}') from exc
         with self.lock:
-            if self.process is not None and self.process.poll() is None:
+            if self._active():
                 raise Conflict('Siesta is already working on a project')
             idea = idea.strip()
             name = slug(idea)
@@ -385,7 +393,7 @@ class Desktop:
     def close(self):
         with self.lock:
             if self.process is not None:
-                if self.process.poll() is None:
+                if self._active():
                     try:
                         os.killpg(self.process.pid, signal.SIGTERM)
                     except ProcessLookupError:
