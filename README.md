@@ -13,6 +13,7 @@
   <a href="docs/getting-started.md">Get started</a> ·
   <a href="docs/architecture.md">How it works</a> ·
   <a href="docs/model-selection.md">Choose models</a> ·
+  <a href="docs/review-policy.md">Review policy</a> ·
   <a href="docs/testing.md">Validation</a> ·
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>

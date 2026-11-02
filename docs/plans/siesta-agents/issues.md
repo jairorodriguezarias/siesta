@@ -70,7 +70,7 @@ reanudación y aislamiento entre proyectos.
 
 ## Issue #3: Crear el mecanismo común de revisión y corrección
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #1–#2.
 
 Implementar informes estructurados, validación de resultados, seguimiento de
@@ -94,6 +94,18 @@ hallazgos, límites y conservación de evidencia.
 
 **Verificación:** falsos positivos, informes contradictorios, reincidencias,
 agotamiento de intentos y conservación de límites al reanudar.
+
+**Evidencia de verificación:**
+
+- tests.test_reviews: estructura estricta y evidencia de informes, rechazo de
+  respuestas inválidas, reintento único, ampliación de contexto, límites
+  normal/profundo, reanudación tras interrupción, disputas, reparaciones y
+  repetición obligatoria de comprobaciones afectadas.
+- python -B -m unittest discover -s tests -v: 373 tests aprobados con el
+  entorno virtual temporal que proporciona pytest 9.2.0.
+- docs/review-policy.md: esquema de informe, políticas y transiciones.
+- La capa común ya está lista; los flujos finales y por issue se conectan en
+  I04 e I05.
 
 ## Issue #4: Sustituir la revisión final por especialistas independientes
 
