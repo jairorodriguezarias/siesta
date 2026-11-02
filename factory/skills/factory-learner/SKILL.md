@@ -45,8 +45,10 @@ Include factual analysis and applicable actions using these supported lines:
     NO_ACTION: <why no new action is supported>
 
 Only include actions that apply. `LEARNING` creates a learning node;
-`SKILL_IMPROVEMENT` and `NEW_SKILL` record proposals as decision nodes.
-They do not themselves edit a skill. Do not fabricate persistence counts.
+`SKILL_IMPROVEMENT` and `NEW_SKILL` record factory-skill observations. A
+matching complete replacement block is stored as a pending skill proposal with
+its previous version, reason and evidence. These actions never edit an active
+skill during the current execution. Do not fabricate persistence counts.
 
 ### Optional Skill Replacement
 
@@ -67,11 +69,11 @@ Python preserves that content verbatim and never treats its examples as KB
 actions. Fenced blocks outside replacements are examples, not updates. An
 unfinished replacement is discarded; its contents are not learning actions.
 
-For an existing skill, emit a replacement only if its complete current text
-is supplied. A name alone cannot preserve its constraints: propose the
-improvement without replacement when its text is missing. A new skill must
-be self-contained and address a supported, repeatable need. Use a simple
-lowercase hyphenated name.
+The learner receives the complete current factory skill texts. For every
+supported skill change, emit a matching action and full candidate replacement.
+A new skill must be self-contained and address a supported, repeatable need.
+Use a simple lowercase hyphenated name. Proposals remain pending until a later
+independent review and validation activates them.
 
 Python checks the destination, an initial frontmatter delimiter and minimum
 content length. This does not establish semantic quality. Preserve relevant

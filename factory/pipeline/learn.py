@@ -1,68 +1,165 @@
-"""Per-issue and project learning, KB records and factory skill updates."""
+"""Per-issue and project learning, KB records and factory skill proposals."""
+import json
 import re
 from pathlib import Path
 
 from pipeline import text
 from pipeline.kb import Graph
 from pipeline.pi import FACTORY_SKILLS, log, ok, run_pi, warn
+from pipeline import skill_versions
 
 # "ISSUE_LEARNING #2:" / "PROJECT_LEARNING:" report blocks
 ISSUE_LEARN = re.compile(r"^ISSUE_LEARNING.*$", re.M)
 PROJECT_LEARN = re.compile(r"^PROJECT_LEARNING:.*$", re.M)
 
-_KIND_NODE = {"LEARNING": "learning", "SKILL_IMPROVEMENT": "decision",
-              "NEW_SKILL": "decision"}
 _KIND_COUNT = {"LEARNING": "learnings", "SKILL_IMPROVEMENT": "improvements",
                "NEW_SKILL": "new_skills"}
 
 
-def act_on_learnings(output: str, gkb: Graph, n: int | None) -> dict:
-    """Log LEARNING/SKILL_IMPROVEMENT/NEW_SKILL lines to the global KB."""
+def act_on_learnings(output: str, gkb: Graph, n: int | None,
+                     skills_dir: Path = FACTORY_SKILLS,
+                     project: Path | None = None) -> dict:
+    """Persist observations separately from complete, pending skill proposals."""
     counts = {"learnings": 0, "improvements": 0, "new_skills": 0}
     # round-5: n is None for project-level learning — that used to log
     # "(issue #None)" into the KB.
     where = f" (issue #{n})" if n is not None else " (project level)"
+    roots = skill_versions.source_roots()
+    roots["factory"] = Path(skills_dir)
+    if project is not None:
+        manifest = skill_versions.pin_project(project, roots=roots)
+        factory_names = {item["name"] for item in manifest["skills"]
+                         if item["scope"] == "factory"}
+        adapted_names = {item["name"] for item in manifest["skills"]
+                         if item["scope"] == "adapted"}
+    else:
+        factory_names = {path.name for path in Path(skills_dir).iterdir()
+                         if path.is_dir() and not path.is_symlink()
+                         and (path / "SKILL.md").is_file()} \
+            if Path(skills_dir).is_dir() else set()
+        adapted_root = roots["adapted"]
+        adapted_names = {path.name for path in adapted_root.iterdir()
+                         if path.is_dir() and not path.is_symlink()
+                         and (path / "SKILL.md").is_file()} \
+            if adapted_root.is_dir() else set()
     for kind, summary, detail in text.learnings(output):
         if kind == "LEARNING":
             gkb.node("learning", summary, detail)
         else:
-            gkb.node("decision",
-                     f"Skill improvement: {summary}{where}"
-                     if kind == "SKILL_IMPROVEMENT"
-                     else f"New skill proposed: {summary}{where}", detail)
+            authorized = bool(_SKILL_NAME.fullmatch(summary))
+            if kind == "SKILL_IMPROVEMENT":
+                authorized = authorized and summary in factory_names
+            else:
+                authorized = authorized and summary not in adapted_names
+            if not authorized:
+                warn(f"Ignored {kind} outside the factory skill namespace: {summary!r}")
+                continue
+            gkb.node("skill_observation", f"{kind}: {summary}{where}",
+                     json.dumps({"skill": summary, "reason": detail,
+                                 "issue": n, "status": "observation"},
+                                ensure_ascii=False))
         counts[_KIND_COUNT[kind]] += 1
     return counts
 
 
-def apply_skill_updates(output: str, skills_dir: Path) -> list[str]:
-    """SKILL_UPDATE_START/END blocks -> rewrite or create factory skills.
+_SKILL_NAME = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 
-    Only factory skills are writable; addyosmani skills live elsewhere and
-    are never touched by the learner. A block that does not look like a
-    complete SKILL.md (frontmatter + real substance) is rejected and logged,
-    never applied — a truncated or garbage block must not gut a skill (#20).
-    """
-    applied = []
+
+def _complete_skill(name: str, content: str) -> bool:
+    """Check a replacement has matching frontmatter and a complete body."""
+    lines = content.strip().splitlines()
+    if len(content.strip()) < 50 or len(lines) < 4 or lines[0] != "---":
+        return False
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return False
+    declared = re.search(r"^name:[ \t]*([a-z0-9-]+)[ \t]*$", "\n".join(lines[1:end]),
+                         re.M)
+    return bool(declared and declared.group(1) == name
+                and any(line.strip() for line in lines[end + 1:]))
+
+
+def propose_skill_updates(output: str, skills_dir: Path, gkb: Graph, *,
+                          project: Path, issue: int | None,
+                          evidence: dict | None = None) -> list[str]:
+    """Store complete factory skill candidates without changing active files."""
+    roots = skill_versions.source_roots()
+    roots["factory"] = Path(skills_dir)
+    manifest = skill_versions.pin_project(project, roots=roots)
+    pinned = {(item["scope"], item["name"]) for item in manifest["skills"]}
+    actions = {(kind, summary): detail for kind, summary, detail in text.learnings(output)
+               if kind in ("SKILL_IMPROVEMENT", "NEW_SKILL")}
+    records: list[str] = []
+    seen: set[str] = set()
+    source_root = Path(skills_dir)
     for name, content in text.skill_updates(output):
-        safe = name.replace("/", "")
-        if safe in ("", ".", ".."):
-            warn(f"Rejected skill update with unsafe name: {name!r}")
+        if (not _SKILL_NAME.fullmatch(name) or name in seen
+                or Path(name).name != name or ".." in name):
+            warn(f"Rejected skill proposal with unauthorized name: {name!r}")
             continue
-        body = content.strip()
-        if not (body.startswith("---") and len(body) >= 50):
-            warn(f"Rejected skill update for {safe}: not a complete SKILL.md "
-                 "(expected frontmatter and real substance)")
+        seen.add(name)
+        key = ("factory", name)
+        new_skill = key not in pinned
+        active = source_root / name / "SKILL.md"
+        action_kind = "NEW_SKILL" if new_skill else "SKILL_IMPROVEMENT"
+        reason = actions.get((action_kind, name), "").strip()
+        if (new_skill and not actions.get(("NEW_SKILL", name), "").strip()
+                or not new_skill and not reason):
+            warn(f"Rejected skill proposal for {name}: no matching reason action")
             continue
-        target = skills_dir / safe / "SKILL.md"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content + "\n")
-        applied.append(safe)
-    return applied
+        if (active.is_symlink() or (active.exists() and not active.is_file())
+                or not _complete_skill(name, content)):
+            warn(f"Rejected incomplete or unsafe skill proposal for {name}")
+            continue
+        adapted_root = roots["adapted"]
+        if ((adapted_root / name / "SKILL.md").is_file()
+                and key not in pinned):
+            warn(f"Rejected proposal that targets adapted skill {name}")
+            continue
+        if not new_skill and key not in pinned:
+            warn(f"Rejected skill proposal for unpinned factory skill {name}")
+            continue
+        previous = skill_versions.pinned_skill(project, name, roots=roots) or ""
+        proof = {"learner_output": output,
+                 "sources": evidence or {},
+                 "project": Path(project).name,
+                 "issue": issue}
+        payload = {
+            "version": 1,
+            "skill": name,
+            "scope": "factory",
+            "previous_content": previous,
+            "proposed_content": content.strip() + "\n",
+            "reason": reason,
+            "evidence": proof,
+            "status": "pending",
+        }
+        proposal_id = gkb.node("skill_proposal", f"Skill proposal: {name}{where_for_issue(issue)}",
+                              json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        records.append(proposal_id)
+    return records
+
+
+def where_for_issue(issue: int | None) -> str:
+    return f" (issue #{issue})" if issue is not None else " (project level)"
 
 
 def _report(output: str, marker: re.Pattern, span: int) -> str:
     m = marker.search(output)
     return text.after(output, m, span) if m else ""
+
+
+def _factory_skill_context(project: Path) -> str:
+    manifest = skill_versions.pin_project(project)
+    names = sorted(item["name"] for item in manifest["skills"]
+                   if item["scope"] == "factory")
+    sections = []
+    for name in names:
+        content = skill_versions.pinned_skill(project, name)
+        if content:
+            sections.append(f"### {name}\n{content.rstrip()}")
+    return "\n\n".join(sections) or "No factory skills are available."
 
 
 # ─── Per-issue learning ──────────────────────────────────────────────────
@@ -130,9 +227,11 @@ ISSUE_LEARNING #{n}:
     LEARNING: <summary> — <detail> (if more than one)
     NO_ACTION: nothing to learn (rare)
 
-Only propose improvements for skills whose complete current text was not supplied.
-A directory name is not its content. Optional replacements must follow the
-factory-learner skill's complete-block format, with unindented outer markers."""
+Use the supplied complete skill texts as the previous versions. A skill change
+is only a candidate: Python records it for later review and never activates it
+during this execution. For every supported change, include a matching
+SKILL_IMPROVEMENT or NEW_SKILL action and a complete replacement block. Do not
+propose skills outside the factory skill list."""
 
 
 def _issue_facts(proj: Path, n: int, issue_text: str, kb: Graph) -> dict:
@@ -190,7 +289,7 @@ def learn_issue(proj: Path, n: int, issue_text: str, kb: Graph, gkb: Graph) -> s
         n=n, issue_text=facts["issue_text"], happened="\n".join(happened),
         issue_output=text.head(facts["issue_output"], 100), evidence=evidence,
         global_kb=gkb.compact(),
-        skills=", ".join(p.name for p in FACTORY_SKILLS.iterdir() if p.is_dir()),
+        skills=_factory_skill_context(proj),
         stuck=str(flags["consult"]).lower(),
         proxy=str(flags["proxy"]).lower(),
         retry=str(flags["retry"]).lower(),
@@ -205,14 +304,18 @@ def learn_issue(proj: Path, n: int, issue_text: str, kb: Graph, gkb: Graph) -> s
 
     # Parse raw output: quoted actions are ignored, while examples inside a
     # replacement remain part of that file instead of becoming KB actions.
-    counts = act_on_learnings(out, gkb, n)
-    applied = apply_skill_updates(out, FACTORY_SKILLS)
-    if applied:
-        log(f"Applied skill updates: {', '.join(applied)}")
+    counts = act_on_learnings(out, gkb, n, project=proj)
+    proposal_ids = propose_skill_updates(
+        out, FACTORY_SKILLS, gkb, project=proj, issue=n,
+        evidence={key: value for key, value in facts.items()
+                  if key in ("issue_text", "issue_output", "consult", "proxy", "retry")})
+    if proposal_ids:
+        log(f"Recorded {len(proposal_ids)} pending skill proposal(s)")
     transcript = "\n".join([
         f"Issue #{n} learning complete:",
         f"  Learnings logged:     {counts['learnings']}",
         f"  Skill improvements:   {counts['improvements']}",
+        f"  Complete proposals:  {len(proposal_ids)} (pending review)",
         f"  New skills proposed:  {counts['new_skills']}",
         f"  Global KB nodes:      {len(gkb.query(summary_only=True))}",
         _report(out, ISSUE_LEARN, 30), ""],
@@ -277,9 +380,11 @@ PROJECT_LEARNING:
     SKILL_IMPROVEMENT: <skill> — <structural change> (if any)
     NEW_SKILL: <name> — <what> (if any)
 
-Only propose improvements for skills whose complete current text was not supplied.
-A directory name is not its content. Optional replacements must follow the
-factory-learner skill's complete-block format, with unindented outer markers."""
+Use the supplied complete skill texts as the previous versions. A skill change
+is only a candidate: Python records it for later review and never activates it
+during this execution. For every supported change, include a matching
+SKILL_IMPROVEMENT or NEW_SKILL action and a complete replacement block. Do not
+propose skills outside the factory skill list."""
 
 
 def learn_project(proj: Path, name: str, kb: Graph, gkb: Graph) -> str:
@@ -298,7 +403,7 @@ def learn_project(proj: Path, name: str, kb: Graph, gkb: Graph) -> str:
         consults=len(kb.query("consultation")), consult_nodes=kb.compact("consultation"),
         decisions=len(kb.query("decision")), decision_nodes=kb.compact("decision"),
         global_kb=gkb.compact(),
-        skills=", ".join(p.name for p in FACTORY_SKILLS.iterdir() if p.is_dir()))
+        skills=_factory_skill_context(proj))
     # #46: same routing fix as learn_issue — GLM owns the strict format.
     out = run_pi("consultant", body, name, thinking="off",
                  skills=(FACTORY_SKILLS / "factory-learner", FACTORY_SKILLS / "kb-manager"),
@@ -306,13 +411,14 @@ def learn_project(proj: Path, name: str, kb: Graph, gkb: Graph) -> str:
                  phase_name="learning")
 
     # Preserve replacement bodies while excluding their examples from actions.
-    counts = act_on_learnings(out, gkb, None)
-    applied = apply_skill_updates(out, FACTORY_SKILLS)
-    if applied:
-        log(f"Applied project-level skill updates: {', '.join(applied)}")
+    counts = act_on_learnings(out, gkb, None, project=proj)
+    proposal_ids = propose_skill_updates(
+        out, FACTORY_SKILLS, gkb, project=proj, issue=None,
+        evidence={"project_learning": out, "issue_learnings": issue_learnings})
     transcript = "\n".join([
         "Project-level learning complete!",
         f"  New learnings logged: {counts['learnings']}",
+        f"  Complete proposals: {len(proposal_ids)} (pending review)",
         f"  Global KB: {len(gkb.query(summary_only=True))} nodes",
         _report(out, PROJECT_LEARN, 35), ""],
     )

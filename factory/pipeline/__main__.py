@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from pipeline import (design, events, iterations, learn, model_selection,
+                      skill_versions,
                       phases, repository, text)
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY, GLOBAL_KB, ROLE, _declared_context,
@@ -244,6 +245,7 @@ def _run(args) -> None:
         log(f"Creating project: {name}")
         proj.mkdir(parents=True, exist_ok=True)
         (proj / IDEA_FILE).write_text(idea + "\n")
+    skill_versions.pin_project(proj)
     model_selection.save_project(proj, args.model_selection_data)
     _warn_context_mismatches(args.model_selection_data)
     proj.mkdir(parents=True, exist_ok=True)

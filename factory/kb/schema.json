@@ -20,6 +20,15 @@
       "description": "A lesson learned during development",
       "fields": ["summary", "detail", "applied_to"]
     },
+    "skill_observation": {
+      "description": "A skill improvement idea without a validated replacement body",
+      "fields": ["summary", "detail", "skill", "reason", "evidence"]
+    },
+    "skill_proposal": {
+      "description": "A pending complete factory skill replacement",
+      "fields": ["summary", "detail", "skill", "previous_content",
+        "proposed_content", "reason", "evidence", "status"]
+    },
     "consultation": {
       "description": "A consultation between worker and consultant",
       "fields": ["summary", "detail", "question", "answer", "model"]

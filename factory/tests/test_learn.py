@@ -1,8 +1,9 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from pipeline import learn
+from pipeline import learn, skill_versions
 from pipeline.kb import Graph
 
 LEARNER_OUTPUT = """\
@@ -19,6 +20,7 @@ SKILL_UPDATE_START: issue-executor
 ---
 name: issue-executor
 new: yes
+---
 
 ## Red Flags (new)
 
@@ -102,11 +104,11 @@ class ActOnLearnings(unittest.TestCase):
         self.assertEqual(counts["improvements"], 1)
         self.assertEqual(counts["new_skills"], 1)
 
-    def test_skill_actions_use_decision_nodes_with_issue_ref(self):
+    def test_skill_actions_use_observation_nodes_with_issue_ref(self):
         learn.act_on_learnings(LEARNER_OUTPUT, self.gkb, 3)
-        decisions = [n["summary"] for n in self.gkb.query("decision")]
-        self.assertIn("Skill improvement: issue-executor (issue #3)", decisions)
-        self.assertIn("New skill proposed: smoke-test-runner (issue #3)", decisions)
+        observations = [n["summary"] for n in self.gkb.query("skill_observation")]
+        self.assertIn("SKILL_IMPROVEMENT: issue-executor (issue #3)", observations)
+        self.assertIn("NEW_SKILL: smoke-test-runner (issue #3)", observations)
 
     def test_no_action_yields_zeroes(self):
         counts = learn.act_on_learnings(EMPTY_OUTPUT, self.gkb, 1)
@@ -116,64 +118,160 @@ class ActOnLearnings(unittest.TestCase):
         # round-5: project-level learning calls with n=None — the KB summary
         # must say "project level", not "(issue #None)"
         learn.act_on_learnings(LEARNER_OUTPUT, self.gkb, None)
-        decisions = [n["summary"] for n in self.gkb.query("decision")]
-        self.assertIn("Skill improvement: issue-executor (project level)", decisions)
-        self.assertNotIn("Skill improvement: issue-executor (issue #None)", decisions)
+        observations = [n["summary"] for n in self.gkb.query("skill_observation")]
+        self.assertIn("SKILL_IMPROVEMENT: issue-executor (project level)", observations)
+        self.assertNotIn("SKILL_IMPROVEMENT: issue-executor (issue #None)", observations)
 
 
-class ApplySkillUpdates(unittest.TestCase):
+class SkillProposals(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.skills = Path(self.tmp.name) / "skills"
         self.skills.mkdir()
+        self.project = Path(self.tmp.name) / "project"
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_updates_existing_skill_file(self):
+    def test_complete_update_records_previous_candidate_reason_and_evidence_without_activation(self):
         target = self.skills / "issue-executor" / "SKILL.md"
         target.parent.mkdir()
-        target.write_text("---\nname: issue-executor\n---\nold body")
-        applied = learn.apply_skill_updates(LEARNER_OUTPUT, self.skills)
-        self.assertEqual(applied, ["issue-executor"])
-        self.assertIn("new: yes", target.read_text())
-        self.assertNotIn("old body", target.read_text())
+        previous = "---\nname: issue-executor\ndescription: Existing skill.\n---\nold body\n"
+        target.write_text(previous)
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        ids = learn.propose_skill_updates(
+            LEARNER_OUTPUT, self.skills, graph, project=self.project, issue=2,
+            evidence={"test": "issue_2_output.txt"})
+        self.assertEqual(len(ids), 1)
+        record = json.loads(graph.get(ids[0])["detail"])
+        self.assertEqual(record["previous_content"], previous)
+        self.assertIn("new: yes", record["proposed_content"])
+        self.assertEqual(record["reason"], "add Red Flag for skipping regressions")
+        self.assertEqual(record["evidence"]["sources"], {"test": "issue_2_output.txt"})
+        self.assertEqual(record["status"], "pending")
+        self.assertEqual(target.read_text(), previous)
 
-    def test_complete_learner_skill_round_trips_without_phantom_kb_actions(self):
-        source = Path(__file__).resolve().parents[1] / 'skills/factory-learner/SKILL.md'
-        body = source.read_text().rstrip('\n')
-        output = f'SKILL_UPDATE_START: factory-learner\n{body}\nSKILL_UPDATE_END\n'
-        self.assertEqual(learn.apply_skill_updates(output, self.skills), ['factory-learner'])
-        self.assertEqual((self.skills / 'factory-learner/SKILL.md').read_text(), body + '\n')
-        graph = Graph(Path(self.tmp.name) / 'graph.json')
-        self.assertEqual(learn.act_on_learnings(output, graph, None),
-                         {'learnings': 0, 'improvements': 0, 'new_skills': 0})
-        self.assertEqual(graph.query(), [])
+    def test_new_factory_skill_requires_new_skill_action_and_stays_pending(self):
+        output = """NEW_SKILL: scenario-author — support repeatable validation cases
+SKILL_UPDATE_START: scenario-author
+---
+name: scenario-author
+description: Write validation scenarios.
+---
+Use concise repeatable cases with verifiable evidence.
+SKILL_UPDATE_END
+"""
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        ids = learn.propose_skill_updates(output, self.skills, graph,
+                                         project=self.project, issue=None)
+        self.assertEqual(len(ids), 1)
+        self.assertEqual(json.loads(graph.get(ids[0])["detail"])["previous_content"], "")
+        self.assertFalse((self.skills / "scenario-author/SKILL.md").exists())
 
-    def test_creates_new_skill_dir_when_missing(self):
-        applied = learn.apply_skill_updates(LEARNER_OUTPUT, self.skills)
-        self.assertEqual(applied, ["issue-executor"])
-        self.assertTrue((self.skills / "issue-executor" / "SKILL.md").exists())
+    def test_previous_content_and_skill_scope_come_from_run_pin(self):
+        target = self.skills / "issue-executor/SKILL.md"
+        target.parent.mkdir()
+        previous = "---\nname: issue-executor\ndescription: Pinned.\n---\nKeep this rule.\n"
+        target.write_text(previous)
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        roots = skill_versions.source_roots()
+        roots["factory"] = self.skills
+        skill_versions.pin_project(self.project, roots=roots)
+        target.unlink()
+        output = """SKILL_IMPROVEMENT: issue-executor — preserve the existing constraint
+SKILL_UPDATE_START: issue-executor
+---
+name: issue-executor
+description: Improved.
+---
+Keep this rule and add a regression check that proves it remains enforced.
+SKILL_UPDATE_END
+"""
+        learn.act_on_learnings(output, graph, 4, skills_dir=self.skills,
+                               project=self.project)
+        ids = learn.propose_skill_updates(output, self.skills, graph,
+                                          project=self.project, issue=4)
+        self.assertEqual(len(ids), 1)
+        record = json.loads(graph.get(ids[0])["detail"])
+        self.assertEqual(record["previous_content"], previous)
+        self.assertFalse(target.exists())
 
-    def test_no_updates_means_nothing_applied(self):
-        self.assertEqual(learn.apply_skill_updates(EMPTY_OUTPUT, self.skills), [])
+    def test_adapted_skill_is_not_an_authorized_factory_proposal(self):
+        output = """SKILL_IMPROVEMENT: interview-me — add more detail
+SKILL_UPDATE_START: interview-me
+---
+name: interview-me
+description: Updated interview.
+---
+This replacement is intentionally outside factory skills.
+SKILL_UPDATE_END
+"""
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        self.assertEqual(learn.propose_skill_updates(output, self.skills, graph,
+                                                    project=self.project, issue=1), [])
+        self.assertEqual(graph.query("skill_proposal"), [])
+        learn.act_on_learnings(output, graph, 1, skills_dir=self.skills)
+        self.assertEqual(graph.query("skill_observation"), [])
+
+    def test_new_skill_cannot_shadow_an_adapted_skill(self):
+        adapted = Path(__file__).resolve().parents[2] / ".agents/skills/interview-me"
+        if not (adapted / "SKILL.md").is_file():
+            self.skipTest("adapted interview skill is not installed in this checkout")
+        output = """NEW_SKILL: interview-me — duplicate an adapted workflow
+SKILL_UPDATE_START: interview-me
+---
+name: interview-me
+description: A duplicate.
+---
+Do the same work as the adapted skill.
+SKILL_UPDATE_END
+"""
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        self.assertEqual(learn.propose_skill_updates(output, self.skills, graph,
+                                                    project=self.project, issue=1), [])
+        self.assertEqual(graph.query("skill_proposal"), [])
+
+    def test_path_traversal_is_rejected_without_writing_outside_factory(self):
+        output = """NEW_SKILL: ../escape — malicious destination
+SKILL_UPDATE_START: ../escape
+---
+name: escape
+description: Invalid destination.
+---
+This must not be written outside the factory skill directory.
+SKILL_UPDATE_END
+"""
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        self.assertEqual(learn.propose_skill_updates(output, self.skills, graph,
+                                                    project=self.project, issue=1), [])
+        self.assertFalse((self.skills.parent / "escape").exists())
+
+    def test_malformed_candidate_is_not_recorded(self):
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        self.assertEqual(learn.propose_skill_updates(FRAGMENT_BLOCK, self.skills, graph,
+                                                    project=self.project, issue=1), [])
+        self.assertEqual(graph.query("skill_proposal"), [])
 
     def test_blank_block_rejected_existing_skill_kept(self):
-        # #20: an empty block must not wipe an existing SKILL.md
         target = self.skills / "issue-executor" / "SKILL.md"
         target.parent.mkdir()
         target.write_text("---\nname: issue-executor\n---\nold body")
-        self.assertEqual(learn.apply_skill_updates(BLANK_BLOCK, self.skills), [])
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        self.assertEqual(learn.propose_skill_updates(
+            BLANK_BLOCK, self.skills, graph, project=self.project, issue=1), [])
         self.assertIn("old body", target.read_text())
 
     def test_fragment_without_frontmatter_rejected(self):
-        # #20: a section fragment would replace the whole file — reject it
-        self.assertEqual(learn.apply_skill_updates(FRAGMENT_BLOCK, self.skills), [])
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        self.assertEqual(learn.propose_skill_updates(
+            FRAGMENT_BLOCK, self.skills, graph, project=self.project, issue=1), [])
         self.assertFalse((self.skills / "issue-executor").exists())
 
     def test_dot_name_rejected_nothing_written_outside(self):
-        self.assertEqual(learn.apply_skill_updates(DOT_NAME_BLOCK, self.skills), [])
-        self.assertEqual(list(self.skills.rglob("SKILL.md")), [])
+        graph = Graph(Path(self.tmp.name) / "global.json")
+        self.assertEqual(learn.propose_skill_updates(
+            DOT_NAME_BLOCK, self.skills, graph, project=self.project, issue=1), [])
+        self.assertEqual(list(self.skills.iterdir()), [])
 
 
 if __name__ == "__main__":

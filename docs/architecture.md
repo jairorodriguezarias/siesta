@@ -70,10 +70,13 @@ Timeouts preserve partial evidence and terminate the process group.
 
 ## Learning
 
-Project and global KBs record decisions and patterns. The learner can update
-the five factory skills when it returns a complete, valid skill document.
-The ten adapted development skills require a repository change. Learning is
-recorded advice, not evidence that performance improved.
+Project and global KBs record observations and patterns. A project pins the
+factory and adapted skill contents in ignored `.siesta/` evidence and verifies
+those hashes on resume. The learner records complete factory skill candidates
+as pending proposals with the previous version, candidate, reason and evidence;
+it never activates them during that run. The adapted development skills remain
+repository-maintained. Learning is recorded advice, not evidence that
+performance improved.
 
 ## Source map
 

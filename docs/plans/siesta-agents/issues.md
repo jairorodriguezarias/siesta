@@ -285,7 +285,7 @@ válida, cambio de alcance y límites agotados.
 
 ## Issue #8: Guardar propuestas de aprendizaje y fijar versiones de skills
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #1–#2.
 
 Separar observaciones de KB, propuestas de modificación y versiones activas.
@@ -299,6 +299,23 @@ Separar observaciones de KB, propuestas de modificación y versiones activas.
 
 **Verificación:** modificación durante una ejecución, reanudación con versiones
 fijadas y propuestas a skills no autorizadas.
+
+**Evidencia de verificación:**
+
+- `tests.test_skill_versions`: snapshots adaptados y de fábrica, reanudación
+  frente a cambios del árbol activo, rechazo de skills añadidas tarde,
+  detección de alteraciones del snapshot, manifiesto con symlink y alias de
+  symlink en la ruta de origen.
+- `tests.test_learn.SkillProposals`: cada propuesta completa conserva el
+  contenido anterior fijado, candidato, motivo y evidencia sin modificar el
+  archivo activo; se rechazan skills adaptadas, colisiones, traversal y bloques
+  incompletos.
+- `tests.test_skill_context.SkillContext.test_run_pi_uses_project_pinned_skill_after_active_file_changes`:
+  Pi recibe las instrucciones fijadas aunque el archivo activo cambie.
+- La suite completa, `/tmp/siesta-test-venv/bin/python -B -m unittest discover -s tests -v`,
+  aprobó 425 tests, `EXIT_CODE=0`.
+- `docs/skills-and-context.md` y `docs/architecture.md`: formato de pinning,
+  propuestas, evidencia y límites.
 
 ## Issue #9: Ejecutar escenarios de prueba de skills
 

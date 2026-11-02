@@ -86,16 +86,27 @@ scope judgment is not a mechanical proof.
 
 ## Learning and skill changes
 
-Only factory skills may be updated by the learner. An improvement proposal is a
-KB decision, not an applied file change. Replacing an existing skill requires its
-complete current text in the supplied context; a directory name is insufficient.
-Otherwise the learner must return a proposal only.
+Each project pins the complete factory and adapted skill trees into ignored
+`.siesta/skills/` evidence at the start of its first run. The manifest at
+`.siesta/skill-versions.json` records per-file hashes. Pi calls use those
+snapshots, and resume verifies them before reuse. A changed active skill affects
+new runs; it cannot silently change an existing run. Snapshot tampering or an
+unrecorded skill addition stops the call.
 
-Actual updates use unindented `SKILL_UPDATE_START: name` and `SKILL_UPDATE_END`
-outer markers. Literal marker examples inside a replacement must be indented or
-fenced. Python preserves replacement Markdown, ignores quoted outer blocks,
-discards unfinished replacements and never executes their contents as KB actions.
-Destination/content checks do not prove the semantic quality of a learned rule.
+Learner output is kept in three distinct records: `learning` observations,
+`skill_observation` suggestions without a complete replacement, and pending
+`skill_proposal` records. Each complete proposal stores the pinned previous
+content, candidate content, reason, learner output and supporting run evidence.
+Only factory skill names can be proposed; adapted skill names and paths are
+rejected. Proposals do not replace active files. Activation requires the later
+independent review and validation workflow.
+
+Complete candidates use unindented `SKILL_UPDATE_START: name` and
+`SKILL_UPDATE_END` outer markers. Literal marker examples inside a replacement
+must be indented or fenced. Python preserves replacement Markdown, ignores
+quoted outer blocks and rejects incomplete frontmatter, mismatched names,
+unauthorized destinations and missing reason actions. These checks do not prove
+the semantic quality of a learned rule.
 
 The ten adapted skills are repository-maintained. The discovery map also mentions
 optional upstream workflows, which must not be treated as installed dependencies.

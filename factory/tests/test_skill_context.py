@@ -6,7 +6,7 @@ from pathlib import Path
 
 from unittest.mock import patch
 
-from pipeline import model_selection, phases, pi
+from pipeline import model_selection, phases, pi, skill_versions
 from pipeline.kb import Graph
 from pipeline.pi import build_args
 
@@ -52,6 +52,32 @@ class SkillContext(unittest.TestCase):
             args = build_args('worker', 'Code context', 'Implement', skills=(skill,))
             self.assertIn('--skill', args)
             self.assertNotIn('WORKER_SKILL_DETAIL', args[-1])
+
+    def test_run_pi_uses_project_pinned_skill_after_active_file_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            project = base / 'project'
+            factory_skills = base / 'factory-skills'
+            adapted_skills = base / 'adapted-skills'
+            factory_skills.mkdir()
+            adapted_skills.mkdir()
+            skill = factory_skills / 'executor'
+            skill.mkdir()
+            active_file = skill / 'SKILL.md'
+            active_file.write_text('---\nname: executor\n---\nPINNED_CONTENT\n')
+            roots = {'factory': factory_skills, 'adapted': adapted_skills}
+            skill_versions.pin_project(project, roots=roots)
+            active_file.write_text('---\nname: executor\n---\nLIVE_CHANGED_CONTENT\n')
+            executable = base / 'fake-pi'
+            executable.write_text('#!/usr/bin/env python3\nimport sys\n'
+                                  'print(sys.stdin.read() or sys.argv[-1], end="")\n')
+            executable.chmod(0o755)
+            with patch.object(skill_versions, 'source_roots', return_value=roots), \
+                    patch.object(pi, 'PI_BIN', str(executable)):
+                output = pi.run_pi('consultant', 'Context', 'Return',
+                                   skills=(skill,), tools='no', cwd=project)
+            self.assertIn('PINNED_CONTENT', output)
+            self.assertNotIn('LIVE_CHANGED_CONTENT', output)
 
     def test_isolated_review_cannot_receive_skills(self):
         with self.assertRaises(ValueError):

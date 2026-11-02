@@ -843,7 +843,7 @@ class PipelineRun(unittest.TestCase):
         self.assertNotIn("Blocked issues: #1, #2", second.stderr)
         self.assertIn("Issue #1 completed", self.decisions())
         self.assertIn("Issue #2 completed", self.decisions())
-        self.assertEqual(self.log_count("skills/issue-executor/"), 2)
+        self.assertEqual(self.log_count(".siesta/skills/factory/issue-executor/"), 2)
         self.assertIn("return \"hello\"", (self.proj() / "todo.py").read_text())
 
     def test_resume_says_resuming_not_creating(self):
