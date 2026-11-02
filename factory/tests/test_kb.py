@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from pipeline.kb import Graph
@@ -68,6 +69,16 @@ class GraphNodes(unittest.TestCase):
         self.assertEqual(stored["summary"], "Used argparse")
         self.assertEqual(stored["detail"], "Zero dependencies")
         self.assertRegex(stored["created_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+    def test_colliding_ids_keep_nodes_and_edges_distinct(self):
+        with patch('pipeline.kb.time.time', return_value=123), \
+             patch('pipeline.kb.random.randint', return_value=7):
+            ids = [self.graph.node('decision', str(i)) for i in range(3)]
+        self.assertEqual(len(set(ids)), 3)
+        self.graph.edge(ids[0], ids[1], 'applied_to')
+        self.graph.update_detail(ids[1], 'second node only')
+        self.assertEqual(self.graph.get(ids[0])['detail'], '')
+        self.assertEqual(self.graph.get(ids[1])['detail'], 'second node only')
 
     def test_no_temp_file_left_behind(self):
         self.graph.node("decision", "s")

@@ -47,9 +47,9 @@ def context(graph) -> str:
         if len(candidate) > CONTEXT_LIMIT:
             truncated = True
             if not included:
-                item["text"] = node["detail"]
                 while len(json.dumps([item], ensure_ascii=False)) > CONTEXT_LIMIT:
-                    item["text"] = item["text"][:len(item["text"]) // 2]
+                    field = max(item, key=lambda key: len(item[key]))
+                    item[field] = item[field][:len(item[field]) // 2]
                 included.append(item)
             break
         included.append(item)

@@ -45,8 +45,13 @@ class Graph:
             valid = json.loads(schema.read_text()).get("node_types", {})
             if type_ not in valid:
                 raise ValueError(f"Invalid node type '{type_}'")
+        prefix = f"n{int(time.time())}_"
+        suffix = random.randint(0, 999999)
+        ids = {node['id'] for node in self.data['nodes']}
+        while f"{prefix}{suffix}" in ids:
+            suffix += 1
         node = {
-            "id": f"n{int(time.time())}_{random.randint(0, 999999)}",
+            "id": f"{prefix}{suffix}",
             "type": type_,
             "summary": summary,
             "detail": detail,

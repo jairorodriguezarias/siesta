@@ -2,6 +2,8 @@
 import json
 import tempfile
 import unittest
+import subprocess
+import sys
 from pathlib import Path
 
 from pipeline.kb import Graph
@@ -9,6 +11,19 @@ from pipeline import references
 
 
 class ReferenceTests(unittest.TestCase):
+    def test_oversized_legacy_title_cannot_hang_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'graph.json'
+            Graph(path).node('reference', 'x' * 13000, 'detail')
+            result = subprocess.run([sys.executable, '-c',
+                'from pipeline.kb import Graph; from pipeline.references import context; '
+                'from pathlib import Path; import sys; print(context(Graph(Path(sys.argv[1]))))',
+                str(path)], capture_output=True, text=True, timeout=3, check=True)
+            data, _ = json.JSONDecoder().raw_decode(result.stdout)
+            self.assertTrue(data[0]['title'])
+            self.assertIn('truncated', result.stdout)
+            self.assertLessEqual(len(result.stdout), references.CONTEXT_LIMIT + 200)
+
     def test_new_project_copies_global_references_once_and_uses_details(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
