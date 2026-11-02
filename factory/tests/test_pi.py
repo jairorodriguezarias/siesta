@@ -1,6 +1,5 @@
 import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from pipeline import pi
@@ -44,37 +43,6 @@ class Timeout(unittest.TestCase):
                 self.assertEqual(pi_mod.PI_TIMEOUT, 7)
             finally:
                 importlib.reload(pi_mod)
-
-
-class BuildArgs(unittest.TestCase):
-    """build_args is always one-shot (-p): the interview is a python-
-    mediated dialog of separate calls (#55), not pi's own REPL."""
-
-    def test_always_one_shot_flags_skills_and_prompt_shape(self):
-        args = build_args(
-            "worker", body="You are a developer.", user="do the thing",
-            skills=(pi.SKILLS / "test-driven-development", pi.FACTORY_SKILLS / "kb-manager"),
-            thinking="off")
-        pi_bin, i = pi.PI_BIN, args
-        self.assertEqual(i[0], pi_bin)
-        self.assertEqual(i[1], "-p")                      # one-shot, always
-        self.assertEqual(i[i.index("--model") + 1], ROLE["worker"]["model"])
-        self.assertEqual(i[i.index("--provider") + 1], "ollama")
-        self.assertEqual(i[i.index("--thinking") + 1], "off")
-        self.assertEqual(i[i.index("--skill") + 1],
-                         str(pi.SKILLS / "test-driven-development") + "/")
-        self.assertEqual(i[i.index("--skill", i.index("--skill") + 1) + 1],
-                         str(pi.FACTORY_SKILLS / "kb-manager") + "/")
-        self.assertEqual(i[-1],
-                         "You are a developer.\n\ndo the thing")  # body+user merged (#23)
-
-    def test_interview_turn_is_one_shot_with_no_tools(self):
-        # phase 0's dialog turns reach pi as plain one-shot calls
-        args = build_args("planner", body="interview turn", user="ask now",
-                          skills=(pi.SKILLS / "interview-me",),
-                          thinking="off", tools="no")
-        self.assertEqual(args[1], "-p")
-        self.assertIn("--no-tools", args)
 
 
 class StderrSeparation(unittest.TestCase):
@@ -227,7 +195,16 @@ class ServedContext(unittest.TestCase):
 
 
 class BuildArgs(unittest.TestCase):
-    def test_non_interactively_flags_skills_and_prompt_shape(self):
+    """Every turn is a separate one-shot Pi invocation."""
+
+    def test_interview_turn_is_one_shot_with_no_tools(self):
+        args = build_args("planner", body="interview turn", user="ask now",
+                          skills=(pi.SKILLS / "interview-me",),
+                          thinking="off", tools="no")
+        self.assertEqual(args[1], "-p")
+        self.assertIn("--no-tools", args)
+
+    def test_always_one_shot_flags_skills_and_prompt_shape(self):
         args = build_args(
             "worker", body="You are a developer.", user="do the thing",
             skills=(pi.SKILLS / "test-driven-development", pi.FACTORY_SKILLS / "kb-manager"),

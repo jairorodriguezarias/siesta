@@ -1,5 +1,4 @@
 """Real process/repository reproductions of false success and unsafe recovery."""
-import os
 import subprocess
 import sys
 import tarfile

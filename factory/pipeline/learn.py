@@ -1,6 +1,5 @@
 """Per-issue and project learning, KB records and factory skill updates."""
 import re
-import sys
 from pathlib import Path
 
 from pipeline import text
