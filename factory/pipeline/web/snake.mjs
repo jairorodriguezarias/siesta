@@ -5,7 +5,7 @@ function placeFood(body, size, random) {
   const free = [];
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      if (!body.some(p => same(p, { x, y }))) free.push({ x, y });
+      if (!body.some((p) => same(p, { x, y }))) free.push({ x, y });
     }
   }
   return free.length ? free[Math.floor(random() * free.length)] : null;
@@ -13,9 +13,17 @@ function placeFood(body, size, random) {
 
 export function newGame(size = 20, random = Math.random) {
   const middle = Math.floor(size / 2);
-  const body = [0, 1, 2].map(offset => ({ x: middle - offset, y: middle }));
-  return { size, body, food: placeFood(body, size, random), direction: 'right',
-    turned: false, score: 0, over: false, won: false };
+  const body = [0, 1, 2].map((offset) => ({ x: middle - offset, y: middle }));
+  return {
+    size,
+    body,
+    food: placeFood(body, size, random),
+    direction: "right",
+    turned: false,
+    score: 0,
+    over: false,
+    won: false,
+  };
 }
 
 export function turn(game, direction) {
@@ -32,10 +40,23 @@ export function step(game, random = Math.random) {
   const head = { x: game.body[0].x + dx, y: game.body[0].y + dy };
   const eating = game.food && same(head, game.food);
   const occupied = eating ? game.body : game.body.slice(0, -1);
-  if (head.x < 0 || head.y < 0 || head.x >= game.size || head.y >= game.size
-      || occupied.some(p => same(p, head))) return { ...game, over: true };
+  if (
+    head.x < 0 ||
+    head.y < 0 ||
+    head.x >= game.size ||
+    head.y >= game.size ||
+    occupied.some((p) => same(p, head))
+  )
+    return { ...game, over: true };
   const body = [head, ...occupied];
   const food = eating ? placeFood(body, game.size, random) : game.food;
-  return { ...game, body, food, turned: false, score: game.score + (eating ? 10 : 0),
-    over: food === null, won: food === null };
+  return {
+    ...game,
+    body,
+    food,
+    turned: false,
+    score: game.score + (eating ? 10 : 0),
+    over: food === null,
+    won: food === null,
+  };
 }

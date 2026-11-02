@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#527970" />
+    <title>Siesta — your local desktop</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/desktop.css" />
+    <link rel="stylesheet" href="/responsive.css" />
+    <script type="module" src="/desktop.mjs"></script>
+  </head>
+  <body>
+    <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="folder" viewBox="0 0 32 28">
+        <path
+          d="M2 6V3h11l3 4h14v19H2Z"
+          fill="#ddb65e"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+        <path
+          d="M2 11h28l-3 15H2Z"
+          fill="#efd58d"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+      </symbol>
+      <symbol id="computer" viewBox="0 0 32 30">
+        <path
+          d="M3 2h26v20H3Z"
+          fill="#e8e4d4"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+        <path d="M7 6h18v12H7Z" fill="#527970" />
+        <path
+          d="M12 22v4H6v3h20v-3h-6v-4"
+          fill="#e8e4d4"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+        <path d="m11 10 3 2-3 2m6 0h4" fill="none" stroke="#e8e4d4" />
+      </symbol>
+      <symbol id="snake-icon" viewBox="0 0 32 30">
+        <path
+          d="M5 24V9h9v15h10V5h5"
+          fill="none"
+          stroke="#253e31"
+          stroke-width="7"
+        />
+        <path
+          d="M5 24V9h9v15h10V5h5"
+          fill="none"
+          stroke="#b7cc76"
+          stroke-width="4"
+        />
+        <path d="M27 2h5v6h-5Z" fill="#b7cc76" />
+        <path d="M30 3h1v1h-1Z" />
+      </symbol>
+      <symbol id="page" viewBox="0 0 28 30">
+        <path
+          d="M3 1h15l7 7v21H3Z"
+          fill="#f5f0dc"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+        <path
+          d="M18 1v8h7M8 14h12M8 19h12M8 24h8"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+      </symbol>
+      <symbol id="sun" viewBox="0 0 32 32">
+        <path
+          d="M16 0v6m0 20v6M0 16h6m20 0h6M5 5l4 4m14 14 4 4M5 27l4-4M23 9l4-4"
+          stroke="currentColor"
+          stroke-width="3"
+        />
+        <path d="M10 8h12v3h3v11h-3v3H10v-3H7V11h3Z" fill="currentColor" />
+      </symbol>
+    </svg>
+    <header class="desktop-header">
+      <div class="brand">
+        <svg><use href="#sun" /></svg><strong>siesta</strong
+        ><span>PERSONAL SOFTWARE FACTORY</span>
+      </div>
+      <div class="header-right">
+        <span class="status-dot"></span><span id="connection">CONNECTING</span
+        ><span class="local-badge">LOCAL</span>
+      </div>
+    </header>
+    <main class="desktop">
+      <nav class="desktop-shortcuts" aria-label="Desktop shortcuts">
+        <button data-view="new">
+          <svg><use href="#computer" /></svg><span>My Siesta</span>
+        </button>
+        <button data-view="projects">
+          <svg><use href="#folder" /></svg><span>Projects</span>
+        </button>
+        <button data-open="snake-window">
+          <svg><use href="#snake-icon" /></svg><span>Snake</span>
+        </button>
+        <button data-view="activity">
+          <svg><use href="#page" /></svg><span>Activity</span>
+        </button>
+      </nav>
+      <div class="workspace">
+        <section
+          class="window main-window"
+          id="main-window"
+          aria-label="Siesta workspace"
+        >
+          <header class="titlebar">
+            <span
+              ><svg><use href="#computer" /></svg>Siesta — Workspace</span
+            >
+            <div class="window-controls">
+              <button data-hide="main-window" aria-label="Minimize workspace">
+                _
+              </button>
+            </div>
+          </header>
+          <nav class="menubar" aria-label="Workspace">
+            <button data-view="new" class="selected">New project</button
+            ><button data-view="projects">Projects</button
+            ><button data-view="activity">Activity</button
+            ><span>Made for taking it easy.</span>
+          </nav>
+          <div id="view-new" class="view">
+            <div class="welcome">
+              <div>
+                <p class="eyebrow">A LITTLE AMBITION. A LITTLE SIESTA.</p>
+                <h1>You dream it.<br />Siesta gets to work.</h1>
+                <p class="intro">
+                  Turn an idea into something you can run.<br />Your agents
+                  handle the work. You keep the big picture.
+                </p>
+              </div>
+              <div class="sun-stamp" aria-hidden="true">
+                <svg><use href="#sun" /></svg
+                ><span>GOOD THINGS<br />TAKE A MOMENT.</span>
+              </div>
+            </div>
+            <form id="launch-form">
+              <label for="idea">What shall we build?</label
+              ><textarea
+                id="idea"
+                rows="4"
+                maxlength="12000"
+                placeholder="A little app to keep track of the books I read…"
+                required
+              ></textarea>
+              <div class="launch-options">
+                <label class="checkbox-label"
+                  ><input type="checkbox" id="auto" /> Skip the interview — my
+                  idea is ready</label
+                ><button class="primary" id="launch-button" type="submit">
+                  Let's make it <span aria-hidden="true">↗</span>
+                </button>
+              </div>
+              <p id="launch-error" class="error" role="alert"></p>
+            </form>
+            <div class="how-it-works">
+              <div>
+                <b>01</b
+                ><span
+                  >Describe your idea<small
+                    >A short conversation to get it right.</small
+                  ></span
+                >
+              </div>
+              <div>
+                <b>02</b
+                ><span
+                  >Let Siesta work<small
+                    >Plan, build, review and test.</small
+                  ></span
+                >
+              </div>
+              <div>
+                <b>03</b
+                ><span
+                  >Open the result<small
+                    >Real files. Real test evidence.</small
+                  ></span
+                >
+              </div>
+            </div>
+          </div>
+          <div id="view-projects" class="view" hidden>
+            <p class="eyebrow">YOUR LOCAL COLLECTION</p>
+            <h2>Little ideas, real projects.</h2>
+            <p class="muted">
+              Open a project to see its plan, evidence and saved progress.
+            </p>
+            <div id="project-list" class="project-list"></div>
+            <div id="project-detail" hidden>
+              <div class="detail-heading">
+                <h3 id="project-title"></h3>
+                <button id="resume-button">Resume project ↗</button>
+              </div>
+              <p id="project-state" class="muted"></p>
+              <div id="document-tabs" class="document-tabs"></div>
+              <pre id="document-content" class="document-content"></pre>
+            </div>
+            <p id="project-error" class="error" role="alert"></p>
+          </div>
+          <div id="view-activity" class="view" hidden>
+            <div class="activity-heading">
+              <div>
+                <p class="eyebrow">THE WORKBENCH</p>
+                <h2 id="run-title">A quiet moment.</h2>
+              </div>
+              <span class="run-badge" id="run-status">IDLE</span>
+            </div>
+            <p id="run-description" class="muted">
+              Start a project and follow its progress here.
+            </p>
+            <ol id="phase-list" class="phase-list">
+              <li data-phase="0">Interview</li>
+              <li data-phase="1">Spec</li>
+              <li data-phase="2">Plan</li>
+              <li data-phase="2b">Design</li>
+              <li data-phase="3">Build</li>
+              <li data-phase="4">Review</li>
+              <li data-phase="5">Verify</li>
+              <li data-phase="6">Finish</li>
+            </ol>
+            <div class="console-heading">
+              <span>LIVE CONSOLE</span><span id="elapsed">00:00</span>
+            </div>
+            <pre
+              id="console"
+              class="console"
+              tabindex="0"
+              aria-label="Pipeline console"
+            >
+Waiting for your next idea…</pre>
+            <form id="reply-form" hidden>
+              <label for="reply">Siesta needs your answer</label>
+              <div class="reply-row">
+                <input
+                  id="reply"
+                  maxlength="12000"
+                  placeholder="Write your answer…"
+                  required
+                  autocomplete="off"
+                /><button class="primary" type="submit">Send ↵</button>
+              </div>
+              <p class="muted">
+                Type “yes” to accept a final summary, or explain what to change.
+              </p>
+            </form>
+            <p id="reply-error" class="error" role="alert"></p>
+            <div class="activity-footer">
+              <span id="run-hint"
+                >There is no rush. Good work takes a moment.</span
+              ><button id="result-button" hidden>Open project →</button>
+            </div>
+          </div>
+          <footer class="window-status">
+            <span id="workspace-status">Ready for your next idea</span
+            ><span>YOUR MACHINE. YOUR PROJECTS.</span
+            ><span class="resize-grip" aria-hidden="true">◢</span>
+          </footer>
+        </section>
+        <aside class="side-column">
+          <section
+            class="window snake-window"
+            id="snake-window"
+            aria-label="Snake game"
+          >
+            <header class="titlebar">
+              <span
+                ><svg><use href="#snake-icon" /></svg>Snake.exe</span
+              >
+              <div class="window-controls">
+                <button data-hide="snake-window" aria-label="Minimize Snake">
+                  _
+                </button>
+              </div>
+            </header>
+            <div class="snake-body">
+              <div class="snake-heading">
+                <span>THE WAITING GAME</span
+                ><span class="tiny-badge">1 PLAYER</span>
+              </div>
+              <div class="scoreboard">
+                <span>SCORE <b id="score">000</b></span
+                ><span>BEST <b id="best">000</b></span>
+              </div>
+              <div class="game-screen">
+                <canvas
+                  id="snake"
+                  width="400"
+                  height="400"
+                  tabindex="0"
+                  aria-label="Snake board. Arrow keys or WASD to move; space to pause."
+                ></canvas>
+                <div id="game-overlay" class="game-overlay">
+                  <span class="pixel-snake" aria-hidden="true"
+                    >▟▀▀▙<br />▙▄▄▟</span
+                  ><strong id="game-message">A little break?</strong
+                  ><span id="game-subtitle"
+                    >Your next high score is waiting.</span
+                  ><button id="game-start">Play Snake →</button>
+                </div>
+              </div>
+              <div class="game-actions">
+                <button id="game-pause" disabled>Pause</button
+                ><button id="game-restart">New game</button
+                ><span>↑ ↓ ← → / WASD</span>
+              </div>
+              <div class="touch-controls" aria-label="Snake direction controls">
+                <button data-direction="up" aria-label="Move up">↑</button>
+                <div>
+                  <button data-direction="left" aria-label="Move left">←</button
+                  ><button data-direction="down" aria-label="Move down">
+                    ↓</button
+                  ><button data-direction="right" aria-label="Move right">
+                    →
+                  </button>
+                </div>
+              </div>
+              <p class="snake-caption">
+                A small diversion while big things happen.
+              </p>
+            </div>
+            <footer class="window-status">
+              <span id="snake-status">Ready to play</span
+              ><span>NO QUARTERS NEEDED</span>
+            </footer>
+          </section>
+          <div class="desk-note">
+            <span class="note-pin" aria-hidden="true"></span>
+            <p>Let the agents cook.<br />You’ve earned a little break.</p>
+            <span>— the Siesta philosophy</span>
+          </div>
+        </aside>
+      </div>
+      <div class="wallpaper-label" aria-hidden="true">
+        siesta<span>LESS HUSTLE. MORE MAKING.</span>
+      </div>
+    </main>
+    <div id="notice" class="notice" role="status" hidden>
+      <span id="notice-text"></span
+      ><button id="notice-action">View activity →</button
+      ><button id="notice-dismiss" aria-label="Dismiss notification">×</button>
+    </div>
+    <footer class="taskbar">
+      <button class="start-button" data-view="new">
+        <svg><use href="#sun" /></svg><b>siesta</b></button
+      ><span class="taskbar-divider"></span
+      ><button class="task-button" data-open="main-window">
+        <svg><use href="#computer" /></svg>Workspace</button
+      ><button class="task-button" data-open="snake-window">
+        <svg><use href="#snake-icon" /></svg>Snake
+      </button>
+      <div class="tray">
+        <span id="tray-status"><span class="status-dot"></span> Ready</span
+        ><time id="clock"></time>
+      </div>
+    </footer>
+  </body>
+</html>
