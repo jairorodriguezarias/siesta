@@ -77,8 +77,8 @@ case "$model" in
         esac ;;
       *"You are a project planner."*)
         case "$FAKE_PI_SCENARIO" in
-          repair_fails_forever_3) printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n\n## Issue #3: Add more\nWrite more.\n' ;;
-          *) printf '# Issues\n\n## Issue #1: Add hello\nWrite hello.\n\n## Issue #2: Add bye\nWrite bye.\n' ;;
+          repair_fails_forever_3) printf '# Issues\n\n## Issue #1: Add hello\nR1: Return a hello greeting.\nWrite hello.\nTest strategy: Assert the exact greeting.\nDependencies: none.\n\n## Issue #2: Add bye\nWrite bye.\nTest strategy: Assert the bye output.\nDependencies: #1.\n\n## Issue #3: Add more\nWrite more.\nTest strategy: Assert the additional output.\nDependencies: #2.\n' ;;
+          *) printf '# Issues\n\n## Issue #1: Add hello\nR1: Return a hello greeting.\nWrite hello.\nTest strategy: Assert the exact greeting.\nDependencies: none.\n\n## Issue #2: Add bye\nWrite bye.\nTest strategy: Assert the bye output.\nDependencies: #1.\n' ;;
         esac ;;
       *"Close out the interview now"*)
         # #45: autonomous close-out after the human left mid-interview
@@ -99,7 +99,7 @@ case "$model" in
         esac ;;
       *"Pipeline phase: issue_review"*)
         echo '{"version":1,"verdict":"pass","summary":"The active issue satisfies its requirements.","findings":[]}' ;;
-      *"Independent design review:"*)
+      *"Independent design review by"*)
         case "$FAKE_PI_SCENARIO" in
           design_rejected) echo '{"verdict":"failed","findings":["Specify the greeting output"]}' ;;
           *) echo '{"verdict":"passed","findings":[]}' ;;
@@ -467,7 +467,7 @@ class PipelineRun(unittest.TestCase):
         # Per issue: 2 resolutions + 1 diagnosis = 3 consultant calls,
         # plus the review proxy → 7; the per-issue learn hooks never ran
         # (blocked) and project learning adds 1 → 8.
-        self.assertEqual(self.log_count("--model consultant-model"), 13)
+        self.assertEqual(self.log_count("--model consultant-model"), 14)
         self.assertIn("2 blocked", result.stdout)
         self.assertFalse((proj / "learning_issue_1.txt").exists())
 
@@ -484,7 +484,7 @@ class PipelineRun(unittest.TestCase):
         # Each issue uses three workers; verification adds one. Specialists
         # and the proxy use the consultant route.
         self.assertEqual(self.log_count("--model worker-model"), 7)
-        self.assertEqual(self.log_count("--model consultant-model"), 13)
+        self.assertEqual(self.log_count("--model consultant-model"), 14)
         self.assertIn("2 blocked", result.stdout)
 
     def test_single_consultation_recovers_issue(self):
@@ -502,7 +502,7 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.log_count("--model worker-model"), 5)
         # Issue guidance, one per-issue reviewer, final specialists and proxy,
         # and learnings.
-        self.assertEqual(self.log_count("--model consultant-model"), 14)
+        self.assertEqual(self.log_count("--model consultant-model"), 15)
         # recovered issues DO get the per-issue learning hook
         self.assertTrue((proj / "learning_issue_1.txt").exists())
 
@@ -678,7 +678,9 @@ class PipelineRun(unittest.TestCase):
         graph_path.write_text(json.dumps(graph))
         if issue_count == 3:
             with (proj / "issues.md").open("a") as stream:
-                stream.write("\n## Issue #3: Add more\nWrite more.\n")
+                stream.write("\n## Issue #3: Add more\nWrite more.\n"
+                             "Test strategy: Assert the additional output.\n"
+                             "Dependencies: #2.\n")
             Graph(graph_path).node("issue", "Issue #3: Add more", "Write more")
         (proj / "pyproject.toml").write_text("[project]\nname = 'stub'\n")
         tests = proj / "tests"
@@ -706,7 +708,7 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.log_count("--model worker-model"), 5)
         # 2 issue-level proxies + 2 per-issue reviews + final review proxy
         # and specialists + 2 per-issue learnings + project learning.
-        self.assertEqual(self.log_count("--model consultant-model"), 14)
+        self.assertEqual(self.log_count("--model consultant-model"), 15)
 
     def test_proxy_rejection_retries_with_different_approach(self):
         result = self.siesta("--auto", self.idea, scenario="proxy_rejected")
@@ -714,7 +716,7 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("REJECTED", (self.proj() / "proxy_1_output.txt").read_text())
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         self.assertIn("Issue #1 completed", self.decisions())
-        self.assertEqual(self.log_count("--model consultant-model"), 14)
+        self.assertEqual(self.log_count("--model consultant-model"), 15)
 
     # ─── review revision now applies fixes (#16/#18) ─────────────────────
 

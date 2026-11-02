@@ -76,10 +76,12 @@ Place `stop.md` in the generated project to stop at startup or the next issue
 boundary. Remove it before resuming. A clean stop exits successfully but does
 not mean the project completed.
 
-If design review fails, inspect `.siesta/design-review.md`, revise `spec.md` or
-`issues.md`, commit the edits in the generated project, then resume. Completed
-issue requirements are immutable: add a new issue instead of rewriting one.
-Uncommitted product changes at resume are preserved and require your attention.
+Design review can repair specification and plan documents before implementation,
+then commits and independently rechecks them. If its two repairs are exhausted
+or a proposal is invalid, inspect `.siesta/design-review.md` and the generated
+project's commit history. Completed issue requirements are immutable: add a new
+issue instead of rewriting one. Uncommitted product changes at resume are
+preserved and require your attention.
 
 If requirement verification fails, inspect `.siesta/requirements.md` and
 `regression_0.log`. Fix the product or its tests, commit, and resume. Changes to

@@ -38,9 +38,13 @@ the candidate only with quotes from that evidence. An unresolved preference is
 recorded as a blocker before specification; an interactive confirmation is
 retained in the interview evidence.
 
-Design review has two lenses: comprehension and implementation readiness.
-Either rejection stops implementation. Approval is cached against exact input
-contents and model routing, so changed documents require another review.
+Design review has three independent lenses: comprehension, simplicity and
+implementation readiness. Python also requires every acceptance ID to map to
+an issue with a test strategy and rejects forward, missing or self-dependencies.
+Blocking findings can trigger up to two planner-proposed document repairs. Python
+keeps acceptance criteria and completed issue bodies fixed, validates and
+commits each repair, then reruns all three reviews. Approval is cached against
+exact document contents, agent definitions and model routes.
 
 Review is a model judgment. It can miss defects or raise a mistaken finding.
 Only Python can declare the mechanical suite successful. Evidence review adds

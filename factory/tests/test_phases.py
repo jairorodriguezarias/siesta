@@ -16,7 +16,8 @@ from unittest.mock import patch
 from pipeline import phases
 from pipeline.kb import Graph
 
-SPEC_TEXT = "# Spec\n\nA tiny caesar cipher CLI in Python, stdlib only.\n"
+SPEC_TEXT = ("# Spec\n\nA tiny caesar cipher CLI in Python, stdlib only.\n\n"
+             "## Acceptance criteria\n- R1: Encode text using the Caesar cipher.\n")
 
 
 def initialize_git(proj: Path) -> None:
@@ -84,6 +85,8 @@ class PhaseSlots(unittest.TestCase):
         self.assertIn("smoke test", captured["body"])
         self.assertIn("Review: extended", captured["body"])
         self.assertIn("public APIs", captured["body"])
+        self.assertIn("Test strategy", captured["body"])
+        self.assertIn('"R1": "Encode text using the Caesar cipher."', captured["body"])
 
     def test_phase2_issues_saved_from_model_text(self):
         out = "## Issue #1: Add encode\n\nImplement shift encoding.\n"

@@ -88,6 +88,31 @@ class AgentDefinitions(unittest.TestCase):
 
 
 class AgentPermissions(unittest.TestCase):
+    def test_design_reviewers_have_separate_tool_free_lenses(self):
+        expected = {"design-comprehension-reviewer", "design-simplicity-reviewer",
+                    "design-readiness-reviewer"}
+        for agent_id in expected:
+            with self.subTest(agent=agent_id):
+                agent = agents.get_agent(agent_id, model_role="consultant",
+                                         context_kind="design")
+                self.assertEqual(agent.allowed_tools, ())
+                self.assertIn("independent", agents.load_definition(agent).lower())
+                args = build_args("consultant", "intent spec plan", "Review design",
+                                  agent=agent_id, context_kind="design",
+                                  phase_name="design_review", tools="no", isolated=True)
+                self.assertIn("Agent identity: " + agent_id, args[-1])
+                self.assertIn("--no-context-files", args)
+
+    def test_planner_can_receive_only_the_explicit_design_repair_context(self):
+        agent = agents.get_agent("planner", model_role="planner",
+                                 context_kind="design_repair")
+        self.assertEqual(agent.allowed_tools, ())
+        args = build_args("planner", "approved intent and documents", "Repair design",
+                          agent="planner", context_kind="design_repair",
+                          phase_name="design_repair", tools="no", isolated=True)
+        self.assertIn("Agent identity: planner", args[-1])
+        self.assertIn("--no-tools", args)
+
     def test_intent_critic_has_an_isolated_tool_free_context(self):
         agent = agents.get_agent("intent-critic", model_role="consultant",
                                  context_kind="intent_review")

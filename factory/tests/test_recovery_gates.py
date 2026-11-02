@@ -86,7 +86,7 @@ if model == "consultant-model":
         answer("review_integration", review_pass("Requirements and integration are sound."))
     if "Agent identity: quality-reviewer" in prompt:
         answer("review_quality", review_pass("No concrete code quality defects."))
-    if "Independent design review:" in prompt:
+    if "Independent design review by" in prompt:
         answer("design_review", '{"verdict":"passed","findings":[]}')
     if "Independent requirement evidence audit" in prompt:
         answer("requirements", json.dumps({"requirements": [{"id": "R1", "status": "supported",
@@ -207,7 +207,9 @@ class RecoveryGates(unittest.TestCase):
         (self.proj / ".pipeline-checkpoint").write_text(checkpoint + "\n")
         (self.proj / "interview_output.txt").write_text("INTENT_FINALIZED: " + self.idea)
         (self.proj / "spec.md").write_text("# Spec\nBuild answer() returning 42 in Python.\n\n## Acceptance criteria\n- R1: Return 42.\n")
-        (self.proj / "issues.md").write_text("## Issue #1: Implement answer\nReturn 42 with tests.\n")
+        (self.proj / "issues.md").write_text(
+            "## Issue #1: Implement answer\nR1: Return 42.\nReturn 42 with tests.\n"
+            "Test strategy: Assert answer() returns 42.\nDependencies: none.\n")
         (self.proj / "requirements.txt").write_text("# Standard library only\n")
         (self.proj / "answer.py").write_text("def answer():\n    return 0\n")
         (self.proj / "tests").mkdir()
@@ -312,7 +314,8 @@ class RecoveryGates(unittest.TestCase):
     def test_issue_review_repair_regression_blocks_and_archives_issue(self):
         self.seed()
         with (self.proj / "issues.md").open("a") as stream:
-            stream.write("\n## Issue #2: Extend answer\nAdd another behavior with tests.\n")
+            stream.write("\n## Issue #2: Extend answer\nAdd another behavior with tests.\n"
+                         "Test strategy: Assert the new behavior.\nDependencies: #1.\n")
         self.git("add", "issues.md")
         self.git("commit", "-qm", "Add downstream issue")
         result = self.run_pipeline("issue_review_repair_regresses")
@@ -347,7 +350,9 @@ class RecoveryGates(unittest.TestCase):
     def test_extended_issue_review_invokes_both_independent_specialists(self):
         self.seed()
         (self.proj / "issues.md").write_text(
-            "## Issue #1: Add authentication\nReview: extended\nAdd authentication with tests.\n")
+            "## Issue #1: Add authentication\nReview: extended\nR1: Return 42.\n"
+            "Add authentication with tests.\nTest strategy: Assert answer() returns 42.\n"
+            "Dependencies: none.\n")
         self.git("add", "issues.md")
         self.git("commit", "-qm", "Declare extended issue review")
         result = self.run_pipeline("issue_review_extended")
@@ -405,7 +410,8 @@ class RecoveryGates(unittest.TestCase):
     def test_verified_regression_repair_survives_a_blocked_next_issue(self):
         self.seed(pending=False)
         with (self.proj / "issues.md").open("a") as stream:
-            stream.write("\n## Issue #2: Extend answer\nAdd another behavior with tests.\n")
+            stream.write("\n## Issue #2: Extend answer\nAdd another behavior with tests.\n"
+                         "Test strategy: Assert the new behavior.\nDependencies: #1.\n")
         (self.proj / "tests/test_repaired.py").write_text(
             "from answer import answer\n\ndef test_repaired():\n    assert answer() == 42\n")
         self.git("add", "-A")
@@ -434,7 +440,8 @@ class RecoveryGates(unittest.TestCase):
     def test_failed_repair_commit_halts_before_starting_next_issue(self):
         self.seed(pending=False)
         with (self.proj / "issues.md").open("a") as stream:
-            stream.write("\n## Issue #2: Extend answer\nAdd another behavior with tests.\n")
+            stream.write("\n## Issue #2: Extend answer\nAdd another behavior with tests.\n"
+                         "Test strategy: Assert the new behavior.\nDependencies: #1.\n")
         (self.proj / "tests/test_repaired.py").write_text(
             "from answer import answer\n\ndef test_repaired():\n    assert answer() == 42\n")
         self.git("add", "-A")
@@ -463,7 +470,8 @@ class RecoveryGates(unittest.TestCase):
 
     def test_resume_retries_pending_issue_from_every_later_checkpoint(self):
         self.seed(pending=False)
-        issue = "\n## Issue #2: Finish answer\nReturn 42 and add its regression test.\n"
+        issue = ("\n## Issue #2: Finish answer\nReturn 42 and add its regression test.\n"
+                 "Test strategy: Assert answer() returns 42.\nDependencies: #1.\n")
         with (self.proj / "issues.md").open("a") as stream:
             stream.write(issue)
         self.kb.node("issue", "Issue #2: Finish answer", issue)
@@ -483,7 +491,8 @@ class RecoveryGates(unittest.TestCase):
                 executions = self.calls("execute")
                 self.assertTrue(executions)
                 self.assertTrue(all(call["prompt"].rstrip().endswith(
-                    ": Finish answer\nReturn 42 and add its regression test.")
+                    ": Finish answer\nReturn 42 and add its regression test.\n"
+                    "Test strategy: Assert answer() returns 42.\nDependencies: #1.")
                                     for call in executions), executions)
                 self.assertFalse(self.calls("unexpected_planner"))
                 self.assertTrue(self.calls("review"), "changed product requires a new review")

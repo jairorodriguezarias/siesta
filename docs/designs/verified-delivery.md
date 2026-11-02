@@ -23,9 +23,11 @@ orchestrator, explicit model routing and existing recovery protocol.
 - Reviewers use new ephemeral Pi calls with context-file, extension and
   implicit skill discovery disabled. No conversation, KB or learning history
   enters their prompts. This is context isolation, not an OS security sandbox.
-- Review checks comprehension and implementation readiness separately. Reports
-  are retained; cached approval is bound to exact intent/spec/plan contents.
-  Rejection stops with actionable findings. Resume rechecks changed documents.
+- Review checks comprehension, simplicity and implementation readiness
+  independently. Python verifies criterion-to-issue/test mappings and backward
+  dependencies. It can apply up to two validated, committed document repairs
+  without changing acceptance criteria or completed issues, then reviews the
+  new version. Cached approval is bound to exact documents and model routes.
 - Final evidence review receives requirements, source and current test output.
   It must map every requirement to existing file references and classify it as
   supported, missing or contradicted. Python validates the report, reruns the

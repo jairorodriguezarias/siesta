@@ -66,19 +66,23 @@ fits, especially with custom profiles or cloud routes.
 
 ## Independent review
 
-Design comprehension/readiness and requirement-evidence audits use fresh
-tool-free Pi calls. They disable sessions, implicit context files, extensions,
+Design comprehension/simplicity/readiness and requirement-evidence audits use
+fresh tool-free Pi calls. They disable sessions, implicit context files, extensions,
 skills and prompt templates, and supply explicit system prompts. Design readers
 receive intent, specification and plan; requirement readers receive criteria,
 passing test IDs and selected source. They do not receive author conversation or
 KB history. `isolated=True` rejects explicit skills too.
 
+The planner can repair design documents only through a strict JSON contract;
+Python checks criterion coverage, dependencies, unchanged acceptance criteria
+and completed issue bodies, then commits the revision before another review.
+
 This separation follows the principle behind Google's
 [Elephant–Goldfish Model](https://github.com/google/elephant-goldfish-model):
-context-rich authorship followed by independent readers. Siesta's two review
+context-rich authorship followed by independent readers. Siesta's three review
 lenses are its own implementation, not the complete upstream EGM workflow.
 Fresh conversation context is not filesystem isolation, and a model's semantic
-coverage judgment is not a mechanical proof.
+scope judgment is not a mechanical proof.
 
 ## Learning and skill changes
 

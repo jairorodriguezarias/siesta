@@ -240,7 +240,7 @@ cierre autónomo bloqueado.
 
 ## Issue #7: Ampliar la revisión del diseño y reparar el plan
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #3, #6.
 
 Reunir comprensión, crítica de simplicidad y preparación para implementar.
@@ -256,6 +256,32 @@ Reunir comprensión, crítica de simplicidad y preparación para implementar.
 
 **Verificación:** requisitos sin cobertura, dependencia imposible, reparación
 válida, cambio de alcance y límites agotados.
+
+**Evidencia de verificación:**
+
+- `tests.test_design.DesignGate.test_plan_coverage_requires_each_requirement_and_test_strategy`
+  y `test_plan_rejects_self_forward_and_missing_dependencies`: toda aceptación
+  aparece en un issue con estrategia de prueba; las dependencias inexistentes,
+  circulares o adelantadas se rechazan.
+- `test_design_repair_is_validated_committed_then_reviewed_again`,
+  `test_invalid_scope_repair_is_not_written_or_committed` y
+  `test_design_repair_budget_is_bounded`: reparación registrada y confirmada
+  antes de volver a revisar, rechazo de cambios de aceptación y límite de dos
+  reparaciones persistido al reanudar.
+- `test_design_approval_is_bound_to_specialist_model_routes`: cambiar la ruta
+  de un especialista invalida la aprobación previa.
+- `tests.test_agents` y `tests.test_model_selection`: tres especialistas con
+  herramientas deshabilitadas y rutas específicas para revisión y reparación.
+- `tests.test_integration`: suite completa de 48 pruebas fake-Pi aprobada;
+  `tests.test_recovery_gates` y `PYTHONPATH=tests python -B -m unittest
+  test_iterations -v`: recuperación, dependencias entre issues, reanudación e
+  inmutabilidad de issues completadas.
+- `python -B -m unittest discover -s tests -v`: suite completa aprobada,
+  414 tests, `EXIT_CODE=0`, con el entorno virtual temporal que proporciona
+  `pytest 9.2.0`.
+- `docs/architecture.md`, `docs/review-policy.md`, `docs/model-selection.md`,
+  `docs/skills-and-context.md` y `docs/getting-started.md` describen las lentes,
+  límites, reparación, rutas y evidencia local.
 
 ## Issue #8: Guardar propuestas de aprendizaje y fijar versiones de skills
 

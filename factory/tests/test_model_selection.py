@@ -91,6 +91,7 @@ class RouteResolution(unittest.TestCase):
         self.assertIn("verification", PHASES)
         self.assertIn("issue_review", PHASES)
         self.assertIn("intent_review", PHASES)
+        self.assertIn("design_repair", PHASES)
 
     def test_issue_review_agent_route_resolves(self):
         selection = normalize_selection({
@@ -111,6 +112,30 @@ class RouteResolution(unittest.TestCase):
                              context_kind="intent_review", tools="no", isolated=True,
                              selection=selection)
         self.assertEqual(args[args.index("--model") + 1], "intent-critic-model")
+        self.assertEqual(args[args.index("--provider") + 1], "cloud")
+
+    def test_design_specialist_route_reaches_the_actual_pi_arguments(self):
+        selection = normalize_selection({
+            "agents": {"design_review": {"design-simplicity-reviewer": {
+                "model": "design-review-model", "provider": "ollama"}}},
+        }, role_defaults=DEFAULTS)
+        args = pi.build_args("consultant", "intent spec plan", "Review simplicity",
+                             phase_name="design_review",
+                             agent="design-simplicity-reviewer", context_kind="design",
+                             tools="no", isolated=True, selection=selection)
+        self.assertEqual(args[args.index("--model") + 1], "design-review-model")
+        self.assertEqual(args[args.index("--provider") + 1], "ollama")
+
+    def test_design_repair_route_reaches_the_actual_pi_arguments(self):
+        selection = normalize_selection({
+            "agents": {"design_repair": {"planner": {
+                "model": "repair-model", "provider": "cloud"}}},
+        }, role_defaults=DEFAULTS)
+        args = pi.build_args("planner", "intent and documents", "Repair",
+                             phase_name="design_repair", agent="planner",
+                             context_kind="design_repair", tools="no", isolated=True,
+                             selection=selection)
+        self.assertEqual(args[args.index("--model") + 1], "repair-model")
         self.assertEqual(args[args.index("--provider") + 1], "cloud")
 
 

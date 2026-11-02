@@ -23,7 +23,8 @@ AGENTS = {
     "planner": Agent(
         id="planner", model_role="planner",
         definition_path=AGENT_DIR / "planner.md", allowed_tools=(),
-        allowed_contexts=("intent", "interview", "specification", "plan", "pipeline"),
+        allowed_contexts=("intent", "interview", "specification", "plan",
+                          "design_repair", "pipeline"),
         response_format="Follow the phase's explicit output contract.",
     ),
     "worker": Agent(
@@ -44,6 +45,24 @@ AGENTS = {
         definition_path=AGENT_DIR / "intent-critic.md", allowed_tools=(),
         allowed_contexts=("intent_review",),
         response_format="Return one strict JSON intent review report.",
+    ),
+    "design-comprehension-reviewer": Agent(
+        id="design-comprehension-reviewer", model_role="consultant",
+        definition_path=AGENT_DIR / "design-comprehension-reviewer.md", allowed_tools=(),
+        allowed_contexts=("design",),
+        response_format="Return one strict JSON design review report.",
+    ),
+    "design-simplicity-reviewer": Agent(
+        id="design-simplicity-reviewer", model_role="consultant",
+        definition_path=AGENT_DIR / "design-simplicity-reviewer.md", allowed_tools=(),
+        allowed_contexts=("design",),
+        response_format="Return one strict JSON design review report.",
+    ),
+    "design-readiness-reviewer": Agent(
+        id="design-readiness-reviewer", model_role="consultant",
+        definition_path=AGENT_DIR / "design-readiness-reviewer.md", allowed_tools=(),
+        allowed_contexts=("design",),
+        response_format="Return one strict JSON design review report.",
     ),
     "integration-reviewer": Agent(
         id="integration-reviewer", model_role="consultant",

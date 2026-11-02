@@ -25,10 +25,10 @@ that agent in that phase. Siesta resolves routes in this order:
 3. The project's saved snapshot of the configured planner, worker and
    consultant routes.
 
-The available phase keys are interview, specification, planning, design_review,
-implementation, review, verification, completion, learning,
-iteration_specification and iteration_planning. Agent keys are the registered
-agent IDs.
+The available phase keys are interview, intent_review, specification, planning,
+design_review, design_repair, implementation, issue_review, review, verification,
+completion, learning, iteration_specification and iteration_planning. Agent keys
+are the registered agent IDs.
 
 Start with a selection file:
 

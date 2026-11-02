@@ -20,7 +20,9 @@ class IterationRuns(unittest.TestCase):
             'answer("unexpected_planner", "Unexpected planner invocation during resume")',
             '''if "ITERATION_SPEC" in prompt:
         answer("iteration_spec", "# Double answer specification\\nAdd double_answer() returning twice answer(), with tests.\\n\\n## Acceptance criteria\\n- R2: Double answer returns 84.")
-    answer("iteration_plan", "## Issue #2: Double answer\\nAdd double_answer returning 84 and test it.")''')
+    answer("iteration_plan", "## Issue #2: Double answer\\nR2: Double answer returns 84.\\n"
+           "Add double_answer returning 84 and test it.\\n"
+           "Test strategy: Assert double_answer() returns 84.\\nDependencies: #1.")''')
         stub = stub.replace(
             'implement()\nanswer("execute",',
             '''if "Double answer" in prompt.rsplit("\\n\\n", 1)[-1]:
@@ -68,7 +70,7 @@ answer("execute",''')
         evidence = json.loads((self.proj / '.siesta/requirements.json').read_text())
         self.assertEqual({row['id'] for row in evidence['requirements']}, {'R1', 'R2'})
         self.assertTrue(evidence['passed'])
-        self.assertEqual(len(self.calls('design_review')), 2)
+        self.assertEqual(len(self.calls('design_review')), 3)
         head = self.git('rev-parse', 'HEAD')
         calls = self.calls_file.read_bytes()
         result = self.run_cli('--project', self.proj, '--iterate', 'Double answer')

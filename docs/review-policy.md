@@ -105,3 +105,22 @@ answer. Python validates the strict report and saves it in
 `.siesta/intent-review.json`. A report that needs a new user decision records a
 KB blocker and stops before specification generation. Interactive confirmation
 is retained as interview evidence.
+
+## Design review and repair
+
+Before implementation, three tool-free agents independently check
+comprehension, simplicity and implementation readiness against the approved
+intent, specification and issue plan. Python also requires every acceptance ID
+to appear in an issue with a nonempty `Test strategy:` line, and checks that
+dependencies refer only to earlier issues that exist. Sensitive issues must
+declare extended review.
+
+Blocking findings may invoke the planner with only the approved intent, current
+documents and findings. It can return complete replacement documents, but
+Python rejects changed acceptance criteria, invalid coverage or dependencies,
+and edits to completed issue bodies. A valid revision is recorded, written and
+committed before the three reviewers run again. The design gate allows at most
+three review rounds and two repairs; each reviewer gets one retry for an
+invalid or failed response. Its local ledger preserves the attempts and repair
+commits across resumes. Approval is tied to document bytes, agent definitions
+and selected routes.

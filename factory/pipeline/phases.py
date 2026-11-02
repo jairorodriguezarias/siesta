@@ -405,11 +405,18 @@ ORIGINAL INTENT:
 THE SPEC:
 {spec}
 
+CRITERION MAP (include every ID in at least one issue):
+{requirements}
+
 You have NO TOOLS — you cannot read or write files. What the pipeline does with
 your answer is stated in the final message below.
 
 Each issue: a '## Issue #N: Title' header, then description, acceptance
-criteria, dependencies and one line 'Review: standard' or 'Review: extended'.
+criteria, dependencies, a 'Test strategy: ...' line and one line
+'Review: standard' or 'Review: extended'. Include the exact R IDs from the
+criterion map in the issue that implements each criterion. Every issue that
+references a criterion must have a concrete test strategy. Dependencies may
+reference only earlier issues that exist; use 'Dependencies: none' otherwise.
 Use extended for authentication/authorization, data migrations or public APIs
 and interfaces. Every issue header must match exactly '## Issue #N: '
 (N counting from 1) — no priority groupings, no other numbering styles.
@@ -455,7 +462,9 @@ def phase2(proj: Path, name: str, spec_node: str, kb: Graph) -> int:
     approved_intent = (intents[0]["detail"] if intents and intents[0]["detail"]
                        else text.intent_from((proj / "interview_output.txt").read_text()
                            if (proj / "interview_output.txt").exists() else "", name))
-    body = PLAN_PROMPT.format(spec=(proj / "spec.md").read_text(),
+    spec = (proj / "spec.md").read_text()
+    body = PLAN_PROMPT.format(spec=spec,
+                              requirements=json.dumps(design.requirements(spec), ensure_ascii=False),
                               intent=approved_intent)
     out = run_pi("planner", body, PLAN_DIRECTIVE,
                  skills=(SKILLS / "planning-and-task-breakdown",),

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline import design, pi, repository
+from pipeline import design, model_selection, pi, repository
 
 
 SPEC = '# Timer\n\n## Acceptance criteria\n- R1: Print elapsed seconds.\n'
@@ -20,21 +20,58 @@ class DesignGate(unittest.TestCase):
         self.proj = Path(self.tmp.name)
         subprocess.run(['git', 'init', '-q', str(self.proj)], check=True)
         (self.proj / 'spec.md').write_text(SPEC)
-        (self.proj / 'issues.md').write_text('## Issue #1: Timer\nPrint seconds and test it.\n')
+        (self.proj / 'issues.md').write_text(
+            '## Issue #1: Timer\nR1: Print elapsed seconds.\n'
+            'Test strategy: Assert the printed value.\nDependencies: none.\n')
+        subprocess.run(['git', '-C', str(self.proj), 'config', 'user.name', 'Design Test'],
+                       check=True)
+        subprocess.run(['git', '-C', str(self.proj), 'config', 'user.email',
+                        'design@example.invalid'], check=True)
+        subprocess.run(['git', '-C', str(self.proj), 'add', 'spec.md', 'issues.md'],
+                       check=True)
+        subprocess.run(['git', '-C', str(self.proj), 'commit', '-qm', 'Initial design'],
+                       check=True)
 
     def test_two_isolated_reviews_are_cached_only_for_the_same_design(self):
         with patch.object(design, 'run_pi', return_value=PASS) as run:
             design.review(self.proj, 'A timer')
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 3)
             for call in run.call_args_list:
                 self.assertTrue(call.kwargs['isolated'])
                 self.assertEqual(call.kwargs['tools'], 'no')
+                self.assertIn(call.kwargs['agent'], {
+                    'design-comprehension-reviewer', 'design-simplicity-reviewer',
+                    'design-readiness-reviewer'})
                 self.assertNotIn('KB', call.args[1])
             design.review(self.proj, 'A timer')
-            self.assertEqual(run.call_count, 2)
-            (self.proj / 'issues.md').write_text('## Issue #1: Timer\nPrint milliseconds.\n')
+            self.assertEqual(run.call_count, 3)
+            (self.proj / 'issues.md').write_text(
+                '## Issue #1: Timer\nR1: Print milliseconds.\n'
+                'Test strategy: Assert the printed value.\nDependencies: none.\n')
             design.review(self.proj, 'A timer')
-            self.assertEqual(run.call_count, 4)
+            self.assertEqual(run.call_count, 6)
+
+    def test_design_approval_is_bound_to_specialist_model_routes(self):
+        with patch.object(design, 'run_pi', return_value=PASS) as run:
+            design.review(self.proj, 'A timer')
+            selection = model_selection.normalize_selection({
+                'agents': {'design_review': {
+                    'design-comprehension-reviewer': {
+                        'model': 'comprehension-v2', 'provider': 'ollama'}}}},
+                role_defaults=design.ROLE)
+            model_selection.save_project(self.proj, selection)
+            design.review(self.proj, 'A timer')
+        self.assertEqual(run.call_count, 6)
+
+    def test_symlinked_evidence_directory_is_rejected_before_writing(self):
+        target = self.proj / 'outside-evidence'
+        target.mkdir()
+        (self.proj / '.siesta').symlink_to(target, target_is_directory=True)
+        with patch.object(design, 'run_pi') as run:
+            with self.assertRaisesRegex(RuntimeError, 'evidence directory.*symlink'):
+                design.review(self.proj, 'A timer')
+        run.assert_not_called()
+        self.assertFalse((target / '.gitignore').exists())
 
     def test_rejection_and_malformed_answers_cannot_approve(self):
         for answer in ('', 'DESIGN_PASSED: trust me',
@@ -57,7 +94,9 @@ class DesignGate(unittest.TestCase):
 
     def test_design_review_requires_extended_mode_for_sensitive_issue_types(self):
         (self.proj / 'issues.md').write_text(
-            '## Issue #1: Add login\nAdd authentication and a regression test.\n')
+            '## Issue #1: Add login\nR1: Print elapsed seconds.\n'
+            'Test strategy: Assert output.\nDependencies: none.\n'
+            'Add authentication and a regression test.\n')
         with patch.object(design, 'run_pi') as run:
             with self.assertRaisesRegex(ValueError, 'Review: extended'):
                 design.review(self.proj, 'A timer with accounts')
@@ -65,10 +104,125 @@ class DesignGate(unittest.TestCase):
 
         (self.proj / 'issues.md').write_text(
             '## Issue #1: Add login\nReview: extended\n'
+            'R1: Print elapsed seconds.\nTest strategy: Assert output.\n'
+            'Dependencies: none.\n'
             'Add authentication and a regression test.\n')
         with patch.object(design, 'run_pi', return_value=PASS) as run:
             design.review(self.proj, 'A timer with accounts')
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_count, 3)
+
+    def test_plan_coverage_requires_each_requirement_and_test_strategy(self):
+        good = ('## Issue #1: Timer\nR1: Print elapsed seconds.\n'
+                'Test strategy: Capture stdout and compare the value.\n'
+                'Dependencies: none.\n')
+        design.validate_plan_coverage(SPEC, good)
+        for plan in (
+                '## Issue #1: Timer\nTest strategy: Assert output.\n'
+                'Dependencies: none.\n',
+                '## Issue #1: Timer\nR1: Print elapsed seconds.\n'
+                'Dependencies: none.\n',
+                '## Issue #1: Timer\nR1: Print elapsed seconds.\n'
+                'Test strategy: \nDependencies: none.\n'):
+            with self.subTest(plan=plan), self.assertRaises(ValueError):
+                design.validate_plan_coverage(SPEC, plan)
+
+    def test_plan_rejects_self_forward_and_missing_dependencies(self):
+        cases = (
+            '## Issue #1: First\nR1\nTest strategy: assert output\nDependencies: #1\n',
+            '## Issue #1: First\nR1\nTest strategy: assert output\nDependencies: #2\n',
+            '## Issue #1: First\nR1\nTest strategy: assert output\n'
+            '## Issue #2: Second\nTest strategy: assert output\nDependencies: #9\n',
+            '## Issue #2: Second\nR1\nTest strategy: assert output\nDependencies: #1\n'
+            '## Issue #1: First\nTest strategy: assert output\nDependencies: none\n',
+        )
+        for plan in cases:
+            with self.subTest(plan=plan), self.assertRaisesRegex(ValueError, 'depend'):
+                design.validate_plan_coverage(SPEC, plan)
+
+    def test_design_repair_is_validated_committed_then_reviewed_again(self):
+        initial_spec = (self.proj / 'spec.md').read_text()
+        initial_plan = (self.proj / 'issues.md').read_text()
+        repaired_plan = (initial_plan + '\n## Issue #2: Test output\n'
+                         'R1: Print elapsed seconds.\n'
+                         'Test strategy: Capture and compare stdout.\n'
+                         'Dependencies: #1.\n')
+        calls = []
+
+        def fake_pi(role, body, user, **kwargs):
+            calls.append((role, body, user, kwargs))
+            if kwargs.get('agent') == 'planner':
+                return json.dumps({'version': 1, 'summary': 'Map R1 to output tests.',
+                                   'spec': initial_spec, 'plan': repaired_plan})
+            if len([call for call in calls if call[3].get('agent') ==
+                    'design-comprehension-reviewer']) == 1:
+                return json.dumps({'verdict': 'failed',
+                                   'findings': ['R1 needs a verifiable output test.']})
+            return PASS
+
+        with patch.object(design, 'run_pi', side_effect=fake_pi), \
+                patch.object(design.repository, 'commit', return_value='repair-commit') as commit:
+            design.review(self.proj, 'A timer')
+
+        self.assertEqual(len(calls), 7)
+        self.assertEqual(calls[3][3]['agent'], 'planner')
+        self.assertEqual(calls[3][3]['context_kind'], 'design_repair')
+        self.assertTrue(calls[3][3]['isolated'])
+        self.assertIn('Test output', calls[4][1])
+        commit.assert_called_once_with(self.proj, 'Design documents repaired before implementation')
+        self.assertEqual((self.proj / 'issues.md').read_text(), repaired_plan)
+        ledger = json.loads((self.proj / '.siesta/design-review.json').read_text())
+        self.assertEqual(ledger['status'], 'approved')
+        self.assertEqual(len(ledger['repairs']), 1)
+        self.assertEqual(ledger['repairs'][0]['commit'], 'repair-commit')
+
+    def test_invalid_scope_repair_is_not_written_or_committed(self):
+        initial_spec = (self.proj / 'spec.md').read_text()
+        initial_plan = (self.proj / 'issues.md').read_text()
+        changed_spec = initial_spec.replace('Print elapsed seconds.',
+                                            'Upload user data to a hosted service.')
+
+        def fake_pi(role, body, user, **kwargs):
+            if kwargs.get('agent') == 'planner':
+                return json.dumps({'version': 1, 'summary': 'Expand scope.',
+                                   'spec': changed_spec, 'plan': initial_plan})
+            return json.dumps({'verdict': 'failed',
+                               'findings': ['The plan needs a concrete test strategy.']})
+
+        with patch.object(design, 'run_pi', side_effect=fake_pi), \
+                patch.object(design.repository, 'commit') as commit:
+            with self.assertRaisesRegex(RuntimeError, 'criteria|scope'):
+                design.review(self.proj, 'A timer')
+        self.assertEqual((self.proj / 'spec.md').read_text(), initial_spec)
+        self.assertEqual((self.proj / 'issues.md').read_text(), initial_plan)
+        commit.assert_not_called()
+
+    def test_design_repair_budget_is_bounded(self):
+        initial_spec = (self.proj / 'spec.md').read_text()
+        initial_plan = (self.proj / 'issues.md').read_text()
+        calls = []
+
+        def fake_pi(role, body, user, **kwargs):
+            agent = kwargs.get('agent')
+            calls.append(agent)
+            if agent == 'planner':
+                return json.dumps({'version': 1, 'summary': 'No document change.',
+                                   'spec': initial_spec, 'plan': initial_plan})
+            return json.dumps({'verdict': 'failed',
+                               'findings': ['Coverage remains unclear.']})
+
+        with patch.object(design, 'run_pi', side_effect=fake_pi), \
+                patch.object(design.repository, 'commit', return_value='repair'):
+            with self.assertRaisesRegex(RuntimeError, 'repair limit'):
+                design.review(self.proj, 'A timer')
+        ledger = json.loads((self.proj / '.siesta/design-review.json').read_text())
+        self.assertEqual(ledger['status'], 'blocked')
+        self.assertEqual(len(ledger['repairs']), 2)
+        self.assertEqual(calls.count('planner'), 2)
+        before_resume = len(calls)
+        with patch.object(design, 'run_pi', side_effect=fake_pi):
+            with self.assertRaisesRegex(RuntimeError, 'remains blocked'):
+                design.review(self.proj, 'A timer')
+        self.assertEqual(len(calls), before_resume)
 
     def test_isolation_disables_inherited_context_and_discovery(self):
         args = pi.build_args('consultant', 'spec', 'review', tools='no', isolated=True)
