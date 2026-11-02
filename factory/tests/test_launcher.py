@@ -18,6 +18,7 @@ class LauncherRouting(unittest.TestCase):
                 root = Path(tmp)
                 source = root / "source" / "factory"
                 shutil.copytree(FACTORY / "pipeline", source / "pipeline")
+                shutil.copytree(FACTORY / "agents", source / "agents")
                 (source / "bin").mkdir()
                 launcher = source / "bin" / "siesta.sh"
                 shutil.copyfile(FACTORY / "bin" / "siesta.sh", launcher)
@@ -36,6 +37,7 @@ class LauncherRouting(unittest.TestCase):
                 env.pop("SIESTA_FACTORY", None)
                 if override:
                     env["SIESTA_FACTORY"] = str(active)
+                    shutil.copytree(FACTORY / "agents", active / "agents")
                 run = subprocess.run(["bash", str(launcher), "--auto", "--resume", "routing check"],
                                      cwd=root, env=env, capture_output=True, text=True, timeout=45)
                 output = run.stdout + run.stderr

@@ -21,7 +21,8 @@ class SkillContext(unittest.TestCase):
             body = 'Contexto ñ: ' * 16000
             with patch.object(pi, 'PI_BIN', str(executable)):
                 output = pi.run_pi('consultant', body, 'Return the decision', tools='no')
-            self.assertEqual(output, body + '\n\nReturn the decision')
+        self.assertTrue(output.endswith(body + '\n\nReturn the decision'))
+        self.assertIn('Agent identity: consultant', output)
 
     def test_text_only_role_receives_full_skills_before_its_task(self):
         with tempfile.TemporaryDirectory() as directory:

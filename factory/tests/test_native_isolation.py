@@ -47,6 +47,25 @@ console.log(JSON.stringify({
 
 
 class NativeIsolation(unittest.TestCase):
+    def test_registered_worker_tool_allowlist_parses_in_native_pi(self):
+        pi, node = shutil.which('pi'), shutil.which('node')
+        if not pi or not node:
+            self.skipTest('Native tool check needs installed Pi and Node')
+        package = next((parent for parent in Path(pi).resolve().parents
+                        if (parent / 'dist/core/resource-loader.js').is_file()), None)
+        if package is None:
+            self.skipTest('Installed Pi does not expose its argument parser')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.mkdir(exist_ok=True)
+            args = build_args('worker', 'Issue evidence', 'Implement the issue')[1:]
+            proc = subprocess.run(
+                [node, '--input-type=module', '-e', LOADER_CHECK],
+                input=json.dumps({'package': str(package), 'project': str(root),
+                                  'profile': str(root), 'args': args}),
+                capture_output=True, text=True, timeout=20)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_text_only_skill_content_survives_native_pi_parsing(self):
         pi, node = shutil.which('pi'), shutil.which('node')
         if not pi or not node:

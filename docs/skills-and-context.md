@@ -11,6 +11,15 @@ Following a skill is model behavior; passing the test gate is observed evidence.
 worker reads the full files on demand. Registration is not evidence that a model
 actually read or followed a skill.
 
+Every Pi call also resolves an explicit agent identity from
+`factory/pipeline/agents.py` and loads its required Markdown definition from
+`factory/agents/`. The definition is included in the prompt, including for
+isolated, text-only calls. The Python registry controls the model role, admitted
+context categories, output contract and maximum tool allowlist; Markdown text
+cannot grant tools. The planner and consultant have no tools, while the worker
+receives the registered project tools. Callers may narrow a tool list, and a
+request outside the agent's allowlist fails before Pi runs.
+
 For calls with `tools="no"`, Siesta also reads each selected `SKILL.md` and
 prepends its complete content to the prompt. Missing files fail before Pi runs.
 The phase-specific task and output contract follow the skills and take
@@ -27,13 +36,12 @@ transport threshold, not a model context budget or permission to truncate data.
 
 | Role | Supplied context | Tools and limits |
 | --- | --- | --- |
-| Interview | Idea and transcript | No tools; Python reads human answers and confirmation. Explicit closeout states autonomous defaults. |
-| Specification and plan | Intent/specification, KB summaries and phase constraints | No tools; Python saves the returned document. |
-| Issue worker | Issue, project KB summaries, global principles and selected source | File/shell tools; leaves product changes uncommitted. |
+| Planner | Idea/transcript, intent, requirements or plan for the current phase | No tools; Python reads human answers and confirmation and saves returned documents. |
+| Worker | Issue, project KB summaries, global principles and selected source | Registered file/shell tools; leaves product changes uncommitted. |
 | Consultant | Question, attempts, relevant supplied code and KB summaries | No tools; recommends checks when evidence is insufficient. |
-| Approval proxy | Full intent and decision records, current specification, request or review | No tools; missing evidence requires revision. |
-| Review and verification | Selected source and phase evidence | No tools; review fixes get a separate tool-enabled call. Python runs actual checks. |
-| Learner | Outcomes, consultation/retry evidence and KB summaries | No tools; returns actions/proposals for Python to persist. |
+| Approval proxy | Full intent and decision records, current specification, request or review | Consultant identity with no tools; missing evidence requires revision. |
+| Review and verification | Selected source and phase evidence | No tools; review fixes get a separate tool-enabled worker call. Python runs actual checks. |
+| Learner | Outcomes, consultation/retry evidence and KB summaries | Consultant identity with no tools; returns actions/proposals for Python to persist. |
 
 Normal issue execution routes `CONSULT:` and `PROXY_REQUEST:` through bounded
 retries. Regression repairs and review fixes have a single attempt without an

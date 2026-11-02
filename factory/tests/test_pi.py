@@ -219,8 +219,8 @@ class BuildArgs(unittest.TestCase):
                          str(pi.SKILLS / "test-driven-development") + "/")
         self.assertEqual(i[i.index("--skill", i.index("--skill") + 1) + 1],
                          str(pi.FACTORY_SKILLS / "kb-manager") + "/")
-        self.assertEqual(i[-1],
-                         "You are a developer.\n\ndo the thing")  # body+user merged (#23)
+        self.assertTrue(i[-1].endswith(
+            "You are a developer.\n\ndo the thing"))  # directive remains last (#23)
 
     def test_skill_dirs_keep_trailing_slash_like_bash(self):
         args = build_args("planner", body="b", user="u",
@@ -248,13 +248,13 @@ class BuildArgs(unittest.TestCase):
         self.assertIn("--no-tools", args)
 
     def test_tools_allowlist_flag_name(self):
-        args = build_args("planner", body="b", user="u", tools="write")
+        args = build_args("worker", body="b", user="u", tools="write")
         self.assertEqual(args[args.index("--tools") + 1], "write")
 
-    def test_default_leaves_tools_untouched(self):
+    def test_default_tools_are_explicitly_limited_by_agent(self):
         args = build_args("worker", body="b", user="u")
-        self.assertNotIn("--no-tools", args)
-        self.assertNotIn("--tools", args)
+        self.assertEqual(args[args.index("--tools") + 1],
+                         "read,write,edit,bash,grep,find,ls")
 
 
 if __name__ == "__main__":

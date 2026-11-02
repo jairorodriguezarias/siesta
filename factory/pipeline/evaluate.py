@@ -90,7 +90,7 @@ def _run(command: list[str], env: dict, timeout: int, log: Path) -> tuple[int, f
 def evaluate(case_id: str, destination: Path, timeout: int) -> dict:
     case = CASES[case_id]
     factory = destination / 'factory'
-    for name in ('config', 'skills', 'pipeline'):
+    for name in ('agents', 'config', 'skills', 'pipeline'):
         shutil.copytree(FACTORY / name, factory / name)
     (factory / 'kb').mkdir()
     for name in ('schema.json', 'global-seed.json'):
@@ -120,7 +120,9 @@ def evaluate(case_id: str, destination: Path, timeout: int) -> dict:
                   and subprocess.check_output(['git', '-C', str(proj), 'rev-parse', 'HEAD']) == before)
         success = success and resume
     source_digest = hashlib.sha256()
-    for path in sorted((factory / 'pipeline').glob('*.py')):
+    source_files = list((factory / 'pipeline').glob('*.py'))
+    source_files.extend((factory / 'agents').glob('*.md'))
+    for path in sorted(source_files):
         source_digest.update(path.name.encode() + b'\0' + path.read_bytes())
     return {'case': case_id, 'passed': success, 'exit_code': code, 'seconds': elapsed,
             'source_sha256': source_digest.hexdigest(),

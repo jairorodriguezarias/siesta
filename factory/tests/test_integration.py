@@ -224,7 +224,7 @@ class PipelineRun(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="siesta-int-"))
         self.idea = f"build a tiny todo cli {uuid4().hex[:6]}"
         self.name = self.idea.replace(" ", "-")
-        for name in ("config", "skills"):
+        for name in ("agents", "config", "skills"):
             shutil.copytree(FACTORY / name, self.tmp / "factory" / name)
         shutil.copytree(FACTORY.parent / ".agents", self.tmp / ".agents")
         kb_dir = self.tmp / "factory/kb"
@@ -957,7 +957,7 @@ class RootLevelSuiteVerifyFallback(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="siesta-int-"))
         self.idea = f"build a tiny root-tested cli {uuid4().hex[:6]}"
         self.name = self.idea.replace(" ", "-")
-        for name in ("config", "skills"):
+        for name in ("agents", "config", "skills"):
             shutil.copytree(FACTORY / name, self.tmp / "factory" / name)
         shutil.copytree(FACTORY.parent / ".agents", self.tmp / ".agents")
         kb_dir = self.tmp / "factory/kb"

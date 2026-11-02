@@ -109,7 +109,7 @@ class RecoveryGates(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.factory = self.root / "factory"
-        for name in ("config", "kb", "skills"):
+        for name in ("agents", "config", "kb", "skills"):
             shutil.copytree(FACTORY / name, self.factory / name)
         shutil.copytree(FACTORY.parent / ".agents", self.root / ".agents")
         config = self.factory / "config/models.json"
