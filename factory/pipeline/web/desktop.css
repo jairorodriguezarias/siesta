@@ -375,6 +375,25 @@ input::placeholder {
 .agent-route-row select { flex-basis: 110px; }
 .agent-route-row button, .model-picker details > button { font-size: 10px; }
 .model-picker:disabled { opacity: .65; }
+.policy-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font: 10px var(--mono);
+}
+.policy-choice select {
+  max-width: 100%;
+  background: #fffdf7;
+  border: 1px solid #9caa95;
+  padding: 6px;
+  font: 10px var(--mono);
+}
+.run-metadata {
+  color: #4f655b;
+  font: 10px/1.5 var(--mono);
+  overflow-wrap: anywhere;
+  margin: 4px 0;
+}
 .launch-options {
   display: flex;
   align-items: center;

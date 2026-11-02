@@ -176,7 +176,13 @@ try {
       return modelRun ? route.fulfill({ json: modelRun }) : route.continue();
     launches.push(route.request().postDataJSON());
     modelRun = { id: "model-check", status: "running", idea: "Model check",
-      phase: "0", elapsed: 0, output: "Starting", project: "model-check" };
+      phase: "4", elapsed: 0, output: "Starting", project: "model-check",
+      agent: "quality-reviewer", model: "local-test:latest", model_phase: "review",
+      tokens: null, cost: null,
+      review: { policy: "deep", status: "reviewing", round: 2,
+        budget: { calls_used: 3, call_limit: 40, active_seconds: 180,
+          active_seconds_limit: 7200 },
+        findings: [{ id: "F1", target: "R1 / app.py" }] } };
     return route.fulfill({ json: modelRun });
   });
   await browserModels.goto(url);
@@ -189,12 +195,16 @@ try {
   await browserModels.locator("#new-model-picker .agent-route-row .agent-phase").selectOption("planning");
   await browserModels.locator("#new-model-picker .agent-route-row .agent-id").selectOption("quality-reviewer");
   await browserModels.locator("#new-model-picker .agent-route-row .model-route").selectOption("local-test:latest");
+  await browserModels.locator("#review-policy").selectOption("deep");
   await browserModels.locator("#launch-button").click();
   await browserModels.waitForFunction(() => document.querySelector("#view-activity").hidden === false);
   assert.equal(launches[0].model_selection.phases.interview.model, "local-test:latest");
   assert.equal(launches[0].model_selection.phases.planning.model, "cloud-test:cloud");
   assert.equal(launches[0].model_selection.agents.planning["quality-reviewer"].model, "local-test:latest");
+  assert.equal(launches[0].review_policy, "deep");
   assert.equal(await browserModels.locator("#new-model-picker").evaluate((node) => node.disabled), true);
+  assert.match(await browserModels.locator("#agent-status").textContent(), /quality-reviewer.*tokens unknown.*cost unknown/);
+  assert.match(await browserModels.locator("#review-status").textContent(), /round 2.*3\/40 calls.*Blocking: F1/);
   await browserModels.close();
 
   const browserResume = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -202,7 +212,7 @@ try {
   await browserResume.route("**/api/models", (route) => route.fulfill({ json: modelCatalog }));
   await browserResume.route("**/api/projects", (route) => route.fulfill({ json: { projects: [{
     name: "saved-project", idea: "A saved idea", checkpoint: "phase-3",
-    verdict: "", stopped: false, documents: [],
+    verdict: "", stopped: false, documents: [], review_policy: "deep",
     model_selection: { version: 1, role_defaults: modelCatalog.role_defaults,
       phases: { planning: { model: "cloud-test:cloud", provider: "ollama" } }, agents: {} },
   }] } }));
@@ -218,6 +228,7 @@ try {
   await browserResume.locator('#resume-model-picker select[data-phase="planning"]').waitFor();
   assert.equal(await browserResume.locator('#resume-model-picker select[data-phase="planning"]').inputValue(),
                "cloud-test:cloud");
+  assert.match(await browserResume.locator("#saved-review-policy").textContent(), /deep/);
   await browserResume.locator('#resume-model-picker select[data-phase="implementation"]').selectOption("local-test:latest");
   await browserResume.locator("#resume-button").click();
   await browserResume.waitForFunction(() => document.querySelector("#view-activity").hidden === false);

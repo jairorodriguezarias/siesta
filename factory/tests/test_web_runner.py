@@ -96,6 +96,21 @@ class DesktopTests(unittest.TestCase):
                     'phases': {'planning': {'model': 'unregistered', 'provider': 'ollama'}}})
             popen.assert_not_called()
 
+    def test_review_policy_is_forwarded_and_status_has_unknown_usage(self):
+        process = Mock()
+        process.pid = 0
+        process.poll.return_value = None
+        with patch('pipeline.web.runner.subprocess.Popen', return_value=process) as popen:
+            self.desktop.start('deep review', review_policy='deep')
+            args = popen.call_args.args[0]
+            self.assertEqual(args[args.index('--review-policy') + 1], 'deep')
+            state = self.desktop.snapshot()
+            self.assertIsNone(state['tokens'])
+            self.assertIsNone(state['cost'])
+            process.poll.return_value = 0
+        with self.assertRaisesRegex(ValueError, 'review policy'):
+            self.desktop.start('bad policy', review_policy='unlimited')
+
     def test_success_requires_complete_checkpoint_and_verdict(self):
         project = self.factory / 'projects/test-project'
         project.mkdir(parents=True)

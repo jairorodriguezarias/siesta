@@ -157,6 +157,12 @@
                 <p class="muted">Choose a model for each phase, or keep the inherited route.</p>
                 <div class="model-picker-fields"></div>
               </fieldset>
+              <label class="policy-choice" for="review-policy">Review depth
+                <select id="review-policy">
+                  <option value="normal">Normal · 20 calls / 60 active minutes</option>
+                  <option value="deep">Deep · 40 calls / 120 active minutes</option>
+                </select>
+              </label>
               <div class="launch-options">
                 <label class="checkbox-label"
                   ><input type="checkbox" id="auto" /> Skip the interview — my
@@ -207,6 +213,7 @@
                 <button id="resume-button">Resume project ↗</button>
               </div>
               <p id="project-state" class="muted"></p>
+              <p id="saved-review-policy" class="muted"></p>
               <fieldset id="resume-model-picker" class="model-picker">
                 <legend>Saved model routes</legend>
                 <p class="muted">Changes are saved as a new revision when you resume.</p>
@@ -228,6 +235,8 @@
             <p id="run-description" class="muted">
               Start a project and follow its progress here.
             </p>
+            <div id="agent-status" class="run-metadata" aria-live="polite"></div>
+            <div id="review-status" class="run-metadata" aria-live="polite"></div>
             <ol id="phase-list" class="phase-list">
               <li data-phase="0">Interview</li>
               <li data-phase="1">Spec</li>

@@ -62,6 +62,10 @@ the global KB does not support concurrent writers. Role defaults live in
 `factory/config/models.json`; phase and agent model routes can be selected on
 New project and changed when resuming a project. The browser displays the Pi
 and Ollama catalog without credentials and shows when a model needs setup.
+Before starting, choose normal or deep review. The policy is pinned to the
+project on resume. The activity window shows the current agent and model,
+review round, blocking findings and calls/active minutes used. Token and cost
+values display as unknown until a provider supplies reliable totals.
 
 “Complete” requires a successful process exit, the `complete` checkpoint and
 `VERIFY_PASSED`. Failed, stopped and unverified runs remain distinct. A green

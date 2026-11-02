@@ -67,7 +67,7 @@ class HTTPTests(unittest.TestCase):
                 headers={'Content-Type': 'application/json', 'X-Siesta-Token': token})
         self.assertEqual(status, 200)
         start.assert_called_once_with('A small CLI', auto=False,
-                                     model_selection=selection)
+                                     model_selection=selection, review_policy=None)
 
     def test_model_catalog_and_check_keep_server_token_boundary(self):
         from pipeline import model_catalog
@@ -91,6 +91,17 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(json.loads(content), {'status': 'compatible'})
         check.assert_called_once_with(self.desktop.factory, model='local:latest',
                                       provider='ollama', tools=True)
+
+    def test_review_policy_reaches_runner(self):
+        _, session, _ = self.request('/api/session')
+        token = json.loads(session)['token']
+        with patch.object(self.desktop, 'start', return_value={'status': 'running'}) as start:
+            status, _, _ = self.request('/api/run', method='POST',
+                body=json.dumps({'idea': 'Review deeply', 'review_policy': 'deep'}),
+                headers={'Content-Type': 'application/json', 'X-Siesta-Token': token})
+        self.assertEqual(status, 200)
+        start.assert_called_once_with('Review deeply', auto=False,
+                                      model_selection=None, review_policy='deep')
 
 
 if __name__ == '__main__':

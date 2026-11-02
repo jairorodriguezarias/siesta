@@ -120,6 +120,7 @@ function renderRun(run) {
   $("#launch-button").disabled = busy() || !token;
   $("#new-model-picker").disabled = busy();
   $("#resume-model-picker").disabled = busy();
+  $("#review-policy").disabled = busy();
   $("#resume-button").disabled =
     busy() || !selectedProject?.idea || selectedProject?.stopped || !token;
   $("#run-status").textContent = statusLabels[run.status].toUpperCase();
@@ -137,6 +138,8 @@ function renderRun(run) {
     $("#console").textContent = "Waiting for your next idea…";
     $("#elapsed").textContent = "00:00";
     $("#run-hint").textContent = "There is no rush. Good work takes a moment.";
+    $("#agent-status").textContent = "";
+    $("#review-status").textContent = "";
     $("#notice").hidden = true;
     document
       .querySelectorAll("#phase-list li")
@@ -147,6 +150,13 @@ function renderRun(run) {
   }
   $("#run-title").textContent = runHeadings[run.status];
   $("#run-description").textContent = run.idea;
+  $("#agent-status").textContent = run.agent
+    ? `Agent ${run.agent} · ${run.model || "model unknown"} · ${run.model_phase || "phase unknown"} · tokens ${run.tokens ?? "unknown"} · cost ${run.cost ?? "unknown"}`
+    : "Agent and model will appear when Pi starts.";
+  const review = run.review;
+  $("#review-status").textContent = review
+    ? `Review ${review.policy} · round ${review.round} · ${review.status} · ${review.budget?.calls_used ?? 0}/${review.budget?.call_limit ?? "?"} calls · ${Math.floor((review.budget?.active_seconds ?? 0) / 60)}/${Math.floor((review.budget?.active_seconds_limit ?? 0) / 60)} active minutes${review.findings?.length ? ` · Blocking: ${review.findings.map((item) => item.id + " " + item.target).join("; ")}` : ""}`
+    : "Review starts after implementation.";
   const minutes = String(Math.floor(run.elapsed / 60)).padStart(2, "0");
   const seconds = String(Math.floor(run.elapsed % 60)).padStart(2, "0");
   $("#elapsed").textContent = `${minutes}:${seconds}`;
@@ -209,7 +219,8 @@ $("#launch-form").addEventListener("submit", async (event) => {
     const selection = readPicker($("#new-model-picker"));
     const routes = Object.keys(selection.phases).length || Object.keys(selection.agents).length;
     await launch({ idea: $("#idea").value, auto: $("#auto").checked,
-                   ...(routes ? { model_selection: selection } : {}) });
+                   ...(routes ? { model_selection: selection } : {}),
+                   ...($("#review-policy").value === "deep" ? { review_policy: "deep" } : {}) });
   } catch (error) {
     $("#launch-error").textContent = error.message;
   } finally {
@@ -301,6 +312,7 @@ function inspectProject(project) {
   $("#project-state").textContent = project.stopped
     ? "This project has stop.md. Resolve its blocker in the project before resuming."
     : `${project.checkpoint || "No checkpoint"} · ${project.verdict || "Not verified"}`;
+  $("#saved-review-policy").textContent = `Review policy: ${project.review_policy || "normal"}`;
   renderPicker($("#resume-model-picker"), modelCatalog, project.model_selection);
   $("#resume-model-picker").disabled = busy();
   $("#resume-button").disabled =

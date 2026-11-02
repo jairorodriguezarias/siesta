@@ -202,7 +202,8 @@ def review_issue(proj: Path, number: int, issue: str, base_head: str, *,
         f"{number}:{repository.issue_digest(issue)}:{base_head}:{configuration}".encode()
     ).hexdigest()[:60]
     review_id = f"issue-{number}-{review_identity}"
-    session = reviews.ReviewSession(proj, review_id, author="worker")
+    session = reviews.ReviewSession(
+        proj, review_id, policy=reviews.project_policy(proj), author="worker")
     if session.state["status"] == "blocked":
         return False
 
@@ -291,6 +292,10 @@ def review_issue(proj: Path, number: int, issue: str, base_head: str, *,
                 session.block("maximum issue-review repairs exhausted")
                 return False
             feedback = json.dumps(current["report"], indent=2, sort_keys=True)
+            try:
+                session.begin_repair_call()
+            except reviews.ReviewError:
+                return False
             try:
                 fix = run_pi(
                     "worker", ISSUE_REPAIR_PROMPT.format(

@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from pipeline import agents, model_selection, skill_versions
+from pipeline import agents, events, model_selection, skill_versions
 from pipeline.files import evidence_dir
 
 PI_BIN = "pi"
@@ -208,6 +208,8 @@ def run_pi(role: str, body: str, user: str, *, skills=(), thinking: str = "off",
         selection = model_selection.normalize_selection({}, role_defaults=ROLE)
     agent_id = agent or role
     route = model_selection.resolve_route(selection, phase_name, agent_id, role)
+    events.update(agent=agent_id, model=route["model"], provider=route["provider"],
+                  model_phase=phase_name, tokens=None, cost=None)
     pinned_skills = (skill_versions.resolve_paths(cwd, skills)
                      if cwd is not None and skills else skills)
     args = build_args(role, body, user, skills=pinned_skills, thinking=thinking,

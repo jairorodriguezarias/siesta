@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from pipeline import (design, events, iterations, learn, model_selection,
-                      skill_versions,
+                      reviews, skill_versions,
                       phases, repository, text)
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY, GLOBAL_KB, ROLE, _declared_context,
@@ -106,6 +106,8 @@ def main(argv: list[str] | None = None) -> None:
                     help="explicitly commit local product edits before continuing")
     ap.add_argument("--model-selection", type=Path,
                     help="JSON file with per-phase and per-agent model overrides")
+    ap.add_argument("--review-policy", choices=("normal", "deep"),
+                    help="bounded review policy; fixed for this project on first run")
     ap.add_argument("idea", nargs="?")
     args = ap.parse_args(argv)
     if not args.idea and not args.project:
@@ -266,6 +268,7 @@ def _run(args) -> None:
         proj.mkdir(parents=True, exist_ok=True)
         (proj / IDEA_FILE).write_text(idea + "\n")
     skill_versions.pin_project(proj)
+    reviews.pin_project_policy(proj, getattr(args, "review_policy", None))
     previous_selection = model_selection.load_project(proj)
     model_selection.save_project(proj, args.model_selection_data)
     _invalidate_model_approvals(proj, previous_selection, args.model_selection_data,

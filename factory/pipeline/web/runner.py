@@ -12,6 +12,8 @@ import threading
 import time
 import uuid
 
+from .. import reviews
+
 from ..__main__ import slug
 
 DOCUMENTS = ('spec.md', 'issues.md', '.siesta/design-review.md',
@@ -112,6 +114,7 @@ class Desktop:
             'stopped': self._file(project, 'stop.md').exists(),
             'documents': documents,
             'model_selection': selected,
+            'review_policy': reviews.project_policy(project),
         }
 
     def document(self, name, document):
@@ -122,11 +125,14 @@ class Desktop:
             raise ValueError('Document not found')
         return read_text(path)
 
-    def start(self, idea, *, auto=False, command=None, model_selection=None):
+    def start(self, idea, *, auto=False, command=None, model_selection=None,
+              review_policy=None):
         if not isinstance(idea, str) or not idea.strip() or len(idea) > 12000 or '\x00' in idea:
             raise ValueError('Describe an idea using 1–12000 characters')
         if not isinstance(auto, bool):
             raise ValueError('auto must be a boolean')
+        if review_policy is not None and review_policy not in ('normal', 'deep'):
+            raise ValueError('review policy must be normal or deep')
         selection_file = None
         if model_selection is not None:
             if command is not None:
@@ -177,6 +183,7 @@ class Desktop:
             args = command if command is not None else (
                 [sys.executable, '-u', '-m', 'pipeline.web.worker']
                 + (['--model-selection', str(selection_file)] if selection_file else [])
+                + (['--review-policy', review_policy] if review_policy else [])
                 + (['--auto'] if auto else []) + ['--', idea])
             with log.open('wb') as output:
                 process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=output,
@@ -223,6 +230,11 @@ class Desktop:
                 elif project.get('checkpoint') == 'complete' and project.get('verdict') == 'VERIFY_PASSED':
                     status = 'complete'
             return {**self.run, 'status': status, 'phase': str(state.get('phase', '')),
+                    'agent': state.get('agent'), 'model': state.get('model'),
+                    'provider': state.get('provider'),
+                    'model_phase': state.get('model_phase'),
+                    'review': state.get('review'),
+                    'tokens': state.get('tokens'), 'cost': state.get('cost'),
                     'input_id': input_id, 'returncode': code,
                     'elapsed': (self.finished or time.time()) - self.run['started'],
                     'output': ANSI.sub('', read_text(self.log, tail=True))}

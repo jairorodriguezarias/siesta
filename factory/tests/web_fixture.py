@@ -38,10 +38,12 @@ def child(idea):
 
 
 class FixtureDesktop(Desktop):
-    def start(self, idea, *, auto=False, command=None, model_selection=None):
+    def start(self, idea, *, auto=False, command=None, model_selection=None,
+              review_policy=None):
         return super().start(idea, auto=auto,
                              command=[sys.executable, '-u', __file__, '--child', idea],
-                             model_selection=model_selection)
+                             model_selection=model_selection,
+                             review_policy=review_policy)
 
 
 def serve():

@@ -531,7 +531,7 @@ factory/tests/web_smoke.mjs`, exit 0.
 
 ## Issue #16: Mostrar agentes, revisiones y consumo de ejecución
 
-**Estado:** Pending
+**Estado:** Done
 **Dependencias:** #3, #15.
 
 Ampliar estado del pipeline y ventana de actividad.
@@ -548,6 +548,17 @@ Ampliar estado del pipeline y ventana de actividad.
 
 **Verificación:** presupuesto agotado, reanudación, errores y ausencia de
 métricas del proveedor.
+
+**Evidencia:** `ReviewSession` conserva presupuesto de 20 llamadas/60 minutos
+activos o 40/120 en modo profundo y carga el saldo al reanudar. Cuenta
+revisores, reintentos, reparaciones, proxy y adjudicación; espera externa no
+incrementa tiempo activo. El canal de estado publica agente, modelo, ronda,
+hallazgos y presupuesto; el frontal los muestra y deja tokens/coste como
+desconocidos. `test_review_budget.py` cubre agotamiento, reanudación,
+interrupción y espera; `web_smoke.mjs` comprueba la vista y el selector profundo.
+Suite Python completa: 467 tests, `/tmp/siesta-test-venv/bin/python -B -m
+unittest discover -s tests -q`, exit 0. Browser: `node factory/tests/web_smoke.mjs`,
+exit 0.
 
 ## Issue #17: Compatibilidad, validación integral y documentación
 

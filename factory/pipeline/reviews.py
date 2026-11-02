@@ -7,6 +7,8 @@ import json
 import re
 from pathlib import Path
 
+from pipeline import events
+
 
 class ReviewError(RuntimeError):
     """A review transition or report violated the review contract."""
@@ -16,6 +18,11 @@ POLICIES = {
     "normal": {"max_rounds": 3, "max_repairs": 2, "clean_rounds": 1},
     "deep": {"max_rounds": 5, "max_repairs": 2, "clean_rounds": 2},
 }
+BUDGETS = {
+    "normal": {"call_limit": 20, "active_seconds_limit": 3600},
+    "deep": {"call_limit": 40, "active_seconds_limit": 7200},
+}
+POLICY_FILE = ".siesta/review-policy.json"
 MAX_REVIEW_ATTEMPTS = 2
 MAX_STORED_RESPONSE = 256_000
 REPORT_FIELDS = {"version", "verdict", "summary", "findings"}
@@ -35,6 +42,40 @@ def _unique_object(pairs):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def project_policy(project: Path) -> str:
+    path = Path(project) / POLICY_FILE
+    if path.is_symlink():
+        raise ReviewError("review policy file cannot be a symlink")
+    try:
+        value = json.loads(path.read_text())
+    except FileNotFoundError:
+        return "normal"
+    except (OSError, ValueError) as exc:
+        raise ReviewError("saved review policy is unreadable") from exc
+    if not isinstance(value, dict) or set(value) != {"policy"} or value["policy"] not in POLICIES:
+        raise ReviewError("saved review policy is invalid")
+    return value["policy"]
+
+
+def pin_project_policy(project: Path, policy: str | None = None) -> str:
+    if policy is not None and policy not in POLICIES:
+        raise ReviewError(f"unknown review policy: {policy}")
+    path = Path(project) / POLICY_FILE
+    existing = project_policy(project)
+    if path.exists():
+        if policy is not None and policy != existing:
+            raise ReviewError("review policy is fixed for an active project")
+        return existing
+    chosen = policy or "normal"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    if temporary.is_symlink():
+        raise ReviewError("review policy temp file cannot be a symlink")
+    temporary.write_text(json.dumps({"policy": chosen}) + "\n")
+    temporary.replace(path)
+    return chosen
 
 
 def _text(value, label: str, *, limit: int = 12000) -> str:
@@ -146,6 +187,25 @@ class ReviewSession:
                 raise ReviewError("saved review identifier does not match its file")
             if self.state["policy_name"] != policy or self.state["author"] != author:
                 raise ReviewError("review policy and author are fixed when a review starts")
+            if "budget" not in self.state:
+                # Legacy review sessions retain already-spent attempts and repairs.
+                calls = sum(len(round_state.get("attempts", []))
+                            + sum(len(dispute.get("adjudication_attempts", []))
+                                  for dispute in round_state.get("disputes", {}).values())
+                            + int(bool(round_state.get("external_decision")))
+                            for round_state in self.state["rounds"])
+                calls += len(self.state["repairs"])
+                self.state["budget"] = {**BUDGETS[policy], "calls_used": calls,
+                                         "active_seconds": 0.0}
+                self._save()
+            budget = self.state["budget"]
+            interrupted = False
+            for kind in ("repair", "external"):
+                if budget.pop(f"{kind}_started_at", None) is not None:
+                    budget[f"{kind}_recovery_charged"] = True
+                    interrupted = True
+            if interrupted:
+                self._save()
         else:
             self.state = {
                 "version": 1,
@@ -159,6 +219,8 @@ class ReviewSession:
                 "repair_count": 0,
                 "rounds": [],
                 "repairs": [],
+                "budget": {**BUDGETS[policy], "calls_used": 0,
+                           "active_seconds": 0.0},
                 "created_at": _now(),
                 "updated_at": _now(),
             }
@@ -194,6 +256,15 @@ class ReviewSession:
                 or type(value.get("repair_count")) is not int
                 or value["repair_count"] != len(value["repairs"])):
             raise ReviewError(f"invalid saved review state: {self.path}")
+        budget = value.get("budget")
+        if budget is not None and (not isinstance(budget, dict)
+                or any(budget.get(key) != expected for key, expected in
+                       BUDGETS[value["policy_name"]].items())
+                or type(budget.get("calls_used")) is not int
+                or budget["calls_used"] < 0
+                or not isinstance(budget.get("active_seconds"), (int, float))
+                or budget["active_seconds"] < 0):
+            raise ReviewError(f"invalid saved review budget: {self.path}")
         return value
 
     def _save(self) -> None:
@@ -203,6 +274,52 @@ class ReviewSession:
         temporary.write_text(json.dumps(self.state, indent=2, sort_keys=True) + "\n",
                              encoding="utf-8")
         temporary.replace(self.path)
+        latest = self.state["rounds"][-1] if self.state["rounds"] else {}
+        findings = latest.get("report", {}) or {}
+        try:
+            events.update(review={
+                "id": self.state["review_id"], "policy": self.state["policy_name"],
+                "status": self.state["status"], "round": latest.get("number", 0),
+                "findings": [{"id": item["id"], "target": item["target"]}
+                             for item in findings.get("findings", [])
+                             if item.get("severity") in {"critical", "major"}],
+                "budget": self.state.get("budget"),
+            })
+        except OSError:
+            pass
+
+    def _charge_call(self) -> None:
+        budget = self.state["budget"]
+        if budget["calls_used"] >= budget["call_limit"]:
+            self._block("review call budget exhausted")
+            raise ReviewError("review call budget exhausted")
+        if budget["active_seconds"] >= budget["active_seconds_limit"]:
+            self._block("review active-time budget exhausted")
+            raise ReviewError("review active-time budget exhausted")
+        budget["calls_used"] += 1
+
+    def _charge_active_time(self, started_at: str | None) -> bool:
+        if started_at:
+            elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(started_at)).total_seconds()
+            self.state["budget"]["active_seconds"] += max(0.0, elapsed)
+        if self.state["budget"]["active_seconds"] >= self.state["budget"]["active_seconds_limit"]:
+            self._block("review active-time budget exhausted")
+            return False
+        return True
+
+    def begin_repair_call(self) -> None:
+        self._active()
+        self._charge_call()
+        self.state["budget"].pop("repair_recovery_charged", None)
+        self.state["budget"]["repair_started_at"] = _now()
+        self._save()
+
+    def begin_external_call(self) -> None:
+        self._active()
+        self._charge_call()
+        self.state["budget"].pop("external_recovery_charged", None)
+        self.state["budget"]["external_started_at"] = _now()
+        self._save()
 
     def _active(self) -> None:
         if self.state["status"] != "active":
@@ -329,6 +446,7 @@ class ReviewSession:
         if len(agent_attempts) >= MAX_REVIEW_ATTEMPTS:
             self._block("reviewer retry exhausted")
             raise ReviewError("reviewer retry exhausted")
+        self._charge_call()
         current["status"] = "reviewing"
         attempt = {"number": len(agent_attempts) + 1, "agent": agent,
                    "retry_reason": retry_reason, "context": manifest,
@@ -348,6 +466,11 @@ class ReviewSession:
             raise ReviewError("review attempt is not running")
         attempt = current["attempts"][-1]
         attempt["finished_at"] = _now()
+        if not self._charge_active_time(attempt["started_at"]):
+            attempt["status"] = "failed"
+            attempt["error"] = "review active-time budget exhausted"
+            self._save()
+            return None
         if error is not None:
             attempt["status"] = "failed"
             attempt["error"] = (error.strip()[:2000]
@@ -445,6 +568,12 @@ class ReviewSession:
         if not isinstance(approved, bool):
             raise ReviewError("external decision must explicitly approve or reject")
         evidence = _text(evidence, "external approval evidence")
+        started = self.state["budget"].pop("external_started_at", None)
+        if started is None:
+            if not self.state["budget"].pop("external_recovery_charged", False):
+                self._charge_call()
+        elif not self._charge_active_time(started):
+            return
         current["external_decision"] = {
             "agent": agent, "approved": approved, "evidence": evidence,
             "recorded_at": _now(),
@@ -524,6 +653,7 @@ class ReviewSession:
         if len(attempts) >= MAX_REVIEW_ATTEMPTS:
             self._block("adjudicator retry exhausted")
             raise ReviewError("adjudicator retry exhausted")
+        self._charge_call()
         attempt = {"number": len(attempts) + 1, "agent": agent, "context": manifest,
                    "status": "running", "started_at": _now()}
         attempts.append(attempt)
@@ -547,6 +677,11 @@ class ReviewSession:
             raise ReviewError("adjudication attempt is not running")
         attempt = attempts[-1]
         attempt["finished_at"] = _now()
+        if not self._charge_active_time(attempt["started_at"]):
+            attempt["status"] = "failed"
+            attempt["error"] = "review active-time budget exhausted"
+            self._save()
+            return False
         if error is not None:
             attempt["status"] = "failed"
             attempt["error"] = (error.strip()[:2000]
@@ -610,6 +745,12 @@ class ReviewSession:
                       if item["status"] != "dismissed"]
         if not unresolved:
             raise ReviewError("all findings were dismissed; no repair is required")
+        started = self.state["budget"].pop("repair_started_at", None)
+        if started is None:
+            if not self.state["budget"].pop("repair_recovery_charged", False):
+                self._charge_call()
+        elif not self._charge_active_time(started):
+            raise ReviewError("review active-time budget exhausted")
         repair = {
             "number": self.state["repair_count"] + 1,
             "round": current["number"],

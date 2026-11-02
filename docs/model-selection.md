@@ -62,3 +62,10 @@ an explicit compatibility check. Its native write test uses a temporary
 directory, and failure never selects another model. Credentials remain in the
 server's Pi/Ollama configuration. The most recent validation status is local
 runtime state under `factory/.runtime/model-validations.json`.
+
+Review policy is a separate run choice: `--review-policy normal` allows 20
+review calls and 60 active minutes; `--review-policy deep` allows 40 calls and
+120 active minutes. The policy is fixed when the project starts and stored in
+`.siesta/review-policy.json`. Waiting for user input does not use active review
+time. Reviewer retries, repair calls, proxy decisions and adjudications use the
+same persisted budget.

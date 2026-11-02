@@ -1309,7 +1309,8 @@ def review(proj: Path, kb: Graph) -> None:
         raise RuntimeError("Product changed while the review regression suite ran")
     version = tested_version
     review_id = _review_session_id(proj, configuration, version)
-    session = reviews.ReviewSession(proj, review_id, author="worker")
+    session = reviews.ReviewSession(
+        proj, review_id, policy=reviews.project_policy(proj), author="worker")
     if session.state["status"] == "approved" and session.state.get("approved_version") == version:
         ok("Review complete")
         return
@@ -1393,6 +1394,10 @@ def review(proj: Path, kb: Graph) -> None:
             if _review_configuration(proj) != configuration:
                 raise RuntimeError("Review configuration changed while specialists were reviewing")
             reports = json.dumps(current["reviewer_reports"], indent=2, sort_keys=True)
+            try:
+                session.begin_external_call()
+            except reviews.ReviewError as exc:
+                _block_final_review(kb, session, str(exc))
             proxy_out = run_pi(
                 "consultant",
                 PROXY_REVIEW_PROMPT.format(
@@ -1419,6 +1424,10 @@ def review(proj: Path, kb: Graph) -> None:
             feedback = json.dumps(current["report"], indent=2, sort_keys=True)
             source = gather(proj)
             warn("Specialist or proxy review found issues — applying a tested repair")
+            try:
+                session.begin_repair_call()
+            except reviews.ReviewError as exc:
+                _block_final_review(kb, session, str(exc))
             fix = run_pi(
                 "worker", f"Review findings:\n{feedback}\n\nSource files:\n{source}\n\n"
                 "Apply only fixes supported by the approved contracts. Do not change spec.md or "
