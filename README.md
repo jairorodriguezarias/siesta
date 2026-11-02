@@ -76,6 +76,11 @@ source files. Missing evidence or a contradiction prevents completion.
 work is archived before cleanup. Relaunching the same idea resumes the project;
 successful completed runs do not repeat model work.
 
+**Extend an existing project.** Select it with `--project` and add a request
+using `--iterate`. New requirements and issues are appended and pass through
+design review, testing and requirement evidence. See
+[safe repository iterations](docs/repository-iterations.md).
+
 The orchestrator uses Python's standard library. Pi supplies model access and
 coding tools; roles are selected explicitly in
 [`models.json`](factory/config/models.json).
@@ -118,6 +123,7 @@ behavior. See **[validation and recorded results](docs/testing.md)**.
 
 - [Getting started](docs/getting-started.md) — install, configure, run and resume.
 - [Desktop](docs/desktop.md) — local retro interface, project activity and Snake.
+- [Repository iterations](docs/repository-iterations.md) — resume, extend and adopt local edits.
 - [Architecture](docs/architecture.md) — roles, gates, recovery and learning.
 - [Local Ollama](docs/ollama-local.md) — native tools and actual context windows.
 - [Testing](docs/testing.md) — offline checks, live evaluations and limitations.

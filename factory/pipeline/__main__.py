@@ -8,16 +8,15 @@ import argparse
 import os
 import re
 import subprocess
-import sys
 import time
 from pathlib import Path
 
-from pipeline import design, events, learn, phases, repository, text
+from pipeline import design, events, iterations, learn, phases, repository, text
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY, GLOBAL_KB, ROLE, _declared_context,
                          warn_if_context_mismatch, err, log, ok, phase, warn)
 
-PHASE_ORDER = ["phase-0", "phase-1", "phase-2", "phase-3",
+PHASE_ORDER = ["initialized", "phase-0", "phase-1", "phase-2", "phase-3",
                "phase-4", "phase-5", "complete"]
 
 # Run evidence stays on disk (learn.py reads these inputs) but is never
@@ -92,11 +91,38 @@ def main(argv: list[str] | None = None) -> None:
                     help="skip the interview; use the idea as the intent")
     ap.add_argument("--resume", action="store_true",
                     help="skip phases already completed per checkpoint")
+    ap.add_argument("--project", type=Path, help="existing Siesta Git repository")
+    ap.add_argument("--iterate", help="additional request for an existing project")
+    ap.add_argument("--adopt-changes", action="store_true",
+                    help="explicitly commit local product edits before continuing")
     ap.add_argument("idea", nargs="?")
     args = ap.parse_args(argv)
-    if not args.idea:
-        err('Usage: siesta "project idea" [--auto] [--resume]')
-        sys.exit(1)
+    if not args.idea and not args.project:
+        ap.error('provide an idea or --project')
+    if args.project and args.idea:
+        ap.error('--project uses the saved intent; pass a new request with --iterate')
+    if args.iterate is not None and (not args.project or not args.iterate.strip()):
+        ap.error('--iterate requires --project and a nonempty request')
+    # Selection and human-edit checks are read-only unless adoption is explicit.
+    # Rejections here must not write failure nodes to someone else's project.
+    try:
+        args.proj, args.idea = _select_project(args)
+        if (args.proj / 'stop.md').exists():
+            warn('stop.md detected! Halting pipeline.')
+            return
+        if (args.proj / '.git').exists():
+            checkpoint = args.proj / '.pipeline-checkpoint'
+            if not checkpoint.exists() or checkpoint.read_text().strip() not in PHASE_ORDER:
+                raise RuntimeError('Missing or invalid checkpoint in existing project; '
+                                   'restore .pipeline-checkpoint from run evidence before resuming')
+            repository.require_committed_ledger(args.proj)
+            repository.completed_issues(args.proj)
+            if args.adopt_changes:
+                repository.adopt_changes(args.proj)
+            repository.require_clean(args.proj)
+    except (RuntimeError, OSError, ValueError) as exc:
+        err(str(exc))
+        raise SystemExit(1)
     try:
         _run(args)
     except (SystemExit, KeyboardInterrupt) as e:
@@ -109,19 +135,64 @@ def main(argv: list[str] | None = None) -> None:
         raise
 
 
+def _select_project(args) -> tuple[Path, str]:
+    if args.project:
+        proj = args.project.resolve()
+        if not proj.is_dir():
+            raise RuntimeError('--project must name an existing Siesta Git root')
+        root = repository.checked_git(proj, 'rev-parse', '--show-toplevel').decode().strip()
+        if Path(root).resolve() != proj or not all(
+                (proj / name).is_file() for name in ('spec.md', 'issues.md', 'kb/graph.json')):
+            raise RuntimeError('--project must name an existing Siesta Git root with spec, plan and KB')
+        nodes = repository.committed_nodes(proj)
+        intents = [node['detail'] for node in nodes if node['type'] == 'intent']
+        if not intents:
+            raise RuntimeError('--project has no committed Siesta intent')
+        idea_file = proj / IDEA_FILE
+        return proj, idea_file.read_text().strip() if idea_file.exists() else intents[0]
+    proj = FACTORY / 'projects' / slug(args.idea)
+    idea_file = proj / IDEA_FILE
+    if idea_file.exists() and _norm_idea(idea_file.read_text()) != _norm_idea(args.idea):
+        raise RuntimeError(f'Project dir exists for a DIFFERENT idea: {proj}. '
+                           'Use --project with --iterate to extend it.')
+    return proj, args.idea
+
+
 def _failure_learn(args, e) -> None:
     """Record failed execution in both project and global knowledge bases."""
-    name = slug(args.idea)
-    proj = FACTORY / "projects" / name
+    proj = args.proj
+    name = proj.name
     checkpoint = proj / ".pipeline-checkpoint"
     last = checkpoint.read_text().strip() if checkpoint.exists() else "none"
+    state = repository.load_state(proj)
+    try:
+        changed = state.get('verified_product') and state['verified_product'] != repository.fingerprint(proj)
+    except RuntimeError:
+        changed = True
+    if changed:
+        state.clear()
+        repository.save_state(proj, state)
+        (proj / 'verify_verdict.txt').write_text('VERIFY_FAILED\n')
+        checkpoint.write_text('phase-3\n')
     warn(f"Pipeline failed ({type(e).__name__}: {e}). Logging failure to KB...")
+    try:
+        repository.require_committed_ledger(proj)
+    except RuntimeError as exc:
+        warn(f'Failure record cannot safely commit: {exc}. Existing KB preserved.')
+        return
     Graph(proj / "kb" / "graph.json").node(
         "blocker", "Pipeline failed",
         f"Pipeline exited with error: {e}. Last checkpoint: {last}.")
     Graph(GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json")).node(
         "learning", f"Pipeline failure: {name}",
         f"Pipeline failed at checkpoint {last}. Error: {e}.")
+    # Commit only bookkeeping: failed worker edits must remain available for
+    # explicit adoption, never silently become the next product base.
+    try:
+        repository.checked_git(proj, 'add', '--', 'kb')
+        repository.checked_git(proj, 'commit', '--only', '-m', 'Record pipeline failure', '--', 'kb')
+    except RuntimeError as exc:
+        warn(f'Failure record remains uncommitted: {exc}')
     err("Pipeline failed. KB updated with failure details.")
 
 
@@ -130,37 +201,17 @@ def _run(args) -> None:
     for role, route in ROLE.items():
         log(f"Model {role}: {route['model']} (provider: {route['provider']})")
     idea = args.idea
-    name = slug(idea)
+    proj = args.proj
+    name = proj.name
     events.update(project=name)
-    proj = FACTORY / "projects" / name
     checkpoint = proj / ".pipeline-checkpoint"
-    if (proj / 'stop.md').exists():
-        log('stop.md found — stopped before further model calls')
-        return
-    # #51: the same idea always slug-maps to the same dir, so a relaunch
-    # is silently a resume — the operator must be able to tell them apart.
     if checkpoint.exists():
         log(f"Resuming project: {name} (checkpoint: "
             f"{checkpoint.read_text().strip() or 'unknown'})")
-        # Truncated slugs can collide. Never resume a different recorded idea.
-        idea_file = proj / IDEA_FILE
-        if idea_file.exists() and \
-                _norm_idea(idea_file.read_text()) != _norm_idea(idea):
-            err(f"Project dir exists for a DIFFERENT idea: {proj}")
-            err(f'  recorded idea: "{idea_file.read_text().strip()}"')
-            err(f'  current  idea: "{idea}"')
-            err("Resume is for continuing the same idea. Pick a different "
-                "wording (the slug truncates at 40 chars) or remove the "
-                "old project dir to start fresh.")
-            raise SystemExit(1)
     else:
         log(f"Creating project: {name}")
-        # record the idea — the #56 collision guard reads this on relaunch
         proj.mkdir(parents=True, exist_ok=True)
         (proj / IDEA_FILE).write_text(idea + "\n")
-    if checkpoint.exists() and (proj / '.git').exists():
-        repository.require_clean(proj)
-        repository.require_committed_ledger(proj)
     _warn_context_mismatches()
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same
@@ -181,6 +232,8 @@ def _run(args) -> None:
     gkb = Graph(GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json"))
     if not (proj / ".git").exists():
         phases._git(proj, "init")
+    if not checkpoint.exists():
+        checkpoint.write_text("initialized\n")
 
     def done(ph: str) -> bool:
         # Monotonic: checkpoint "phase-2" skips 0 and 1 too — the bash
@@ -195,11 +248,9 @@ def _run(args) -> None:
         if not done(value):
             checkpoint.write_text(f"{value}\n")
 
-    # On --resume the intent comes from the recorded interview output.
-    intent = text.intent_from(
-        (proj / "interview_output.txt").read_text(errors="replace")
-        if (proj / "interview_output.txt").exists() else "",
-        idea)
+    # The recorded KB owns intent; provider logs cannot redefine it on resume.
+    intents = kb.query(type_='intent')
+    intent = intents[0]['detail'] if intents else idea
     intent_node = None
     spec_node = None
 
@@ -234,6 +285,9 @@ def _run(args) -> None:
         log(f"Planned {count} issues")
     mark("phase-2")
 
+    if args.iterate:
+        iterations.prepare(proj, args.iterate, kb)
+
     # Checkpoints record traversed phases; the issue ledger proves completion.
     repository.require_clean(proj)
     repository.require_committed_ledger(proj)
@@ -242,7 +296,7 @@ def _run(args) -> None:
     pending = sorted(set(issues) - completed)
     state = repository.load_state(proj)
     current = repository.fingerprint(proj)
-    if done('phase-4') and state.get('reviewed_product') not in (None, current):
+    if done('phase-4') and state.get('reviewed_product') != current:
         log('Product changed since review — reviewing and verifying again')
         checkpoint.write_text('phase-3\n')
     if pending and done("phase-3"):
@@ -252,13 +306,15 @@ def _run(args) -> None:
     elif done("phase-5"):
         saved_verdict = proj / "verify_verdict.txt"
         if (not saved_verdict.exists() or saved_verdict.read_text().strip() != "VERIFY_PASSED"
-                or not done('complete') and state.get('verified_product') != current):
+                or state.get('verified_product') != current):
             log("Previous verification was not successful — verifying again")
             checkpoint.write_text("phase-4\n")
 
     if not done('complete'):
         phase('2b', 'DESIGN REVIEW — Check clarity and readiness')
-        design.review(proj, intent)
+        request = iterations.latest_request(proj)
+        review_intent = intent + ("\nAuthorized additional request: " + request['request'] if request else '')
+        design.review(proj, review_intent)
 
     # ─── PHASE 3: EXECUTE (per-issue loop) ───────────────────────────────
     if done("phase-3"):

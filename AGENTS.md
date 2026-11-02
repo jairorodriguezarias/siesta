@@ -95,6 +95,14 @@ Workers and review fixes cannot rewrite either `spec.md` or `issues.md`.
   Pi call; timed-out calls are treated as no answer and partial output is
   preserved.
 
+`--project PATH` selects an existing Siesta Git root using its committed intent.
+`--iterate REQUEST` appends new requirements and issues without rewriting
+completed issue bodies. Repeating the latest request resumes its work; a new
+request requires completing the current one. Amendments use distinct acceptance
+IDs and pass the same independent design review and evidence audit.
+`--adopt-changes` explicitly commits local edits after ledger validation.
+Invalid project selection and rejected dirty work do not mutate the project KB.
+
 ## Model configuration and invocation
 
 [`factory/config/models.json`](factory/config/models.json) maps `planner`,
@@ -182,6 +190,7 @@ model routing and actual skill attachments aligned. Preserve license notices.
 | [`pipeline/pi.py`](factory/pipeline/pi.py) | Model calls, thinking, timeouts and context probe |
 | [`pipeline/web/`](factory/pipeline/web/) | Local retro desktop, serialized CLI process adapter and Snake |
 | [`pipeline/events.py`](factory/pipeline/events.py) | Optional atomic status channel for desktop phases and interview input |
+| [`pipeline/iterations.py`](factory/pipeline/iterations.py) | Additional requests, immutable prior issues and specification amendments |
 | [`pipeline/design.py`](factory/pipeline/design.py) | Isolated design review and requirement evidence |
 | [`pipeline/repository.py`](factory/pipeline/repository.py) | Committed ledger, product identity and Git state |
 | [`pipeline/files.py`](factory/pipeline/files.py) | Source selection and local evidence directory |

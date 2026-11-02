@@ -161,8 +161,8 @@ def require_clean(proj: Path) -> None:
     status = checked_git(proj, 'status', '--porcelain', '-z', '--untracked-files=all',
                          '--', '.', ':(exclude)kb')
     if status:
-        raise RuntimeError('Uncommitted product changes preserved. Commit them '
-                           'before resuming; no files were discarded.')
+        raise RuntimeError('Uncommitted product changes preserved. Commit them or use '
+                           '--adopt-changes before resuming; no files were discarded.')
 
 
 def require_committed_ledger(proj: Path) -> None:

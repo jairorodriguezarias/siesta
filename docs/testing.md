@@ -28,6 +28,8 @@ requires live model access. Backend HTTP/process tests run in the normal suite.
 - Isolated design review, malformed replies, changed requirements and cached approvals.
 - Requirement mappings to actual passing pytest IDs, including parametrized IDs.
 - Product changes during verification, failed completion commits and legacy resume gates.
+- Existing-project selection, explicit adoption, append-only iterations, repeated
+  requests, immutable prior issues and evidence for old and new requirement IDs.
 
 When Pi and Node are installed, the native isolation test also exercises Pi's
 actual argument parser and resource loader with temporary sentinel files. It
