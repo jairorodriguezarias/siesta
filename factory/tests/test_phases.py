@@ -199,7 +199,10 @@ class RegressionTriState(unittest.TestCase):
             (tests / 'test_broken.py').write_text('def test_broken():\n    assert False\n')
             with patch.object(phases, 'err') as report:
                 self.assertEqual(phases.run_regression(proj, 1), 'failed')
-            self.assertIn('regression_1.log', report.call_args.args[0])
+            message = report.call_args.args[0]
+            self.assertIn('Regression suite FAILED (tests)', message)
+            self.assertNotIn('before issue', message)
+            self.assertIn('regression_1.log', message)
             self.assertIn('FAILED', (proj / 'regression_1.log').read_text())
 
     def test_passing_suite_is_passed(self):

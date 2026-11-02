@@ -587,7 +587,7 @@ def run_regression(proj: Path, n: int) -> str:
                 "nothing to guard")
             continue
         if proc.returncode != 0:
-            err(f"Regression suite FAILED before issue #{n} ({suite_dir}); "
+            err(f"Regression suite FAILED ({suite_dir}); "
                 f"see regression_{n}.log for details.")
             return record("failed")
         verdict = "passed"
