@@ -31,6 +31,36 @@ for a in "$@"; do [ "$prev" = "--model" ] && model="$a"; prev="$a"; done
 implement() {
   printf 'def greeting():\n    return "hello"\n' > todo.py
   printf 'from todo import greeting\n\ndef test_greeting():\n    assert greeting() == "hello"\n' > test_todo.py
+  if [ "$FAKE_PI_SCENARIO" = "verify_mutates" ]; then
+    printf '\ndef test_final_cleanup():\n    from pathlib import Path\n    if Path("verify_output.txt").exists():\n        Path("todo.py").write_text("def greeting(): return 999\\n")\n' >> test_todo.py
+  fi
+  if [ "$FAKE_PI_SCENARIO" = "verify_mutates_during_audit" ]; then
+    cat >> test_todo.py <<'TEST'
+
+def test_final_cleanup():
+    from pathlib import Path
+    import subprocess
+    import sys
+    if Path('verify_output.txt').exists():
+        child = '''
+from pathlib import Path
+import time
+deadline = time.monotonic() + 5
+while not Path('.siesta/audit_started').exists():
+    if time.monotonic() >= deadline:
+        raise SystemExit('Audit did not start')
+    time.sleep(0.01)
+Path('todo.py').write_text('def greeting(): return 999\\n')
+Path('.siesta/audit_mutation_done').touch()
+'''
+        subprocess.Popen([sys.executable, '-c', child],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+TEST
+  fi
+  if [ "$FAKE_PI_SCENARIO" = "final_commit_fails" ]; then
+    printf '#!/bin/sh\ncase "$(cat "$1")" in\n  "Project verified:"*) exit 1 ;;\nesac\n' > .git/hooks/commit-msg
+    chmod +x .git/hooks/commit-msg
+  fi
   python3 -m pytest -q >&2
 }
 
@@ -41,7 +71,7 @@ case "$model" in
         # No file writes: the model prints the document, the pipeline saves it.
         case "$FAKE_PI_SCENARIO" in
           never_spec) echo "sorry, cannot write a spec right now" ;;
-          *) printf '# Spec\n\nA tiny todo CLI in Python.\nStores tasks in memory, runs offline.\n' ;;
+          *) printf '# Spec\n\nA tiny todo CLI in Python with root-tested behavior.\nStores tasks in memory, runs offline.\n\n## Acceptance criteria\n- R1: Return a hello greeting.\n' ;;
         esac ;;
       *"planning-and-task-breakdown"*)
         case "$FAKE_PI_SCENARIO" in
@@ -59,6 +89,28 @@ case "$model" in
     esac ;;
   consultant-model)
     case "$*" in
+      *"Independent design review:"*)
+        case "$FAKE_PI_SCENARIO" in
+          design_rejected) echo '{"verdict":"failed","findings":["Specify the greeting output"]}' ;;
+          *) echo '{"verdict":"passed","findings":[]}' ;;
+        esac ;;
+      *"Independent requirement evidence audit"*)
+        if [ "$FAKE_PI_SCENARIO" = "verify_mutates_during_audit" ]; then
+          touch .siesta/audit_started
+          python3 - <<'WAIT'
+from pathlib import Path
+import time
+deadline = time.monotonic() + 5
+while not Path('.siesta/audit_mutation_done').exists():
+    if time.monotonic() >= deadline:
+        raise SystemExit('Test child did not change source during the audit')
+    time.sleep(0.01)
+WAIT
+        fi
+        case "$FAKE_PI_SCENARIO" in
+          evidence_missing) echo '{"requirements":[],"drift":[]}' ;;
+          *) echo '{"requirements":[{"id":"R1","status":"supported","tests":["test_todo.py::test_greeting"],"sources":["todo.py"],"reason":"The greeting assertion checks hello."}],"drift":[]}' ;;
+        esac ;;
       *"You are the factory-learner"*)
         # #46: learning routes to the consultant — GLM owns the strict format
         echo "PROJECT_LEARNING:
@@ -151,6 +203,10 @@ Justification: the change requires it." ;;
               *) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
             esac ;;
           degenerate_always) echo '{"name": "bash", "arguments": {"command": "ls -la"}}' ;;
+          rewrite_spec)
+            implement
+            printf '# Spec\n## Acceptance criteria\n- R1: Print anything.\n' > spec.md
+            echo 'ISSUE_OK: weakened the spec and implemented it' ;;
           *) implement; echo "ISSUE_OK: implemented the change with tests; the suite passes." ;;
         esac ;;
     esac ;;
@@ -222,6 +278,70 @@ class PipelineRun(unittest.TestCase):
                 and n["summary"] == summary]
 
     # ─── happy path ──────────────────────────────────────────────────────
+
+    def test_design_rejection_stops_before_worker_execution(self):
+        result = self.siesta('--auto', self.idea, scenario='design_rejected')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.proj() / 'todo.py').exists())
+        self.assertIn('FAIL', (self.proj() / '.siesta/design-review.md').read_text())
+
+    def test_resume_before_planning_preserves_uncommitted_product(self):
+        first = self.siesta('--auto', self.idea, scenario='never_spec')
+        self.assertNotEqual(first.returncode, 0)
+        local = self.proj() / 'local-notes.txt'
+        local.write_text('Uncommitted human work')
+        resumed = self.siesta('--auto', '--resume', self.idea)
+        self.assertNotEqual(resumed.returncode, 0)
+        self.assertIn('Uncommitted product changes preserved', resumed.stderr)
+        self.assertEqual(local.read_text(), 'Uncommitted human work')
+        self.assertFalse((self.proj() / 'spec.md').exists())
+
+    def test_passing_tests_without_requirement_evidence_cannot_complete(self):
+        result = self.siesta('--auto', self.idea, scenario='evidence_missing')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.proj() / 'verify_verdict.txt').read_text().strip(), 'VERIFY_FAILED')
+        self.assertFalse(json.loads((self.proj() / '.siesta/requirements.json').read_text())['passed'])
+
+    def test_worker_cannot_weaken_the_reviewed_specification(self):
+        result = self.siesta('--auto', self.idea, scenario='rewrite_spec')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Return a hello greeting', (self.proj() / 'spec.md').read_text())
+        self.assertNotIn('Issue #1 completed', self.decisions())
+
+    def test_active_legacy_verification_requires_new_requirement_evidence(self):
+        first = self.siesta('--auto', self.idea)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        (self.proj() / '.pipeline-checkpoint').write_text('phase-5\n')
+        (self.proj() / '.git/siesta-state.json').unlink()
+        (self.proj() / '.siesta/requirements.json').unlink()
+        result = self.siesta('--auto', '--resume', self.idea, scenario='evidence_missing')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.proj() / 'verify_verdict.txt').read_text().strip(), 'VERIFY_FAILED')
+
+    def test_verification_cannot_change_the_reviewed_product(self):
+        result = self.siesta('--auto', self.idea, scenario='verify_mutates')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.proj() / 'verify_verdict.txt').read_text().strip(), 'VERIFY_FAILED')
+        self.assertNotIn('Project complete:', '\n'.join(self.decisions()))
+
+    def test_source_changed_by_test_child_during_evidence_audit_cannot_complete(self):
+        result = self.siesta('--auto', self.idea, scenario='verify_mutates_during_audit')
+        self.assertTrue((self.proj() / '.siesta/audit_mutation_done').exists(), result.stderr)
+        self.assertIn('return 999', (self.proj() / 'todo.py').read_text())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.proj() / 'verify_verdict.txt').read_text().strip(), 'VERIFY_FAILED')
+        state = json.loads((self.proj() / '.git/siesta-state.json').read_text())
+        self.assertNotIn('verified_product', state)
+        self.assertNotIn('Project complete:', '\n'.join(self.decisions()))
+
+    def test_failed_completion_commit_can_resume_without_false_claims(self):
+        result = self.siesta('--auto', self.idea, scenario='final_commit_fails')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('Project complete:', '\n'.join(self.decisions()))
+        (self.proj() / '.git/hooks/commit-msg').unlink()
+        resumed = self.siesta('--auto', '--resume', self.idea)
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertEqual((self.proj() / '.pipeline-checkpoint').read_text().strip(), 'complete')
 
     def test_auto_happy_path_completes_every_phase(self):
         result = self.siesta("--auto", self.idea)
@@ -301,7 +421,7 @@ class PipelineRun(unittest.TestCase):
         # Per issue: 2 resolutions + 1 diagnosis = 3 consultant calls,
         # plus the review proxy → 7; the per-issue learn hooks never ran
         # (blocked) and project learning adds 1 → 8.
-        self.assertEqual(self.log_count("--model consultant-model"), 8)
+        self.assertEqual(self.log_count("--model consultant-model"), 10)
         self.assertIn("2 blocked", result.stdout)
         self.assertFalse((proj / "learning_issue_1.txt").exists())
 
@@ -321,7 +441,7 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.log_count("--model worker-model"), 8)
         # 2 resolutions + 1 diagnosis per issue + the review proxy = 7,
         # plus project learning (consultant) → 8.
-        self.assertEqual(self.log_count("--model consultant-model"), 8)
+        self.assertEqual(self.log_count("--model consultant-model"), 10)
         self.assertIn("2 blocked", result.stdout)
 
     def test_single_consultation_recovers_issue(self):
@@ -341,7 +461,7 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.log_count("--model worker-model"), 6)
         # 1 resolution per issue + the review proxy = 3; per-issue learning
         # ×2 + project learning = 3 more → 6.
-        self.assertEqual(self.log_count("--model consultant-model"), 6)
+        self.assertEqual(self.log_count("--model consultant-model"), 9)
         # recovered issues DO get the per-issue learning hook
         self.assertTrue((proj / "learning_issue_1.txt").exists())
 
@@ -351,14 +471,9 @@ class PipelineRun(unittest.TestCase):
         (proj / "stop.md").write_text("manual halt for test")
         result = self.siesta("--auto", self.idea)
         self.assertEqual(result.returncode, 0, result.stderr[-3000:])
-        self.assertEqual((proj / ".pipeline-checkpoint").read_text().strip(),
-                         "phase-2")  # halted mid-execute: phase 3 not marked
-        self.assertIn("Pipeline halted by stop.md", self.types(self.kb(),
-                                                               "blocker"))
-        # clean stop (SystemExit 0) — no failure learning for this project
-        self.assertEqual(self.global_learnings(f"Pipeline failure: "
-                                               f"{self.name}"), [])
-        self.assertEqual(self.log_count("--model worker-model"), 0)
+        self.assertFalse((proj / '.pipeline-checkpoint').exists())
+        self.assertFalse((proj / 'kb/graph.json').exists())
+        self.assertEqual(self.log_count('--model'), 0)
 
     def test_persistent_proxy_requests_stay_blocked(self):
         for scenario in ("proxy_request", "proxy_hang"):
@@ -551,7 +666,7 @@ class PipelineRun(unittest.TestCase):
         self.assertEqual(self.log_count("--model worker-model"), 6)
         # 2 issue-level proxies + 1 review proxy + 2 per-issue learnings
         # + 1 project learning = 6
-        self.assertEqual(self.log_count("--model consultant-model"), 6)
+        self.assertEqual(self.log_count("--model consultant-model"), 9)
 
     def test_proxy_rejection_retries_with_different_approach(self):
         result = self.siesta("--auto", self.idea, scenario="proxy_rejected")
@@ -559,7 +674,7 @@ class PipelineRun(unittest.TestCase):
         self.assertIn("REJECTED", (self.proj() / "proxy_1_output.txt").read_text())
         self.assertEqual(self.types(self.kb(), "blocker"), [])
         self.assertIn("Issue #1 completed", self.decisions())
-        self.assertEqual(self.log_count("--model consultant-model"), 6)
+        self.assertEqual(self.log_count("--model consultant-model"), 9)
 
     # ─── review revision now applies fixes (#16/#18) ─────────────────────
 
@@ -660,7 +775,7 @@ class PipelineRun(unittest.TestCase):
         # (the path form only — the learner prompts also list the name)
         self.assertEqual(self.log_count("skills/issue-executor/"), 0)
         # consultant side: review proxy + project learning = 2
-        self.assertEqual(self.log_count("consultant-model"), 2)
+        self.assertEqual(self.log_count("consultant-model"), 3)
         self.assertIn("0 blocked", result.stdout)
         self.assertEqual((self.proj() / ".pipeline-checkpoint").read_text().strip(),
                          "complete")

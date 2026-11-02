@@ -8,6 +8,14 @@ EXCLUDED_DIRS = {'.git', 'kb', '.pytest_cache', '__pycache__', '.venv', 'venv',
                  'dist', 'build', 'vendor', '.siesta'}
 
 
+def evidence_dir(proj: Path) -> Path:
+    """Keep local reports ignored, including in projects created before this feature."""
+    folder = proj / '.siesta'
+    folder.mkdir(exist_ok=True)
+    (folder / '.gitignore').write_text('*\n')
+    return folder
+
+
 def _private(path: Path) -> bool:
     return (path.name.startswith('.env') and path.name != '.env.example'
             or path.name in {'credentials.json', 'auth.json', '.DS_Store'}

@@ -11,7 +11,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from pipeline import learn, repository, text
+from pipeline import design, learn, repository, text
 from pipeline.files import source_files as _project_files
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY_SKILLS, GLOBAL_KB, SKILLS, err, log,
@@ -322,7 +322,14 @@ criteria, testing approach, boundaries. Be concise. Do NOT ask questions —
 decide autonomously. Do NOT write code and do NOT build the product: this is
 a SPECIFICATION DOCUMENT only. The spec describes the SPECIFIC product in the
 HUMAN INTENT above: use its key concepts by name. Never output a generic
-template with TBD/placeholder fields."""
+template with TBD/placeholder fields.
+Include a '## Acceptance criteria' section with unique stable bullets:
+- R1: <specific observable behavior>
+- R2: <another independently testable behavior>
+Keep each criterion small enough to prove with a named automated test.
+Acceptance criteria describe observable product behavior. Put language, dependency
+and architecture constraints in Boundaries, not synthetic compliance tests.
+Preserve explicit scope limits such as a requested single implementation issue."""
 
 # The final human message is the actual request (runs #3/#4: the model obeys
 # the last turn, so the order lives here and the data lives in the body).
@@ -409,6 +416,9 @@ def phase1(proj: Path, name: str, intent: str, intent_node: str, kb: Graph) -> s
 PLAN_PROMPT = """You are a project planner. Follow the planning-and-task-breakdown skill.
 The human has left. This is autonomous. No questions.
 
+ORIGINAL INTENT:
+{intent}
+
 THE SPEC:
 {spec}
 
@@ -419,6 +429,11 @@ Each issue: a '## Issue #N: Title' header, then description, acceptance
 criteria, dependencies. Every issue header must match exactly '## Issue #N: '
 (N counting from 1) — no priority groupings, no other numbering styles.
 Keep issues small and atomic. Do NOT write code — output the plan document only.
+A small CLI should be one complete issue with source, meaningful tests and usage
+documentation. Respect any explicit issue-count limit in the intent. Never split
+a tiny app into scaffolding, imports, error handling and documentation issues.
+Tests prove behavior; do not invent AST-based dependency audits or other framework
+infrastructure to prove simple language/dependency constraints.
 
 The plan runs under TDD with a regression gate: every issue must leave the
 test suite non-empty and green. A scaffold/setup issue must include at least
@@ -451,7 +466,9 @@ runs locally.
 
 
 def phase2(proj: Path, name: str, spec_node: str, kb: Graph) -> int:
-    body = PLAN_PROMPT.format(spec=(proj / "spec.md").read_text())
+    body = PLAN_PROMPT.format(spec=(proj / "spec.md").read_text(),
+                      intent=text.intent_from((proj / "interview_output.txt").read_text()
+                          if (proj / "interview_output.txt").exists() else "", name))
     out = run_pi("planner", body, PLAN_DIRECTIVE,
                  skills=(SKILLS / "planning-and-task-breakdown",),
                  artifact=proj / "plan_output.txt", cwd=proj, tools="no")
@@ -532,21 +549,32 @@ PYTEST_NO_TESTS = 5
 def run_regression(proj: Path, n: int) -> str:
     """'passed' | 'failed' | 'skipped'. Skipped (no tests, no runner) is a
     distinct state — #13: absence of tests must not read as 'green'."""
+    evidence = design.evidence_dir(proj)
+    passed = set()
+
+    def record(status):
+        (evidence / 'tests.json').write_text(json.dumps({
+            'status': status, 'passed': sorted(passed)}) + '\n')
+        return status
+
     dirs = _suite_dirs(proj)
     if not dirs:
-        return "skipped"
+        return record("skipped")
     # Every detected suite counts, including root-level tests without a manifest.
     verdict = "skipped"
     for suite_dir in dirs:
         runner = _regression_command(proj, suite_dir)
         if runner is None:
-            if suite_dir == "." and _pytest_available():
-                runner = ([sys.executable, "-m", "pytest", "."], True)
+            if _pytest_available():
+                runner = ([sys.executable, "-m", "pytest", suite_dir], True)
             else:
                 continue
         cmd, is_pytest = runner
+        if is_pytest and 'pytest' in cmd:
+            cmd = [*cmd, '--verbose', '--color=no']
         log(f"Running regression suite ({suite_dir})...")
         proc = subprocess.run(cmd, cwd=proj, capture_output=True, text=True)
+        passed.update(re.findall(r'^([^\n]+?::[^\n]+?)\s+PASSED\b', proc.stdout, re.M))
         (proj / f"regression_{n}.log").write_text(proc.stdout + proc.stderr)
         if proc.returncode == PYTEST_NO_TESTS and is_pytest:
             # #44: "no tests collected" is absence, not breakage — a stub
@@ -556,9 +584,9 @@ def run_regression(proj: Path, n: int) -> str:
             continue
         if proc.returncode != 0:
             err(f"Regression suite FAILED before issue #{n} ({suite_dir}).")
-            return "failed"
+            return record("failed")
         verdict = "passed"
-    return verdict
+    return record(verdict)
 
 
 # ─── Phase 3: EXECUTE ────────────────────────────────────────────────────
@@ -581,6 +609,7 @@ Reference: definition-of-done.md for exit criteria.
 
 Rules:
 - Write code and tests for this issue
+- spec.md and issues.md are reviewed inputs; do not rewrite them
 - Run tests and verify they pass
 - If STUCK, output EXACTLY:
   CONSULT: <question>
@@ -760,6 +789,7 @@ def _repair_regression(proj: Path, n: int, issue_text: str, source: str) -> bool
 def execute(proj: Path, kb: Graph) -> list[int]:
     """Run every issue; return the numbers that stayed blocked."""
     issues = repository.read_plan(proj)
+    contract = repository.requirements_digest(proj)
     log(f"Found {len(issues)} issues to execute")
     gkb = Graph(GLOBAL_KB, seed=GLOBAL_KB.with_name("global-seed.json"))
     blocked, fails, history = [], {}, {}
@@ -878,15 +908,11 @@ def execute(proj: Path, kb: Graph) -> list[int]:
         stuck, output = _escalate(proj, num, output, issue_text, kb_summaries,
                                    source, kb, fails, history, blocked)
         if not stuck:
-            try:
-                unchanged_plan = repository.read_plan(proj) == issues
-            except (RuntimeError, OSError):
-                unchanged_plan = False
-            if not unchanged_plan:
+            if repository.requirements_digest(proj) != contract:
                 blocked.append(num)
-                kb.node('blocker', f'Issue #{num} changed the plan',
-                        'Worker changed issue requirements during implementation')
-                _discard_residue(proj, num, 'worker changed the plan')
+                kb.node('blocker', f'Issue #{num} changed the requirements',
+                        'Worker changed the specification or plan during implementation')
+                _discard_residue(proj, num, 'worker changed the requirements')
                 continue
             suite = run_regression(proj, num)
             if suite != "passed":
@@ -1018,7 +1044,7 @@ with the marker. A decision line without a marker counts as NOT approved."""
 
 def review(proj: Path, kb: Graph) -> None:
     """One fix attempt, followed by a fresh review and explicit proxy approval."""
-    plan = (proj / 'issues.md').read_bytes()
+    contract = repository.requirements_digest(proj)
     kb_summaries = kb.compact()
     for attempt in range(2):
         source = gather(proj)
@@ -1051,9 +1077,9 @@ def review(proj: Path, kb: Graph) -> None:
                 "Fix review issues", skills=REVIEW_SKILLS + RETRY_SKILLS,
                 artifact=proj / "review_fixes_output.txt", cwd=proj)
             # Save applied work; a commit is not an approval.
-            if not (proj / 'issues.md').exists() or (proj / 'issues.md').read_bytes() != plan:
-                _discard_residue(proj, 0, 'review changed the issue plan')
-                raise RuntimeError('Review fixes changed the issue plan; work archived for recovery')
+            if repository.requirements_digest(proj) != contract:
+                _discard_residue(proj, 0, 'review changed the requirements')
+                raise RuntimeError('Review fixes changed the requirements; work archived for recovery')
             repository.require_committed_ledger(proj)
             _commit(proj, "Review fixes awaiting approval")
     kb.node("blocker", "Review not approved", feedback)
@@ -1183,9 +1209,10 @@ def runtime_smoke(proj: Path) -> tuple[str, str]:
                     # argument prints usage and exits nonzero — that is
                     # the product working as specified, not a crash. A
                     # traceback is a real crash and stays FAILED.
-                    if re.search(r"(?i)\busage\b", said):
+                    if 'Traceback (most recent call last)' not in said and re.search(
+                            r'(?i)\b(?:usage|(?:expected|required|requires|missing|provide|exactly)\b[^\n]*\barguments?)\b', said):
                         return "SKIPPED", (f"exited {proc.returncode} asking for "
-                                           "its argument (usage on stderr) — "
+                                           "its arguments (usage/validation on stderr) — "
                                            "smoke cannot judge a bare argv-CLI")
                     return "FAILED", f"process exited with code {proc.returncode}"
                 time.sleep(0.75)

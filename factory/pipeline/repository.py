@@ -59,6 +59,16 @@ def issue_digest(body: str) -> str:
     return hashlib.sha256(body.strip().encode()).hexdigest()
 
 
+def requirements_digest(proj: Path) -> str:
+    """Freeze both the specification and issue plan during model writes."""
+    digest = hashlib.sha256()
+    for name in ('spec.md', 'issues.md'):
+        path = proj / name
+        digest.update(name.encode() + b'\0')
+        digest.update(path.read_bytes() if path.exists() else b'<missing>')
+    return digest.hexdigest()
+
+
 def read_plan(proj: Path) -> dict[int, str]:
     return parse_plan((proj / 'issues.md').read_text())
 
@@ -122,7 +132,7 @@ def completed_issues(proj: Path) -> set[int]:
         if any(node['type'] == 'decision' and re.fullmatch(
                 r'Issue #\d+ completed', node['summary']) for node in nodes):
             raise RuntimeError('Cannot remove the completed issue plan; restore issues.md '
-                               'and add a new issue or use --iterate')
+                               'and add a new issue')
         return set()
     issues = read_plan(proj)
     completed = set()
@@ -140,7 +150,7 @@ def completed_issues(proj: Path) -> set[int]:
             digest = _legacy_issue_digest(proj, node['id'], num)
         if num not in issues or issue_digest(issues[num]) != digest:
             raise RuntimeError(f'Cannot change or remove completed issue #{num}; '
-                               'restore it and add a new issue or use --iterate')
+                               'restore it and add a new issue')
         completed.add(num)
     return completed
 
@@ -151,8 +161,8 @@ def require_clean(proj: Path) -> None:
     status = checked_git(proj, 'status', '--porcelain', '-z', '--untracked-files=all',
                          '--', '.', ':(exclude)kb')
     if status:
-        raise RuntimeError('Uncommitted product changes preserved. Commit them or use '
-                           '--adopt-changes before resuming; no files were discarded.')
+        raise RuntimeError('Uncommitted product changes preserved. Commit them '
+                           'before resuming; no files were discarded.')
 
 
 def require_committed_ledger(proj: Path) -> None:

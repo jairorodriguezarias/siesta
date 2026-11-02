@@ -163,10 +163,21 @@ class RegressionTriState(unittest.TestCase):
     def test_no_tests_dir_is_skipped(self):
         self.assertEqual(self.regression({"notes.txt": "nothing"}), "skipped")
 
-    def test_no_runner_manifest_is_skipped(self):
+    def test_python_suite_needs_no_packaging_manifest(self):
         self.assertEqual(
             self.regression({"tests/test_x.py": "def test_x():\n    pass"}),
-            "skipped")
+            "passed")
+
+    def test_passing_parametrized_ids_keep_spaces(self):
+        with TemporaryDirectory() as directory:
+            proj = Path(directory)
+            (proj / 'test_text.py').write_text(
+                'import pytest\n@pytest.mark.parametrize("value", ["hello world", " a "])\n'
+                'def test_spaces(value):\n    assert " " in value\n')
+            self.assertEqual(phases.run_regression(proj, 0), 'passed')
+            import json
+            evidence = json.loads((proj / '.siesta/tests.json').read_text())
+            self.assertIn('test_text.py::test_spaces[hello world]', evidence['passed'])
 
     def test_failing_suite_is_failed(self):
         self.assertEqual(self.regression({

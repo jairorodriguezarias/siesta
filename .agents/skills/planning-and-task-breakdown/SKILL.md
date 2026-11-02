@@ -17,6 +17,9 @@ cannot read or write files, and no human is present to review the plan.
   description, acceptance criteria, and dependencies.
 - Do NOT write code. The plan is a document only — implementing anything now
   corrupts the phase separation the rest of the pipeline depends on.
+- Respect explicit issue-count limits. A small CLI can be one complete issue
+  containing source, meaningful tests and usage notes; it does not need separate
+  scaffold, documentation or dependency-audit issues. Reference the spec's R IDs.
 
 ## Overview
 

@@ -96,7 +96,7 @@ class RepositoryState(unittest.TestCase):
         note = self.proj / 'human notes.txt'
         note.write_text('Keep this work\n')
         self.kb.node('learning', 'Local bookkeeping', 'Not product')
-        with self.assertRaisesRegex(RuntimeError, 'adopt-changes'):
+        with self.assertRaisesRegex(RuntimeError, 'Commit them'):
             repository.require_clean(self.proj)
         self.assertEqual(note.read_text(), 'Keep this work\n')
         repository.adopt_changes(self.proj)

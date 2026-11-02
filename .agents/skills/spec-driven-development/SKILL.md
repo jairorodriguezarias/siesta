@@ -12,6 +12,9 @@ cannot read or write files, and no human is present to review your work.
 
 - Output ONLY the complete content of `spec.md` as your final message. The
   pipeline saves it verbatim, commits it, and hands it to the planner.
+- Use unique acceptance bullets `- R1: <observable behavior>`. Keep language
+  and dependency constraints in Boundaries. Preserve the requested issue count
+  and scope so the planner does not expand a small application.
 - The human-review gates below do not apply — the pipeline's human-proxy,
   review and verify phases fill that role.
 - Write the SPECIFICATION only. Never write code, never create files, never

@@ -47,6 +47,12 @@ if model == "planner-model":
 if "You are the factory-learner" in prompt:
     answer("learner", "PROJECT_LEARNING:\n  Project: recovery\n  Actions:\n    LEARNING: Recovery observed — bounded protocol retries")
 if model == "consultant-model":
+    if "Independent design review:" in prompt:
+        answer("design_review", '{"verdict":"passed","findings":[]}')
+    if "Independent requirement evidence audit" in prompt:
+        answer("requirements", json.dumps({"requirements": [{"id": "R1", "status": "supported",
+            "tests": ["tests/test_answer.py::test_answer"], "sources": ["answer.py"],
+            "reason": "The test checks the answer is 42."}], "drift": []}))
     if "Evaluate if this review meets" in prompt:
         if scenario == "review_proxy_denied" or (
                 scenario == "review_repaired" and "REVIEW_FAILED:" in prompt):
@@ -143,7 +149,7 @@ class RecoveryGates(unittest.TestCase):
         (self.proj / ".pipeline-idea").write_text(self.idea + "\n")
         (self.proj / ".pipeline-checkpoint").write_text(checkpoint + "\n")
         (self.proj / "interview_output.txt").write_text("INTENT_FINALIZED: " + self.idea)
-        (self.proj / "spec.md").write_text("# Spec\nBuild answer() returning 42 in Python.\n")
+        (self.proj / "spec.md").write_text("# Spec\nBuild answer() returning 42 in Python.\n\n## Acceptance criteria\n- R1: Return 42.\n")
         (self.proj / "issues.md").write_text("## Issue #1: Implement answer\nReturn 42 with tests.\n")
         (self.proj / "requirements.txt").write_text("# Standard library only\n")
         (self.proj / "answer.py").write_text("def answer():\n    return 0\n")

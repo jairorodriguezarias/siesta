@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-from pipeline import learn, phases, text
+from pipeline import design, learn, phases, repository, text
 from pipeline.kb import Graph
 from pipeline.pi import (CONFIG, FACTORY, GLOBAL_KB, ROLE, _declared_context,
                          warn_if_context_mismatch, err, log, ok, phase, warn)
@@ -28,7 +28,7 @@ GITIGNORE = (
     ".pi/\n.qwen/\n.claude/\n.pipeline-checkpoint\n"
     # .pipeline-idea is run bookkeeping the #56 guard reads on relaunch —
     # ignored (not product, never committed) but preserved by clean -fd.
-    ".pipeline-idea\n"
+    ".pipeline-idea\n.siesta/\n"
     "verify_verdict.txt\n"
     "*_output.txt\ninterview_closeout.txt\nregression_*.log\n"
     "regression_repair_*.txt\n"
@@ -133,6 +133,9 @@ def _run(args) -> None:
     name = slug(idea)
     proj = FACTORY / "projects" / name
     checkpoint = proj / ".pipeline-checkpoint"
+    if (proj / 'stop.md').exists():
+        log('stop.md found — stopped before further model calls')
+        return
     # #51: the same idea always slug-maps to the same dir, so a relaunch
     # is silently a resume — the operator must be able to tell them apart.
     if checkpoint.exists():
@@ -154,6 +157,9 @@ def _run(args) -> None:
         # record the idea — the #56 collision guard reads this on relaunch
         proj.mkdir(parents=True, exist_ok=True)
         (proj / IDEA_FILE).write_text(idea + "\n")
+    if checkpoint.exists() and (proj / '.git').exists():
+        repository.require_clean(proj)
+        repository.require_committed_ledger(proj)
     _warn_context_mismatches()
     proj.mkdir(parents=True, exist_ok=True)
     # #7: generated projects commit with `git add -A` — give them the same
@@ -228,18 +234,30 @@ def _run(args) -> None:
     mark("phase-2")
 
     # Checkpoints record traversed phases; the issue ledger proves completion.
-    issues = text.split_issues((proj / "issues.md").read_text())
-    completed = {node["summary"] for node in kb.query(type_="decision")}
-    pending = [num for num, _ in issues if f"Issue #{num} completed" not in completed]
+    repository.require_clean(proj)
+    repository.require_committed_ledger(proj)
+    issues = repository.read_plan(proj)
+    completed = repository.completed_issues(proj)
+    pending = sorted(set(issues) - completed)
+    state = repository.load_state(proj)
+    current = repository.fingerprint(proj)
+    if done('phase-4') and state.get('reviewed_product') not in (None, current):
+        log('Product changed since review — reviewing and verifying again')
+        checkpoint.write_text('phase-3\n')
     if pending and done("phase-3"):
         log(f"Pending issues {pending} — resuming execution and invalidating review/verify")
         checkpoint.write_text("phase-2\n")
         (proj / "verify_verdict.txt").unlink(missing_ok=True)
     elif done("phase-5"):
         saved_verdict = proj / "verify_verdict.txt"
-        if not saved_verdict.exists() or saved_verdict.read_text().strip() != "VERIFY_PASSED":
+        if (not saved_verdict.exists() or saved_verdict.read_text().strip() != "VERIFY_PASSED"
+                or not done('complete') and state.get('verified_product') != current):
             log("Previous verification was not successful — verifying again")
             checkpoint.write_text("phase-4\n")
+
+    if not done('complete'):
+        phase('2b', 'DESIGN REVIEW — Check clarity and readiness')
+        design.review(proj, intent)
 
     # ─── PHASE 3: EXECUTE (per-issue loop) ───────────────────────────────
     if done("phase-3"):
@@ -256,6 +274,9 @@ def _run(args) -> None:
     else:
         phase(4, "REVIEW — Code review")
         phases.review(proj, kb)
+        state = repository.load_state(proj)
+        state['reviewed_product'] = repository.fingerprint(proj)
+        repository.save_state(proj, state)
     mark("phase-4")
 
     # ─── PHASE 5: VERIFY (+ runtime smoke check) ─────────────────────────
@@ -266,7 +287,24 @@ def _run(args) -> None:
                    if (proj / "verify_verdict.txt").exists() else "VERIFY_UNKNOWN")
     else:
         phase(5, "VERIFY — Runs locally?")
+        before_verification = repository.fingerprint(proj)
         verdict = phases.verify(proj)
+        if repository.fingerprint(proj) != before_verification:
+            warn('Product changed during verification; review and tests are required again')
+            verdict = 'VERIFY_FAILED'
+        supported = design.verify(proj, phases.gather(proj), verdict == 'VERIFY_PASSED')
+        if repository.fingerprint(proj) != before_verification:
+            warn('Product changed during the evidence audit; its test results are stale')
+            supported = design.verify(proj, '', False)
+        if not supported:
+            verdict = 'VERIFY_FAILED'
+        (proj / 'verify_verdict.txt').write_text(verdict + '\n')
+        state = repository.load_state(proj)
+        if verdict == 'VERIFY_PASSED':
+            state['verified_product'] = before_verification
+        else:
+            state.pop('verified_product', None)
+        repository.save_state(proj, state)
     mark("phase-5")
 
     # ─── PHASE 6: DONE ───────────────────────────────────────────────────
@@ -283,9 +321,12 @@ def _run(args) -> None:
     # #6: the decision node and the commit message tell the truth about the
     # verdict — never "verified" for a project that failed verify.
     if verdict == "VERIFY_PASSED" and not blocked:
-        kb.node("decision", f"Project complete: {name}",
-                "Project verified running locally.")
-        phases._commit(proj, f"Project verified: {name}")
+        with repository.completion_record(proj, kb):
+            kb.node("decision", f"Project complete: {name}",
+                    "Project verified running locally.")
+            phases._commit(proj, f"Project verified: {name}")
+            if repository.fingerprint(proj) != state.get('verified_product'):
+                raise RuntimeError('Product changed after verification; completion was withdrawn')
     else:
         kb.node("blocker", f"Project NOT verified: {name}",
                 f"Verify verdict: {verdict}; blocked issues: {blocked}.")
